@@ -1,6 +1,6 @@
 # Internal files: never committed
 .internal/
-implementation.md
+/implementation.md
 CLAUDE.md
 .claude/
 *.internal.md
@@ -17,16 +17,15 @@ CLAUDE.md
 # OS and editors
 .DS_Store
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.swp
+*.log
 
-# Node and build output
+# Node package
 node_modules/
 dist/
 coverage/
 *.tsbuildinfo
-.turbo/
-.next/
-playwright-report/
-test-results/
-storybook-static/
+.eslintcache
+*.tgz

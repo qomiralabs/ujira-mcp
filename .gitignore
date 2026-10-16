@@ -1,0 +1,31 @@
+# Internal files: never committed
+.internal/
+implementation.md
+CLAUDE.md
+.claude/
+*.internal.md
+/PRODUCT.md
+/DESIGN.md
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.log
+
+# Node package
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.eslintcache
+*.tgz

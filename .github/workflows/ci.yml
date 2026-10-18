@@ -26,6 +26,27 @@ env:
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
 jobs:
+  # Repository checks that need no tools beyond the runner's shell.
+  checks:
+    name: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The template every pull request starts from must keep asking for the
+      # linked issue, tests, docs, the checklist and the required reviews.
+      - name: Check the pull request template
+        run: |
+          scripts/check-pr-template.sh
+          scripts/check-pr-template.test.sh
+
   # Scans the whole history, not only the change, so it checks out every
   # commit. A key that was committed and later deleted, or added in a merge
   # resolution, still fails.

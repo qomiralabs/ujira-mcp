@@ -1,9 +1,13 @@
 # ujira-mcp
 MCP server for UJIRA payouts, a thin adapter over the UJIRA API.
 
+## Dashes
+
+No file may contain an em dash or an en dash. `scripts/check-dashes.sh` searches the content git holds for every tracked file, skipping binary files, prints each hit as `path:line:text` and exits 1 on any. `scripts/test-check-dashes.sh` is its self test. The `dashes` CI job runs the self test, then the check. Both scripts are shared, byte for byte, with ujira, ujira-contracts, ujira-docs and ujira-mcp, so a change is made in all four.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
 
 ## Secret scanning
 

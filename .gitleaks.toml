@@ -1,0 +1,7 @@
+# Secret scanning rules for gitleaks, used by scripts/secret-scan.sh in CI.
+# The full default rule set applies. An allowlist entry may only cover one
+# synthetic test fixture, must say why it is safe, and is reviewed like code.
+# No path wide or rule wide exclusions.
+
+[extend]
+useDefault = true

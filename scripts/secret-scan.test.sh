@@ -27,6 +27,12 @@ fake_private_key() { printf '0x%s' "$(random '0-9a-f' 64)"; }
 
 commit() { git -C "$1" add -A && git -C "$1" commit -q --allow-empty -m "$2"; }
 
+# contains <text> <needle>: true when needle occurs in text. A here-string,
+# not a pipe: grep -q exits at the first match, and under pipefail the writer
+# of a pipe then dies of SIGPIPE whenever output is still left to write, which
+# would turn a match into a miss.
+contains() { grep -q -F -e "$2" <<<"$1"; }
+
 # repo <name>: a fresh repo with one clean commit.
 repo() {
   dir="$work/$1"
@@ -57,7 +63,7 @@ expect() {
   else
     out=$("$script" "$3" 2>&1) || got=$?
   fi
-  if [ "$got" -eq "$want" ] && { [ -z "$want_out" ] || printf '%s' "$out" | grep -q -F -e "$want_out"; }; then
+  if [ "$got" -eq "$want" ] && { [ -z "$want_out" ] || contains "$out" "$want_out"; }; then
     passed=$((passed + 1))
     echo "PASS  $name"
   else
@@ -66,7 +72,7 @@ expect() {
     printf '%s\n' "$out" | sed 's/^/      /'
   fi
   # A finding must never print the key, in full or in part.
-  if [ -n "$secret" ] && printf '%s' "$out" | grep -q -F -e "${secret:6:16}"; then
+  if [ -n "$secret" ] && contains "$out" "${secret:6:16}"; then
     failures=$((failures + 1))
     echo "FAIL  $name printed the key"
   fi
@@ -74,6 +80,17 @@ expect() {
   base_ref=
   want_out=
 }
+
+# The output check itself must not depend on timing: grep -q stops reading at
+# the first match, which must not fail the check when more output follows.
+big="$(printf 'needle\n'; i=0; while [ "$i" -lt 8000 ]; do echo "line $i of output after the match"; i=$((i + 1)); done)"
+if contains "$big" needle; then
+  passed=$((passed + 1))
+  echo "PASS  output check finds a match early in a large output"
+else
+  failures=$((failures + 1))
+  echo "FAIL  output check finds a match early in a large output"
+fi
 
 # Clean histories, including commits that add no text, must pass the
 # completeness check.
@@ -157,6 +174,18 @@ printf '{\n  "private_key": "%s"\n}\n' "$secret" >"$work/generic/test/keys.json"
 commit "$work/generic" "plant"
 expect "private key in a test file fails" 1 "$work/generic"
 
+# Hex only words must not act as stopwords: a hex private key that happens to
+# contain one is still a key. Each word sits in the middle of the key.
+for word in 000000 aaaaaa dead feed DEAD; do
+  repo "hexword-$word"
+  half=$(( (64 - ${#word}) / 2 ))
+  secret="0x$(random '0-9a-f' "$half")${word}$(random '0-9a-f' $((64 - ${#word} - half)))"
+  mkdir -p "$work/hexword-$word/test"
+  printf '{\n  "private_key": "%s"\n}\n' "$secret" >"$work/hexword-$word/test/keys.json"
+  commit "$work/hexword-$word" "plant"
+  expect "hex private key containing $word fails" 1 "$work/hexword-$word"
+done
+
 # A merge resolution can add content that is in neither parent.
 repo evil-merge
 git -C "$work/evil-merge" checkout -q -b side
@@ -199,16 +228,18 @@ for path in pnpm-lock.yaml package-lock.json yarn.lock node_modules/pkg/index.js
 done
 
 # Key and env files are refused by name anywhere in history, binary or not,
-# since a key store cannot be line scanned.
+# since a key store cannot be line scanned. The two cafe names are the same
+# name precomposed (NFC) and decomposed (NFD).
 n=0
 for path in certs/client.p12 certs/client.pfx keystore/app.jks deploy/id_rsa home/.ssh/id_ed25519 certs/tls.KEY \
   android/release.keystore putty/server.ppk apple/AuthKey.p8 certs/root.der "certs/caf\303\251.pem" "certs/a b.pem" \
-  .env config/.env.local deploy/prod.env .envrc .ENV.Production; do
+  "certs/cafe\314\201.pem" .env config/.env.local deploy/prod.env .envrc .ENV.Production; do
   n=$((n + 1))
   path=$(printf '%b' "$path")
   repo "secretfile-$n"
   mkdir -p "$(dirname "$work/secretfile-$n/$path")"
-  printf '\060\202\001\000%s' "$(random 'A-Za-z0-9' 16)" >"$work/secretfile-$n/$path"
+  # Fixed content, so every run builds the same repository.
+  printf '\060\202\001\000fixture' >"$work/secretfile-$n/$path"
   commit "$work/secretfile-$n" "add file"
   git -C "$work/secretfile-$n" rm -q -- "$path"
   commit "$work/secretfile-$n" "remove file"

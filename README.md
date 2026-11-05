@@ -5,6 +5,21 @@ MCP server for UJIRA payouts, a thin adapter over the UJIRA API.
 
 No file may contain an em dash or an en dash. `scripts/check-dashes.sh` searches the content git holds for every tracked file, prints each hit as `path:line:text` and exits 1 on any. Every file is read as text, so a NUL byte cannot make one look binary and skip the check; a file is skipped only when its extension is one of a short list of binary formats and its content starts with that format's signature. A dash in a path fails too, reported as the path with a note, and both kinds are reported in one run. Staged content counts; an edit left only in the working tree does not, and a commit time check covers that. `scripts/test-check-dashes.sh` is its self test. The `dashes` CI job runs the self test, then the check, and the check still reports when the self test fails. Both scripts are shared with ujira, ujira-contracts and ujira-docs, identical apart from the licence header, so a change is made in all four.
 
+## Invisible characters
+
+Literal bidirectional controls and invisible characters can make text read differently from what it is, and they do not show in review. `scripts/check-invisible-characters.py` reads the committed content of every tracked file, plus file names and symlink targets, prints each hit with its path, line and code point, and exits 1 on any. It rejects the Unicode categories Cf, Zl and Zp, control characters other than a tab, a line feed and a carriage return before a line feed, and the other default ignorable characters. Anything that needs one must write it as an escape.
+
+It also rejects the look-alikes U+00A0, U+202F and U+2212, unless the file is listed in `scripts/invisible-characters-allowlist.txt`. Add a file there only with a reason in review.
+
+Binary files are recognized by their content, not their name alone, and text hidden after a valid header is still read. The script is a copy of the one in `ujira-contracts`. `scripts/test-check-invisible-characters.sh` is its self test, and CI runs both in the `invisible-characters` job.
+
+```sh
+scripts/check-invisible-characters.py
+scripts/test-check-invisible-characters.sh
+```
+
+CI pins the Unicode version the character tables must be, with `--unicode-version`. A local Python on a newer version is fine without the flag.
+
 ## Pull requests
 
 Every pull request starts from `.github/pull_request_template.md`: the linked issue, what and why, the tests run with their output, docs, a checklist, the reviews the change type needs, and the merge rules (squash only, and any commit after an approval needs review again). `scripts/check-pr-template.sh` fails if the template loses any of these or stops being plain ASCII, and `scripts/check-pr-template.test.sh` proves it; CI runs both. `.github/CODEOWNERS` names the owner of each top level path. It is advisory: on the current GitHub plan branch protection cannot require code owner review (qomiralabs/ujira#229).

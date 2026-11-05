@@ -24,6 +24,10 @@ env:
   # only to a release at least 14 days old.
   GITLEAKS_VERSION: 8.30.1
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  # The Unicode tables of the runner's python3 decide what the invisible character
+  # check rejects. A runner update that moves them fails the check, so the set of
+  # rejected characters only changes when this does.
+  INVISIBLE_UNICODE_VERSION: 15.0.0
 
 jobs:
   # Repository checks that need no tools beyond the runner's shell.
@@ -122,3 +126,27 @@ jobs:
         if: ${{ !cancelled() }}
         run: scripts/check-dashes.sh
 
+  # Literal bidirectional controls and invisible characters can make code read
+  # differently from how it runs, in a file, a file name or a symlink target. Reads
+  # committed blobs, with the runner's python3 and its standard library only, and
+  # fails if its Unicode version is not the pinned one. The second step reports even
+  # when the first fails.
+  invisible-characters:
+    name: invisible-characters
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check invisible characters
+        run: scripts/check-invisible-characters.py --unicode-version "$INVISIBLE_UNICODE_VERSION"
+
+      - name: Test the invisible character check
+        if: ${{ !cancelled() }}
+        run: scripts/test-check-invisible-characters.sh

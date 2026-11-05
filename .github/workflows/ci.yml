@@ -51,6 +51,13 @@ jobs:
           scripts/check-pr-template.sh
           scripts/check-pr-template.test.sh
 
+      # Every tool download must retry a passing failure, have a time limit and be
+      # followed by its checksum check.
+      - name: Check the tool downloads
+        run: |
+          scripts/check-workflow-downloads.sh
+          scripts/check-workflow-downloads.test.sh
+
   # Scans the whole history, not only the change, so it checks out every
   # commit. A key that was committed and later deleted, or added in a merge
   # resolution, still fails.
@@ -71,7 +78,7 @@ jobs:
       - name: Lint workflows
         run: |
           tarball="${RUNNER_TEMP}/actionlint.tar.gz"
-          curl -fsSLo "$tarball" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 180 -o "$tarball" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           echo "${ACTIONLINT_SHA256}  $tarball" | sha256sum --check --strict
           tar -xzf "$tarball" -C "${RUNNER_TEMP}" actionlint
           rm "$tarball"
@@ -81,7 +88,7 @@ jobs:
         run: |
           mkdir -p "${RUNNER_TEMP}/gitleaks"
           tarball="${RUNNER_TEMP}/gitleaks.tar.gz"
-          curl -fsSLo "$tarball" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 180 -o "$tarball" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  $tarball" | sha256sum --check --strict
           tar -xzf "$tarball" -C "${RUNNER_TEMP}/gitleaks" gitleaks
           rm "$tarball"

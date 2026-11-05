@@ -20,6 +20,10 @@ scripts/test-check-invisible-characters.sh
 
 CI pins the Unicode version the character tables must be, with `--unicode-version`. A local Python on a newer version is fine without the flag.
 
+## Tool downloads
+
+Every tool `.github/workflows/ci.yml` downloads retries with a time limit and is followed by its checksum check, so a passing 504 from a release host does not fail a job, and a retry never accepts whatever came back. `scripts/check-workflow-downloads.sh` fails on a `curl` that does not do both, and `scripts/check-workflow-downloads.test.sh` is its self test, including against a real server that answers 504. The same scripts are in `ujira`, `ujira-contracts`, `ujira-mcp` and `ujira-docs`, identical below the licence header.
+
 ## Pull requests
 
 Every pull request starts from `.github/pull_request_template.md`: the linked issue, what and why, the tests run with their output, docs, a checklist, the reviews the change type needs, and the merge rules (squash only, and any commit after an approval needs review again). `scripts/check-pr-template.sh` fails if the template loses any of these or stops being plain ASCII, and `scripts/check-pr-template.test.sh` proves it; CI runs both. `.github/CODEOWNERS` names the owner of each top level path. It is advisory: on the current GitHub plan branch protection cannot require code owner review (qomiralabs/ujira#229).

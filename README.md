@@ -27,7 +27,7 @@ npm ci
 npm run build
 ```
 
-Once the package is on npm, `npx -y ujira-mcp` starts the server without a clone.
+`npx -y @ujira/mcp` starts the server without a clone (package `@ujira/mcp` on npm).
 
 ### 2. Testnet keys and a mandate
 
@@ -84,7 +84,7 @@ Claude Desktop (`claude_desktop_config.json`) or Cursor (`~/.cursor/mcp.json`):
   "mcpServers": {
     "ujira": {
       "command": "npx",
-      "args": ["-y", "ujira-mcp"],
+      "args": ["-y", "@ujira/mcp"],
       "env": {
         "UJIRA_MANDATE_FILE": "/home/you/.config/ujira-testnet/mine/mandate.json",
         "UJIRA_AGENT_KEY_FILE": "/home/you/.config/ujira-testnet/mine/identity/agent.toml",

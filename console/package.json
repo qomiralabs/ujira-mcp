@@ -1,0 +1,49 @@
+{
+  "name": "@ujira/console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The UJIRA Console: set up a mandate from your own Stellar wallet and watch an agent pay inside it, on testnet.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "tokens": "node scripts/tokens.mjs",
+    "licenses": "node scripts/check-licenses.mjs"
+  },
+  "dependencies": {
+    "@albedo-link/intent": "0.13.0",
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@stellar/freighter-api": "6.0.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "happy-dom": "21.0.4",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

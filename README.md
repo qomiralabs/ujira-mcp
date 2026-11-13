@@ -198,6 +198,28 @@ The mandate and key settings are the ones under Configure. These are for the HTT
 
 Without `UJIRA_SDP_URL` and its companions the SDP rail is off, and a call that asks for it answers `rail_unavailable`. Log lines carry the method, path, status and time of each request, never a key, a body or a caller's address, and errors never carry a stack trace.
 
+### Console
+
+The same server hosts the UJIRA Console: a web app where anyone with a testnet wallet creates and runs their own mandate. It serves the built UI (`console/dist`) at `/`, a JSON API under `/api`, and an MCP URL per console mandate at `/m/<mandate>/mcp`. The server never sees a wallet's key: it builds unsigned transactions, the wallet signs, and the server relays only the transactions it would have built (the factory's `create` with this server's agent and executor, owner calls on a mandate it created, a USDC transfer into one, or a USDC trustline). Console mandates use the same engine, rails and receipt log as `/mcp`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `UJIRA_DATA_DIR` | the directory of `UJIRA_RECEIPTS_FILE`, else `./data` | Where the console registry (mandates it created, recipient names, faucet claims) is kept. Put it on a volume. |
+| `UJIRA_TREASURY_SECRET` or `UJIRA_TREASURY_KEY_FILE` | none | The key that pays test USDC from the faucet. Without it the faucet is off. |
+| `UJIRA_FAUCET_AMOUNT` | `500000000` (50 USDC) | What one faucet claim pays, in minor units. Each wallet claims once. |
+| `UJIRA_FAUCET_FLOOR` | twice the amount | The faucet refuses once the treasury would drop below this. |
+| `UJIRA_FAUCET_PER_HOUR` | `3` | Faucet claims an hour from one caller address. |
+| `UJIRA_TEST_RECIPIENTS_PER_HOUR` | `10` | Test recipient wallets an hour from one caller address. |
+| `UJIRA_FRIENDBOT_PER_HOUR` | `10` | Test XLM requests an hour from one caller address. |
+| `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
+| `UJIRA_MANDATE_PAYOUTS_PER_HOUR` | `30` | Payout requests an hour on one console mandate, from the console and its MCP URL together. |
+| `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira-mcp-production.up.railway.app`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
+| `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built UI. |
+| `UJIRA_HORIZON_URL`, `UJIRA_FRIENDBOT_URL`, `UJIRA_PUBLIC_RPC_URL` | the public testnet ones | Network endpoints; the public RPC URL is the one browsers are told about. |
+| `UJIRA_FACTORY`, `UJIRA_USDC_ISSUER`, `UJIRA_USDC_CONTRACT` | the testnet deployment | The mandate factory and the USDC the console uses. |
+
+With SDP configured, the console allows each recipient twice, once at their own wallet and once at the SDP distribution account, so the same mandate pays on either rail. `UJIRA_SDP_ASSET_ISSUER` must then be the console's USDC issuer.
+
 ## Tools
 
 | Tool | Input | Answer |

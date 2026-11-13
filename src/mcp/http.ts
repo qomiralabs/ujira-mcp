@@ -23,7 +23,25 @@ import {
   rateKey,
   type HttpSettings,
 } from './public.js';
-import { createMcpServer } from './server.js';
+import { createMcpServer, type ServerOptions } from './server.js';
+
+/** One engine with the guard and notes it is served with. */
+export interface McpBinding {
+  readonly engine: PayoutEngine;
+  readonly options: ServerOptions;
+}
+
+/**
+ * Routes beyond /mcp and /healthz, such as the console API and its pages.
+ * The server owns body limits, timeouts and the caller's address; the
+ * handler owns everything it answers.
+ */
+export interface ExtraRoutes {
+  /** The binding for /m/<id>/mcp, or undefined when that mandate is not served here. */
+  mandateMcp(id: string, client: string): McpBinding | undefined;
+  /** Answers the request and returns true, or returns false to let the server say 404. */
+  handle(req: IncomingMessage, res: ServerResponse, path: string, client: string): Promise<boolean>;
+}
 
 export interface HttpServerOptions {
   readonly engine: PayoutEngine;
@@ -34,11 +52,12 @@ export interface HttpServerOptions {
   /** One line per request: method, path, status and time. Never addresses or bodies. */
   readonly log?: (line: string) => void;
   readonly now?: () => number;
+  readonly extra?: ExtraRoutes;
 }
 
-class BodyTooLarge extends Error {}
+export class BodyTooLarge extends Error {}
 
-function send(
+export function send(
   res: ServerResponse,
   status: number,
   body: unknown,
@@ -63,7 +82,7 @@ function rpcError(
   send(res, status, { jsonrpc: '2.0', error: { code, message }, id: null }, headers);
 }
 
-function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+export function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const declared = Number(req.headers['content-length']);
     if (Number.isFinite(declared) && declared > limit) {
@@ -89,15 +108,31 @@ function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   });
 }
 
+/** /m/<mandate>/mcp, the per mandate connector URL. */
+const MANDATE_MCP = /^\/m\/(C[A-Z2-7]{55})\/mcp$/;
+
+/** The path label a log line carries: a route, never an address. */
+function routeLabel(path: string): string {
+  if (path === '/mcp' || path === '/healthz') return path;
+  if (MANDATE_MCP.test(path)) return '/m/:id/mcp';
+  if (path.startsWith('/api/')) return '/api';
+  return 'other';
+}
+
 export function createHttpServer(options: HttpServerOptions): Server {
-  const { engine, settings, assetCode } = options;
+  const { engine, settings, assetCode, extra } = options;
   const log = options.log ?? (() => undefined);
   const now = options.now ?? Date.now;
   const limiters = publicLimiters(settings.limits, now);
   const allowed = new Set(settings.allowedOrigins);
   const { notes, instructions } = publicNotes(settings.limits, assetCode, options.recipients ?? []);
 
-  async function mcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function mcp(
+    req: IncomingMessage,
+    res: ServerResponse,
+    path: string,
+    bind: (client: string) => McpBinding | undefined,
+  ): Promise<void> {
     // Browsers send Origin; server to server clients do not, and are let in.
     const origin = req.headers.origin;
     if (origin !== undefined && !allowed.has(origin.replace(/\/+$/, '').toLowerCase())) {
@@ -106,7 +141,16 @@ export function createHttpServer(options: HttpServerOptions): Server {
     }
     if (req.method !== 'POST') {
       // Stateless: no stream to open with GET and no session to end with DELETE.
-      rpcError(res, 405, -32000, 'Method not allowed; POST JSON-RPC to /mcp', { allow: 'POST' });
+      // The path matched a fixed pattern, so echoing it repeats nothing the caller chose freely.
+      rpcError(res, 405, -32000, `Method not allowed; POST JSON-RPC to ${path}`, {
+        allow: 'POST',
+      });
+      return;
+    }
+    const client = rateKey(clientAddress(req.headers, req.socket.remoteAddress, settings.clientIp));
+    const binding = bind(client);
+    if (binding === undefined) {
+      rpcError(res, 404, -32000, 'This server does not serve that mandate');
       return;
     }
     let raw: Buffer;
@@ -127,11 +171,8 @@ export function createHttpServer(options: HttpServerOptions): Server {
       return;
     }
 
-    const client = rateKey(clientAddress(req.headers, req.socket.remoteAddress, settings.clientIp));
-    const server = createMcpServer(engine, {
-      guard: publicGuard({ limits: settings.limits, limiters, client, assetCode }),
-      notes,
-      instructions,
+    const server = createMcpServer(binding.engine, {
+      ...binding.options,
       onInternalError: (name) => {
         log(`internal error (${name})`);
       },
@@ -147,35 +188,65 @@ export function createHttpServer(options: HttpServerOptions): Server {
     await transport.handleRequest(req, res, body);
   }
 
-  async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const path = (req.url ?? '/').split('?')[0];
+  const demo = (client: string): McpBinding => ({
+    engine,
+    options: {
+      guard: publicGuard({ limits: settings.limits, limiters, client, assetCode }),
+      notes,
+      instructions,
+    },
+  });
+
+  async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
     if (path === '/healthz') {
       if (req.method === 'GET' || req.method === 'HEAD') send(res, 200, { status: 'ok' });
       else send(res, 405, { error: 'method not allowed' }, { allow: 'GET' });
       return;
     }
     if (path === '/mcp') {
-      await mcp(req, res);
+      await mcp(req, res, path, demo);
       return;
     }
+    if (extra !== undefined) {
+      const id = MANDATE_MCP.exec(path)?.[1];
+      if (id !== undefined) {
+        await mcp(req, res, path, (client) => extra.mandateMcp(id, client));
+        return;
+      }
+      const client = rateKey(
+        clientAddress(req.headers, req.socket.remoteAddress, settings.clientIp),
+      );
+      if (await extra.handle(req, res, path, client)) return;
+    }
     send(res, 404, { error: 'not found' });
+  }
+
+  /** The API answers in its own error shape; everything else is JSON-RPC. */
+  function failure(res: ServerResponse, path: string, status: number, message: string) {
+    if (path.startsWith('/api/')) {
+      send(res, status, {
+        error: { code: status === 504 ? 'timeout' : 'internal_error', message },
+      });
+    } else {
+      rpcError(res, status, status === 504 ? -32000 : -32603, message);
+    }
   }
 
   const server = createServer((req, res) => {
     const started = now();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
-    const known = path === '/mcp' || path === '/healthz' ? path : 'other';
+    const known = routeLabel(path);
     // A payout waits for the ledger, so the limit is generous, but nothing waits forever.
     const deadline = setTimeout(() => {
-      rpcError(res, 504, -32000, 'The request took too long');
+      failure(res, path, 504, 'The request took too long');
     }, settings.requestTimeoutMs);
     res.on('close', () => {
       clearTimeout(deadline);
       log(`${req.method ?? '?'} ${known} ${res.statusCode} ${now() - started}ms`);
     });
-    route(req, res).catch((error: unknown) => {
+    route(req, res, path).catch((error: unknown) => {
       log(`request failed (${error instanceof Error ? error.name : 'NonError'})`);
-      rpcError(res, 500, -32603, 'Internal error');
+      failure(res, path, 500, 'Internal error');
     });
   });
   // Receiving the request is bounded separately from answering it, so a slow

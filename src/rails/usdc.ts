@@ -15,13 +15,33 @@ export class UsdcRail implements PayoutRail {
   readonly name = 'usdc' as const;
   private readonly mandate: MandateClient;
   private readonly executor: TxSigner;
+  private readonly named: ReadonlyMap<string, string>;
 
-  constructor(mandate: MandateClient, executor: TxSigner) {
+  /**
+   * `recipients` maps names a person can use, such as "alice", to accounts,
+   * so an agent can say who to pay without pasting an address. A name only
+   * picks the destination; the mandate's allowlist still decides.
+   */
+  constructor(
+    mandate: MandateClient,
+    executor: TxSigner,
+    recipients: Readonly<Record<string, string>> = {},
+  ) {
     this.mandate = mandate;
     this.executor = executor;
+    const named = new Map<string, string>();
+    for (const [name, wallet] of Object.entries(recipients)) {
+      if (!accountAddress.safeParse(wallet).success) {
+        throw new EngineError('config_invalid', `recipient ${name} has no valid Stellar account`);
+      }
+      named.set(name, wallet);
+    }
+    this.named = named;
   }
 
   destinationFor(recipient: string): string {
+    const named = this.named.get(recipient);
+    if (named !== undefined) return named;
     if (!accountAddress.safeParse(recipient).success) {
       throw new EngineError('input_invalid', 'the usdc rail pays a Stellar account address (G...)');
     }

@@ -15,3 +15,4 @@ export * from './rails/usdc.js';
 export * from './receipts/log.js';
 export * from './stellar/gateway.js';
 export * from './stellar/keys.js';
+export * from './mcp/server.js';

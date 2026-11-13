@@ -69,20 +69,48 @@ function set(env: Env, name: string): string | undefined {
   return value === undefined || value === '' ? undefined : value;
 }
 
-function readMandateFile(path: string): z.output<typeof mandateFile> {
+function parseMandate(text: string, name: string): z.output<typeof mandateFile> {
   let json: unknown;
   try {
-    json = JSON.parse(readFileSync(path, 'utf8'));
+    json = JSON.parse(text);
+  } catch (error) {
+    throw new EngineError('config_invalid', `${name} cannot be read as JSON`, { cause: error });
+  }
+  const parsed = mandateFile.safeParse(json);
+  if (!parsed.success) {
+    throw new EngineError('config_invalid', `${name} is missing the mandate address`);
+  }
+  return parsed.data;
+}
+
+function readMandateFile(path: string): z.output<typeof mandateFile> {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
   } catch (error) {
     throw new EngineError('config_invalid', 'UJIRA_MANDATE_FILE cannot be read as JSON', {
       cause: error,
     });
   }
-  const parsed = mandateFile.safeParse(json);
-  if (!parsed.success) {
-    throw new EngineError('config_invalid', 'UJIRA_MANDATE_FILE is missing the mandate address');
+  return parseMandate(text, 'UJIRA_MANDATE_FILE');
+}
+
+/**
+ * The mandate facts from a file, or inline for a host where mounting a file
+ * is harder than setting a variable. Both at once is refused, since one
+ * would silently win.
+ */
+function mandateFacts(env: Env): z.output<typeof mandateFile> | undefined {
+  const file = set(env, 'UJIRA_MANDATE_FILE');
+  const inline = set(env, 'UJIRA_MANDATE_JSON');
+  if (file !== undefined && inline !== undefined) {
+    throw new EngineError(
+      'config_invalid',
+      'set UJIRA_MANDATE_FILE or UJIRA_MANDATE_JSON, not both',
+    );
   }
-  return parsed.data;
+  if (inline !== undefined) return parseMandate(inline, 'UJIRA_MANDATE_JSON');
+  return file === undefined ? undefined : readMandateFile(file);
 }
 
 export function loadSettings(env: Env = process.env): Settings {
@@ -91,13 +119,12 @@ export function loadSettings(env: Env = process.env): Settings {
     throw new EngineError('config_invalid', 'only testnet is supported (UJIRA_NETWORK=testnet)');
   }
 
-  const file = set(env, 'UJIRA_MANDATE_FILE');
-  const fromFile = file === undefined ? undefined : readMandateFile(file);
+  const fromFile = mandateFacts(env);
   const mandateId = set(env, 'UJIRA_MANDATE_ID') ?? fromFile?.mandate;
   if (mandateId === undefined || !contractAddress.safeParse(mandateId).success) {
     throw new EngineError(
       'config_invalid',
-      'set UJIRA_MANDATE_ID to the mandate contract (C...) or UJIRA_MANDATE_FILE to its file',
+      'set UJIRA_MANDATE_ID to the mandate contract (C...), or UJIRA_MANDATE_FILE or UJIRA_MANDATE_JSON to its facts',
     );
   }
 

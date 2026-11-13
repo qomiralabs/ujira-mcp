@@ -192,7 +192,7 @@ export class PayoutEngine {
   private rail(name: RailName): PayoutRail {
     const rail = this.o.rails.find((r) => r.name === name);
     if (rail === undefined) {
-      throw new EngineError('rail_unavailable', `the ${name} rail is not configured here`);
+      throw new EngineError('rail_unavailable', `the ${name} rail is not available on this server`);
     }
     return rail;
   }

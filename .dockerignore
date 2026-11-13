@@ -1,0 +1,18 @@
+# Only package.json, the lockfile, the TypeScript configs, src, docker and
+# LICENSE are needed to build the image.
+.git
+.github
+node_modules
+dist
+coverage
+docs
+evidence
+examples
+scripts
+test
+*.log
+*.tgz
+.env
+.env.*
+*.pem
+*.key

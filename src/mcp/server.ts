@@ -31,10 +31,18 @@ import { formatUnits } from '../money.js';
 import { receiptToJson, type Receipt } from '../receipts/log.js';
 
 export const SERVER_NAME = 'ujira';
-export const SERVER_VERSION = '0.1.0';
+export const SERVER_VERSION = '0.2.0';
+
+export const TOOL_NAMES = [
+  'quote_payout',
+  'request_payout',
+  'payout_status',
+  'list_receipts',
+] as const;
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 interface Tool {
-  readonly name: string;
+  readonly name: ToolName;
   readonly description: string;
   readonly schema: z.ZodObject;
   readonly readOnly: boolean;
@@ -93,22 +101,48 @@ function text(value: unknown, isError = false): CallToolResult {
   };
 }
 
+/** What a guard answers in place of the tool. */
+export interface GuardAnswer {
+  readonly answer: unknown;
+  readonly isError?: boolean;
+}
+
+/**
+ * Runs once a call's input is valid and before the engine sees it. An answer
+ * replaces the tool's; undefined lets the call through. The input is the
+ * parsed one, so amounts are bigints here.
+ */
+export type ToolGuard = (
+  tool: ToolName,
+  input: Readonly<Record<string, unknown>>,
+) => GuardAnswer | undefined;
+
 export interface ServerOptions {
   /** Told the class name of a failure that is a bug here rather than an answer. */
   readonly onInternalError?: (name: string) => void;
+  readonly guard?: ToolGuard;
+  /** Appended to a tool's description, for what is true of this server only. */
+  readonly notes?: Partial<Record<ToolName, string>>;
+  /** Sent to the client at initialize, for its model to read. */
+  readonly instructions?: string;
 }
 
 export function createMcpServer(engine: PayoutEngine, options: ServerOptions = {}): McpServer {
   const mcp = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {} } },
+    {
+      capabilities: { tools: {} },
+      ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
+    },
   );
   // The low level handlers, so the engine parses the arguments itself and
   // one schema decides what is valid.
   mcp.server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((tool) => ({
       name: tool.name,
-      description: tool.description,
+      description: [tool.description, options.notes?.[tool.name]]
+        .filter((part) => part !== undefined)
+        .join(' '),
       inputSchema: z.toJSONSchema(tool.schema, { io: 'input' }) as {
         type: 'object';
         [key: string]: unknown;
@@ -132,6 +166,8 @@ export function createMcpServer(engine: PayoutEngine, options: ServerOptions = {
         .join('; ');
       return text(`The input was refused: ${fields}`, true);
     }
+    const guarded = options.guard?.(tool.name, parsed.data);
+    if (guarded !== undefined) return text(guarded.answer, guarded.isError === true);
     try {
       return text(await tool.run(engine, args));
     } catch (error) {

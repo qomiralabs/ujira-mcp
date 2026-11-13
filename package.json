@@ -1,6 +1,6 @@
 {
   "name": "@ujira/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Mandate bound payouts on Stellar: a payout engine and an MCP server that pay only inside the limits a principal set on chain.",
   "keywords": [
     "mcp",
@@ -23,7 +23,8 @@
     "node": ">=22"
   },
   "bin": {
-    "ujira-mcp": "dist/mcp/main.js"
+    "ujira-mcp": "dist/mcp/main.js",
+    "ujira-mcp-http": "dist/mcp/http-main.js"
   },
   "exports": {
     ".": {
@@ -45,6 +46,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --coverage",
     "demo": "tsx examples/demo.ts",
+    "start:http": "node dist/mcp/http-main.js",
     "prepack": "npm run build"
   },
   "dependencies": {

@@ -1,5 +1,128 @@
 # ujira-mcp
-MCP server for UJIRA payouts, a thin adapter over the UJIRA API.
+
+Mandate bound payouts on Stellar. A payout engine and an MCP server that let an agent key pay people in USDC only inside the limits a principal set on chain in a UJIRA mandate: a total budget, a per-payment cap, a per-recipient daily cap, an allowlist of recipients, an approval threshold and an expiry. The principal can pause or revoke the mandate at any time. Funds never leave the mandate except to an allowlisted recipient or back to the principal.
+
+This package talks straight to Stellar testnet over Soroban RPC. It does not need the hosted UJIRA API. Testnet only for now.
+
+## How a payout runs
+
+1. **Quote.** `quote_payout` reads the mandate's config and state and predicts `allowed`, `approval_required` or `blocked`, with the contract's own reason (`payment_cap_exceeded`, `recipient_not_allowed`, `daily_cap_exceeded`, `budget_exceeded`, `mandate_paused` and so on). Nothing is spent.
+2. **Request.** `request_payout` builds a `request_payout` call signed by the agent key. The payout ID is derived from the mandate and the task ID, and `task_ref` from the task ID, so the mandate never accepts the same task twice. A blocked request is confirmed by simulating it against the contract and is never sent.
+3. **Approve (people only).** At or above the approval threshold the payout waits. An approver signs `approve` with their own key. This is deliberately not an MCP tool.
+4. **Pay.** An approved payout is executed by the executor key through a rail. The `usdc` rail calls the mandate's `execute`, which transfers USDC to the recipient's Stellar account. Calling `request_payout` again with the same task after approval pays it, once.
+5. **Receipt.** Every task gets one receipt in a local JSON log: task ID, recipient, amount in integer minor units, asset, rail, outcome (`paid`, `blocked`, `approval_required`, `approved_then_paid`), payout ID and transaction hashes. `list_receipts` with `verify` cross-checks each receipt against the mandate's payout record and the ledger.
+
+Amounts are always whole minor units as strings. USDC has 7 decimals, so `"10000000"` is 1 USDC.
+
+## Quickstart
+
+You need Node 22 or later, and the [stellar CLI](https://developers.stellar.org/docs/tools/cli) for testnet keys.
+
+### 1. Install
+
+```sh
+git clone https://github.com/qomiralabs/ujira-mcp.git
+cd ujira-mcp
+npm ci
+npm run build
+```
+
+Once the package is on npm, `npx -y ujira-mcp` starts the server without a clone.
+
+### 2. Testnet keys and a mandate
+
+The server signs as an agent of a mandate. Create testnet keys with the stellar CLI and fund them from friendbot. Keep them outside any repository:
+
+```sh
+mkdir -p ~/.config/ujira-testnet/mine
+stellar --config-dir ~/.config/ujira-testnet/mine keys generate agent --network testnet --fund
+stellar --config-dir ~/.config/ujira-testnet/mine keys generate executor --network testnet --fund
+```
+
+The principal creates the mandate through the UJIRA factory on testnet, names your agent (and optionally your executor) in it, funds it with USDC and allowlists the recipients. `scripts/testnet/smoke.sh` in [ujira-contracts](https://github.com/qomiralabs/ujira-contracts) shows every step. Write the mandate's public facts to a `mandate.json`:
+
+```json
+{
+  "network": "testnet",
+  "mandate": "C...",
+  "asset": { "code": "USDC" },
+  "recipients": [{ "recipient_ref": "<64 hex digits>", "destination": "G..." }]
+}
+```
+
+`recipients` maps each allowlisted destination to the `recipient_ref` the principal allowlisted it under. A destination without one uses the default reference `sha256("ujira-mcp/recipient/v1\n" + destination)`.
+
+### 3. Configure
+
+| Variable | Meaning |
+| --- | --- |
+| `UJIRA_MANDATE_FILE` | Path to `mandate.json`. Or set `UJIRA_MANDATE_ID` to the contract address. |
+| `UJIRA_AGENT_KEY_FILE` | The agent key: a stellar CLI identity file (`seed_phrase` or `secret_key`) or a file holding an `S...` secret. Or `UJIRA_AGENT_SECRET`. |
+| `UJIRA_EXECUTOR_KEY_FILE` | Optional executor key, same forms. Without it the agent key executes, which the mandate allows. |
+| `UJIRA_RECEIPTS_FILE` | Optional. The receipt log, default `~/.ujira-mcp/receipts.json`. |
+| `UJIRA_RPC_URL` | Optional. Another testnet RPC server. |
+| `UJIRA_NETWORK` | Optional. Only `testnet` is accepted. |
+
+Keys are read only from these settings, never from tool input, and no message the server writes contains one.
+
+### 4. Run the demo
+
+`examples/demo.ts` runs a dozen real testnet payouts through a demo mandate: normal payments, three blocked ones (over the per-payment cap, a recipient not on the allowlist, over the daily limit) and two that need approval, which the demo approves with the approver key before they are paid. It writes `evidence/testnet-run.json`, `evidence/RUN.md` and the receipt log `evidence/receipts.json`.
+
+```sh
+UJIRA_DEMO_DIR=~/.config/ujira-testnet/demo npm run demo
+```
+
+`UJIRA_DEMO_DIR` holds `mandate.json` with three recipients and the identities `stellar/identity/{agent,executor,approver}.toml`. Each can also be set on its own with `UJIRA_MANDATE_FILE`, `UJIRA_AGENT_KEY_FILE`, `UJIRA_EXECUTOR_KEY_FILE` and `UJIRA_APPROVER_KEY_FILE`.
+
+### 5. Add the server to an MCP client
+
+Claude Desktop (`claude_desktop_config.json`) or Cursor (`~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "ujira": {
+      "command": "npx",
+      "args": ["-y", "ujira-mcp"],
+      "env": {
+        "UJIRA_MANDATE_FILE": "/home/you/.config/ujira-testnet/mine/mandate.json",
+        "UJIRA_AGENT_KEY_FILE": "/home/you/.config/ujira-testnet/mine/identity/agent.toml",
+        "UJIRA_EXECUTOR_KEY_FILE": "/home/you/.config/ujira-testnet/mine/identity/executor.toml"
+      }
+    }
+  }
+}
+```
+
+From a clone, use `"command": "node"` and `"args": ["/path/to/ujira-mcp/dist/mcp/main.js"]` instead. Use absolute paths; the client does not expand `~`.
+
+## Tools
+
+| Tool | Input | Answer |
+| --- | --- | --- |
+| `quote_payout` | `recipient`, `amount`, optional `rail`, `task_id` | `decision`, `reason`, headroom (cap, threshold, budget left, daily left, free funds) |
+| `request_payout` | `task_id`, `recipient`, `amount`, optional `rail` | the receipt: `outcome`, `reason`, `payout_id`, `request_tx_hash`, `tx_hash` |
+| `payout_status` | `task_id` | on-chain status (`pending`, `approved`, `executed`, `rejected`, `cancelled`, `not_found`) and the receipt |
+| `list_receipts` | optional `task_id`, `outcome`, `limit`, `verify` | receipts newest first, and with `verify` a cross-check of each |
+
+Every input schema is strict: an unknown field is refused by name and its value is never echoed.
+
+## Rails
+
+A rail decides which on-chain destination the mandate pays for a recipient and how an approved payout is settled (`src/rails/rail.ts`). `usdc` pays the recipient's Stellar account directly. Other rails, such as the Stellar Disbursement Platform, plug in through `createEngine(settings, { extraRails })`.
+
+## Development
+
+```sh
+npm ci
+npm run typecheck
+npm run lint
+npm run format:check
+npm test
+```
+
+The unit tests run the engine, the codec and every MCP tool against a fake RPC that holds an in-memory mandate, so they need no network.
 
 ## Dashes
 

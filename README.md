@@ -220,6 +220,8 @@ The same server hosts the UJIRA Console: a web app where anyone with a testnet w
 
 With SDP configured, the console allows each recipient twice, once at their own wallet and once at the SDP distribution account, so the same mandate pays on either rail. `UJIRA_SDP_ASSET_ISSUER` must then be the console's USDC issuer.
 
+`UJIRA_CONSOLE_URL=http://127.0.0.1:8080 npm run console:e2e` walks the whole console story against a running server with a throwaway wallet that signs the server-built transactions: onboard, create, allow, fund, pay, an approval, SDP when the server has it, pause and resume, receipts over the API and the mandate's MCP URL, then revoke and sweep. It saves the public transaction hashes to `evidence/console-e2e.json`.
+
 ## Tools
 
 | Tool | Input | Answer |

@@ -23,7 +23,15 @@ import {
   type PayoutRequest,
 } from '../mandate/types.js';
 import { minorUnits } from '../money.js';
-import { RAIL_NAMES, type PayoutRail, type RailName } from '../rails/rail.js';
+import {
+  PartialSettlementError,
+  RAIL_NAMES,
+  type PayoutRail,
+  type RailName,
+  type RailPayment,
+  type RailSettlement,
+  type SettlementProgress,
+} from '../rails/rail.js';
 import {
   OUTCOMES,
   receiptToJson,
@@ -120,6 +128,50 @@ interface Target {
 
 const DEFAULT_TTL_SECONDS = 300;
 
+/** Who finally gets the money; the recipient reference is looked up by it. */
+function payeeOf(rail: PayoutRail, recipient: string, destination: string): string {
+  return rail.payee === undefined ? destination : rail.payee(recipient);
+}
+
+function railPayment(t: Target, asset: string): RailPayment {
+  return {
+    taskId: t.taskId,
+    payoutId: t.payoutId,
+    recipient: t.recipient,
+    destination: t.destination,
+    amount: t.amount,
+    asset,
+  };
+}
+
+/** The receipt fields a finished settlement fills in. */
+function settledFields(s: RailSettlement): Partial<Receipt> {
+  return {
+    tx_hash: s.txHash,
+    ...(s.sdpDisbursementId === undefined ? {} : { sdp_disbursement_id: s.sdpDisbursementId }),
+    ...(s.sdpPaymentId === undefined ? {} : { sdp_payment_id: s.sdpPaymentId }),
+    ...(s.sdpTxHash === undefined ? {} : { sdp_tx_hash: s.sdpTxHash }),
+  };
+}
+
+/** The receipt fields a settlement that stopped part way fills in. */
+function progressFields(p: SettlementProgress): Partial<Receipt> {
+  return {
+    ...(p.mandateTxHash === undefined ? {} : { tx_hash: p.mandateTxHash }),
+    ...(p.sdpDisbursementId === undefined ? {} : { sdp_disbursement_id: p.sdpDisbursementId }),
+    ...(p.sdpPaymentId === undefined ? {} : { sdp_payment_id: p.sdpPaymentId }),
+  };
+}
+
+/** Whether a person approved this payout, as far as the record and the receipt tell. */
+function wasApproved(entry: PayoutEntry, prior: Receipt | undefined): boolean {
+  return (
+    prior?.outcome === 'approval_required' ||
+    prior?.settles_as === 'approved_then_paid' ||
+    (entry.kind === 'record' && entry.approvals.length > 0)
+  );
+}
+
 export class PayoutEngine {
   private readonly o: EngineOptions;
   private readonly now: () => Date;
@@ -164,7 +216,7 @@ export class PayoutEngine {
       amount: input.amount,
       rail,
       destination,
-      recipientRef: this.recipientRefFor(destination),
+      recipientRef: this.recipientRefFor(payeeOf(rail, input.recipient, destination)),
       payoutId: payoutIdFor(this.mandateId, input.task_id),
     };
   }
@@ -200,7 +252,7 @@ export class PayoutEngine {
         amount: input.amount,
         rail,
         destination,
-        recipientRef: this.recipientRefFor(destination),
+        recipientRef: this.recipientRefFor(payeeOf(rail, input.recipient, destination)),
       }),
     );
     return {
@@ -341,15 +393,9 @@ export class PayoutEngine {
     const request = requestTxHash === undefined ? {} : { request_tx_hash: requestTxHash };
     let settlement;
     try {
-      settlement = await t.rail.settle({
-        taskId: t.taskId,
-        payoutId: t.payoutId,
-        recipient: t.recipient,
-        destination: t.destination,
-        amount: t.amount,
-        asset: this.o.assetCode,
-      });
+      settlement = await t.rail.settle(railPayment(t, this.o.assetCode));
     } catch (error) {
+      await this.recordPartial(t, principal, prior, error, outcome, request);
       // The payout stays approved on chain; requesting the task again retries
       // the settlement, and the mandate pays it at most once.
       if (error instanceof ContractRefusedError) {
@@ -363,14 +409,53 @@ export class PayoutEngine {
       }
       throw error;
     }
-    return this.record(t, principal, prior, {
+    return this.record(t, principal, prior, { ...request, outcome, ...settledFields(settlement) });
+  }
+
+  /**
+   * Keeps what a rail got done before it failed. Once the mandate has paid,
+   * the receipt says settling and holds the mandate transaction, so the next
+   * request for the task finishes the payout instead of losing track of it.
+   */
+  private async recordPartial(
+    t: Target,
+    principal: string,
+    prior: Receipt | undefined,
+    error: unknown,
+    outcome: 'paid' | 'approved_then_paid',
+    request: Partial<Receipt>,
+  ): Promise<void> {
+    if (!(error instanceof PartialSettlementError)) return;
+    if (error.progress.mandateTxHash === undefined) return;
+    await this.record(t, principal, prior, {
       ...request,
-      outcome,
-      tx_hash: settlement.txHash,
-      ...(settlement.sdpDisbursementId === undefined
-        ? {}
-        : { sdp_disbursement_id: settlement.sdpDisbursementId }),
+      outcome: 'settling',
+      settles_as: outcome,
+      reason: error.code,
+      ...progressFields(error.progress),
     });
+  }
+
+  /** Finishes a payout the mandate already paid but the rail did not finish. */
+  private async finish(
+    t: Target,
+    principal: string,
+    prior: Receipt,
+    txHash: string,
+    outcome: 'paid' | 'approved_then_paid',
+  ): Promise<Receipt> {
+    const resume = t.rail.resume?.bind(t.rail);
+    if (resume === undefined) {
+      return this.record(t, principal, prior, { outcome, tx_hash: txHash });
+    }
+    let settlement;
+    try {
+      settlement = await resume(railPayment(t, this.o.assetCode), txHash);
+    } catch (error) {
+      await this.recordPartial(t, principal, prior, error, outcome, {});
+      throw error;
+    }
+    return this.record(t, principal, prior, { outcome, ...settledFields(settlement) });
   }
 
   private async resume(
@@ -392,11 +477,9 @@ export class PayoutEngine {
     if (status === PAYOUT_STATUS.pending) {
       return this.record(t, principal, prior, { outcome: 'approval_required' });
     }
+    const outcome = wasApproved(entry, prior) ? 'approved_then_paid' : 'paid';
     if (status === PAYOUT_STATUS.approved) {
-      const approved =
-        prior?.outcome === 'approval_required' ||
-        (entry.kind === 'record' && entry.approvals.length > 0);
-      return this.settle(t, principal, prior, approved ? 'approved_then_paid' : 'paid');
+      return this.settle(t, principal, prior, outcome);
     }
     if (status === PAYOUT_STATUS.executed) {
       if (
@@ -405,9 +488,10 @@ export class PayoutEngine {
       ) {
         return prior;
       }
-      return this.record(t, principal, prior, {
-        outcome: prior?.outcome === 'approval_required' ? 'approved_then_paid' : 'paid',
-      });
+      if (prior?.outcome === 'settling' && prior.tx_hash !== undefined) {
+        return this.finish(t, principal, prior, prior.tx_hash, outcome);
+      }
+      return this.record(t, principal, prior, { outcome });
     }
     return this.record(t, principal, prior, {
       outcome: 'blocked',
@@ -457,6 +541,7 @@ export class PayoutEngine {
       approved_then_paid: ['executed'],
       approval_required: ['pending', 'approved'],
       blocked: ['not_found', 'rejected', 'cancelled', 'approved'],
+      settling: ['executed'],
     };
     checks.push({
       check: 'payout_record',
@@ -473,6 +558,7 @@ export class PayoutEngine {
     for (const [name, hash] of [
       ['request_tx', r.request_tx_hash],
       ['payment_tx', r.tx_hash],
+      ['sdp_payment_tx', r.sdp_tx_hash],
     ] as const) {
       if (hash === undefined) continue;
       const tx = await this.o.mandate.transaction(hash);

@@ -15,7 +15,17 @@ import { EngineError } from '../errors.js';
 import { hex32 } from '../ids.js';
 import { RAIL_NAMES } from '../rails/rail.js';
 
-export const OUTCOMES = ['paid', 'blocked', 'approval_required', 'approved_then_paid'] as const;
+/**
+ * `settling` means the mandate paid but the rail has not finished, such as
+ * SDP not having paid the person yet. Requesting the task again finishes it.
+ */
+export const OUTCOMES = [
+  'paid',
+  'blocked',
+  'approval_required',
+  'approved_then_paid',
+  'settling',
+] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 const txHash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -43,6 +53,11 @@ const receiptSchema = z.object({
   tx_hash: txHash.optional(),
   request_tx_hash: txHash.optional(),
   sdp_disbursement_id: z.string().optional(),
+  sdp_payment_id: z.string().optional(),
+  /** The transaction in which SDP paid the person; `tx_hash` is the mandate's. */
+  sdp_tx_hash: txHash.optional(),
+  /** While settling: the outcome the payout gets once the rail finishes. */
+  settles_as: z.enum(['paid', 'approved_then_paid']).optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });

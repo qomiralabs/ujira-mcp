@@ -1,0 +1,75 @@
+{
+  "network": "testnet",
+  "console": "http://127.0.0.1:8787",
+  "owner": "GBN4CMXXILCYQFD4YNQQJCC7TC7GSWHJSFQ7OVVRFSH2KSH2QIOLUOR6",
+  "mandate": "CAILILU572MCDRJOZ2DMXRZ37X6JAIBBP5CGHKF6N53LS5CMYNXFPDM3",
+  "test_recipient": "GDYFKM2YBK5PGIOP64QHKFIBF57KGIBNV22XCECSXULBXC5NCOUDEQQP",
+  "sdp": true,
+  "at": "2026-11-13T19:49:45.370Z",
+  "transactions": [
+    {
+      "step": "trustline",
+      "hash": "5c74505d4d0c1f4b7e5424d959167e2c03139a80aab2167c5d74b4f9ed1e93ae"
+    },
+    {
+      "step": "faucet",
+      "hash": "9786625ece7405052c934a12dc667ca81e08d292ade65ea360e347d8015c407a"
+    },
+    {
+      "step": "test_recipient_trustline",
+      "hash": "894f401bd7e875d14f1b5077639ff25e525b82a66e82e255cd0ca20131cc986c"
+    },
+    {
+      "step": "create_mandate",
+      "hash": "66e8831546f8a193fe67ba21459ce3c1b3159dec657210c8a7d7d266c883393e"
+    },
+    {
+      "step": "allow_recipients",
+      "hash": "712f36eaf33743692c671fef96ae76c11ce701df1d304cf1b907a97b5a3a3f21"
+    },
+    {
+      "step": "fund_mandate",
+      "hash": "78f1ad8ec5d39f34fb11c6576a22db95cc7b192d70155d4b712e047c462d0298"
+    },
+    {
+      "step": "payout_1_usdc",
+      "hash": "045bbab5b6e49e3167036ce426d9db854057e138724b6cc9f37ccb9b0df180ab"
+    },
+    {
+      "step": "payout_3_usdc_request",
+      "hash": "7a7c7c9ce26c86a7ad55486b939427995e9fcbe1e207c57fc70cfdea02d7bfdf"
+    },
+    {
+      "step": "approve",
+      "hash": "8e91a0db9c8a5bb07cf02eab2b33adc029d91e5aca41cd82b131185801392f10"
+    },
+    {
+      "step": "payout_3_usdc_paid",
+      "hash": "718a6a6b16286586148c64bad4fc71ec0dbfcfb703b4538091577aa0917c10f9"
+    },
+    {
+      "step": "sdp_mandate_leg",
+      "hash": "8045e90fe9f6dd66a612d2b9d25ef3cc34ba4900c3ac85e292d6f6eedc62a86b"
+    },
+    {
+      "step": "sdp_payment",
+      "hash": "a33f4c437fbbbcd819c10f11159a7456551e82db084269bd5782f5ad02d7f26e"
+    },
+    {
+      "step": "pause",
+      "hash": "b11cd2e1f5be20ce66a77317c7bf3c23ce113d2de73781cf5fc335a1c5154f9e"
+    },
+    {
+      "step": "resume",
+      "hash": "dccf3ad50d025007237db882e1fd3ec3695c785ce0f48391aad39061bd9357d7"
+    },
+    {
+      "step": "revoke",
+      "hash": "6616057cde6e57d7e9d6a09617a91fce909dd5bd9b615f9978fe81a6c17f08df"
+    },
+    {
+      "step": "sweep",
+      "hash": "5940fd073163ddfb7ec3fca8d02d79f14f04d0c86dc94cd41ee0d270149cfcb6"
+    }
+  ]
+}

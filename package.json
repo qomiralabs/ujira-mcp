@@ -46,6 +46,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --coverage",
     "demo": "tsx examples/demo.ts",
+    "console:e2e": "tsx examples/console-e2e.ts",
     "start:http": "node dist/mcp/http-main.js",
     "prepack": "npm run build"
   },

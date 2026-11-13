@@ -1,9 +1,11 @@
-# Only package.json, the lockfile, the TypeScript configs, src, docker and
-# LICENSE are needed to build the image.
+# Only package.json, the lockfile, the TypeScript configs, src, docker,
+# console (the web app source) and LICENSE are needed to build the image.
 .git
 .github
 node_modules
 dist
+console/node_modules
+console/dist
 coverage
 docs
 evidence

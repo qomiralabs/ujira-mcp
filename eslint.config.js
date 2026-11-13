@@ -7,7 +7,8 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['dist/', 'coverage/', 'node_modules/'] },
+  // The console web app has its own lint setup in console/.
+  { ignores: ['dist/', 'coverage/', 'node_modules/', 'console/'] },
   js.configs.recommended,
   {
     files: ['**/*.ts'],

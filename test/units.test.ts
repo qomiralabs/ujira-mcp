@@ -208,6 +208,26 @@ describe('settings', () => {
     expect(() => loadSettings(env)).toThrow(message);
   });
 
+  it('reads the mandate facts inline from UJIRA_MANDATE_JSON', () => {
+    const json = JSON.stringify({
+      mandate: MANDATE,
+      asset: { code: 'UJTEST' },
+      recipients: [{ recipient_ref: 'cd'.repeat(32), destination: alice }],
+    });
+    const s = loadSettings({ UJIRA_MANDATE_JSON: json, UJIRA_AGENT_SECRET: kp.secret() });
+    expect(s).toMatchObject({ mandateId: MANDATE, assetCode: 'UJTEST' });
+    expect(s.recipientRefs.get(alice)).toBe('cd'.repeat(32));
+    expect(s.sdp).toBeUndefined();
+  });
+
+  it.each([
+    [{ UJIRA_MANDATE_JSON: '{nope' }, /UJIRA_MANDATE_JSON cannot be read as JSON/],
+    [{ UJIRA_MANDATE_JSON: '{"network":"testnet"}' }, /UJIRA_MANDATE_JSON is missing the mandate/],
+    [{ UJIRA_MANDATE_JSON: '{}', UJIRA_MANDATE_FILE: '/x.json' }, /not both/],
+  ])('refuses inline mandate facts %o', (env, message) => {
+    expect(() => loadSettings(env)).toThrow(message);
+  });
+
   it('refuses a mandate file without a mandate', () => {
     const file = join(tmp(), 'm.json');
     writeFileSync(file, '{"network":"testnet"}');

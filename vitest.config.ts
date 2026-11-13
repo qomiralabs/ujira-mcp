@@ -9,9 +9,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      // main.ts only wires the real network and stdio together; the server it
-      // starts is covered through an in-memory transport.
-      exclude: ['src/**/*.test.ts', 'src/mcp/main.ts'],
+      // main.ts and http-main.ts only wire the real network to stdio or a
+      // port; the servers they start are covered in memory and over HTTP.
+      exclude: ['src/**/*.test.ts', 'src/mcp/main.ts', 'src/mcp/http-main.ts'],
       reporter: [['text', { skipFull: false }]],
     },
   },

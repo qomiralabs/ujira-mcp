@@ -4,6 +4,52 @@ Mandate bound payouts on Stellar. A payout engine and an MCP server that let an 
 
 This package talks straight to Stellar testnet over Soroban RPC. It does not need the hosted UJIRA API. Testnet only for now.
 
+There are two ways to use it: add the hosted public demo to Claude or Cursor by URL (below), or run the server yourself over stdio or HTTP with your own mandate and keys.
+
+## Use the hosted server
+
+A public demo of the server runs on Stellar testnet at:
+
+```
+https://<your-app>.up.railway.app/mcp
+```
+
+It needs no account, key or install. It is a **shared public testnet demo**: everyone who connects pays from the same demo mandate, signed by the same demo agent key, and `list_receipts` shows everyone's receipts, not only yours. Testnet tokens are not real money. Because task IDs and receipts are public, never put personal data in them.
+
+The demo keeps strangers inside small limits, on top of the mandate's own rules:
+
+- A payout or quote above 10 USDC is answered `blocked` with reason `public_demo_limit`, so a visitor never reaches the mandate's approval threshold. Nothing is sent.
+- One address may call `request_payout` 5 times an hour, and the whole server answers at most 120 tool calls a minute. Past either, the tool answers `rate_limited`.
+- Only recipients on the demo mandate's allowlist can be paid. The server lists them in its instructions and in the `request_payout` description. Anyone else is `blocked` with `recipient_not_allowed`.
+- The SDP rail is not available on the hosted server; asking for it answers `rail_unavailable`.
+
+### Claude (claude.ai and Claude Desktop)
+
+1. Open **Settings**, then **Connectors**, and choose **Add custom connector**. Custom connectors need a Claude plan that allows them.
+2. Name it `UJIRA demo` and paste `https://<your-app>.up.railway.app/mcp` as the URL. Leave the OAuth fields empty; the demo has no sign in.
+3. Choose **Add**. In a chat, turn the connector on from the tools menu, then ask, for example, "quote a 2 USDC payout to the first demo recipient, then pay it as task demo-1".
+
+A connector added on claude.ai shows up in Claude Desktop under the same account, and the other way round.
+
+### Cursor
+
+Open **Settings**, then **MCP**, and add a server, or put this in `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ujira-demo": { "url": "https://<your-app>.up.railway.app/mcp" }
+  }
+}
+```
+
+### Check it from a shell
+
+```sh
+curl -s https://<your-app>.up.railway.app/healthz
+curl -s https://<your-app>.up.railway.app/mcp   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream'   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
 ## How a payout runs
 
 1. **Quote.** `quote_payout` reads the mandate's config and state and predicts `allowed`, `approval_required` or `blocked`, with the contract's own reason (`payment_cap_exceeded`, `recipient_not_allowed`, `daily_cap_exceeded`, `budget_exceeded`, `mandate_paused` and so on). Nothing is spent.
@@ -56,9 +102,9 @@ The principal creates the mandate through the UJIRA factory on testnet, names yo
 
 | Variable | Meaning |
 | --- | --- |
-| `UJIRA_MANDATE_FILE` | Path to `mandate.json`. Or set `UJIRA_MANDATE_ID` to the contract address. |
+| `UJIRA_MANDATE_FILE` | Path to `mandate.json`. Or `UJIRA_MANDATE_JSON` with the same content inline, or `UJIRA_MANDATE_ID` with only the contract address. |
 | `UJIRA_AGENT_KEY_FILE` | The agent key: a stellar CLI identity file (`seed_phrase` or `secret_key`) or a file holding an `S...` secret. Or `UJIRA_AGENT_SECRET`. |
-| `UJIRA_EXECUTOR_KEY_FILE` | Optional executor key, same forms. Without it the agent key executes, which the mandate allows. |
+| `UJIRA_EXECUTOR_KEY_FILE` | Optional executor key, same forms, or `UJIRA_EXECUTOR_SECRET`. Without it the agent key executes, which the mandate allows. |
 | `UJIRA_RECEIPTS_FILE` | Optional. The receipt log, default `~/.ujira-mcp/receipts.json`. |
 | `UJIRA_RPC_URL` | Optional. Another testnet RPC server. |
 | `UJIRA_NETWORK` | Optional. Only `testnet` is accepted. |
@@ -96,6 +142,61 @@ Claude Desktop (`claude_desktop_config.json`) or Cursor (`~/.cursor/mcp.json`):
 ```
 
 From a clone, use `"command": "node"` and `"args": ["/path/to/ujira-mcp/dist/mcp/main.js"]` instead. Use absolute paths; the client does not expand `~`.
+
+## Self host
+
+`ujira-mcp` serves stdio for a client on the same machine. `ujira-mcp-http` serves the same four tools over MCP Streamable HTTP for a public URL: `POST /mcp` (stateless, JSON responses, no auth) and `GET /healthz`. It is built to be left open to anyone, so it always applies the public limits above, and its tool descriptions say the demo is shared.
+
+### Run it
+
+```sh
+npm ci && npm run build
+UJIRA_MANDATE_FILE=/path/to/mandate.json UJIRA_AGENT_KEY_FILE=/path/to/agent.toml UJIRA_RECEIPTS_FILE=/path/to/receipts.json node dist/mcp/http-main.js
+```
+
+Or with Docker. The image runs the server as the `node` user and keeps receipts in `/data`, so mount a volume there:
+
+```sh
+docker build -t ujira-mcp .
+docker run --rm -p 8080:8080 -v ujira-data:/data   -e UJIRA_MANDATE_JSON="$(cat mandate.json)"   -e UJIRA_AGENT_SECRET -e UJIRA_EXECUTOR_SECRET   ujira-mcp
+```
+
+`-e UJIRA_AGENT_SECRET` with no value passes the variable from your shell, so the key never appears on the command line.
+
+### Deploy on Railway
+
+`railway.json` builds the `Dockerfile`, checks `/healthz` before a deploy goes live and restarts the server if it fails. Railway sets `PORT`, which the server listens on.
+
+```sh
+railway init
+railway volume add --mount-path /data
+railway variables --set "UJIRA_MANDATE_JSON=$(cat mandate.json)"
+railway variables --set "UJIRA_AGENT_SECRET=..." --set "UJIRA_EXECUTOR_SECRET=..."
+railway up
+railway domain
+```
+
+Use testnet keys only. Keep the agent key's mandate small: whoever holds the URL can spend from it up to the public cap.
+
+### HTTP settings
+
+The mandate and key settings are the ones under Configure. These are for the HTTP server only.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `8080` | Port to listen on. |
+| `UJIRA_HTTP_HOST` | `0.0.0.0` | Address to listen on. |
+| `UJIRA_RECEIPTS_FILE` | `/data/receipts.json` in the image | The shared receipt log. Put it on a volume. The server refuses to start if it cannot write there. |
+| `UJIRA_PUBLIC_MAX_AMOUNT` | `100000000` (10 USDC) | The largest payout a caller may ask for, in minor units. Keep it below the mandate's approval threshold. |
+| `UJIRA_PAYOUTS_PER_HOUR` | `5` | `request_payout` calls an hour from one address (an IPv6 caller counts by its /64). |
+| `UJIRA_TOOL_CALLS_PER_MINUTE` | `120` | Tool calls a minute from everyone together. |
+| `UJIRA_MAX_BODY_BYTES` | `65536` | Larger request bodies get 413. |
+| `UJIRA_HTTP_TIMEOUT_MS` | `120000` | A request still unanswered after this gets 504. A payout that was already sent still finishes, and calling `request_payout` again with the same task ID picks it up without paying twice. |
+| `UJIRA_ALLOWED_ORIGINS` | none | Browser origins to allow besides `https://claude.ai` and `https://claude.com`, comma separated. Requests without an `Origin` header, such as from Cursor or a server, are always allowed. Any other origin gets 403. |
+| `UJIRA_TRUST_PROXY` | `1` | Read the caller's address from a proxy header. Set `0` when the server faces the internet directly, or callers can pick their own address. |
+| `UJIRA_CLIENT_IP_HEADER` | none | The one header holding the caller's address, such as `Fly-Client-IP`. Unset, `X-Real-IP` is read and then the last `X-Forwarded-For` entry. |
+
+Without `UJIRA_SDP_URL` and its companions the SDP rail is off, and a call that asks for it answers `rail_unavailable`. Log lines carry the method, path, status and time of each request, never a key, a body or a caller's address, and errors never carry a stack trace.
 
 ## Tools
 

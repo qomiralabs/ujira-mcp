@@ -19,3 +19,12 @@ Verified means the receipt matches the payout record on the mandate and every li
 | 10 | demo-20261113T1101-10 | usdc | GDWQ...FPLX | 19 USDC | paid |  | [98890117](https://stellar.expert/explorer/testnet/tx/98890117dbd78945a49c8cd924c6ab750d3da7bf41a35f13a6877d58d32f9ec5) |  | [8457409a](https://stellar.expert/explorer/testnet/tx/8457409ad600b2c28eccccd67ae0a309a0e46b461e262ccd007bcc0424736bd8) | yes |
 | 11 | demo-20261113T1101-11 | usdc | GDWQ...FPLX | 5.5 USDC | paid |  | [b835e247](https://stellar.expert/explorer/testnet/tx/b835e247a82111e90873ac26999705dd1f529758a910563860a093a97569eb16) |  | [9804af1e](https://stellar.expert/explorer/testnet/tx/9804af1e8016519c1534b14fe30121811d4de4d66717a881f8604957c817bb5c) | yes |
 | 12 | demo-20261113T1101-12 | usdc | GDWQ...FPLX | 50 USDC | blocked | daily_cap_exceeded |  |  |  | yes |
+
+## SDP rail
+
+Through the same mandate, paid by the Stellar Disbursement Platform running locally on testnet (setup in [docs/sdp-testnet.md](../docs/sdp-testnet.md)). The mandate pays the SDP distribution account [GBOO...GEKW](https://stellar.expert/explorer/testnet/account/GBOORJU2KRZUIV7RDAGM3U4JRO6S7N5SSKG7SW7HDNKFXAY7225RGEKW), then SDP pays the person, so each payout has two payment transactions. Written by `examples/sdp-payouts.ts`.
+
+| # | Task | Recipient | Amount | Outcome | Request tx | Mandate to SDP tx | SDP to recipient tx | SDP disbursement | Verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 13 | sdp-demo-2026-11-13-1 | GDWQ...FPLX | 2 USDC | paid | [1c284852](https://stellar.expert/explorer/testnet/tx/1c2848525a714e1f8bb7cebb0907cd986727c0b3c41b0435542880a583f892f3) | [081ec1b4](https://stellar.expert/explorer/testnet/tx/081ec1b4d9dcc16bf63aadca07877bddd1d36fc501eb5003809ad403e4699908) | [c53f6cc7](https://stellar.expert/explorer/testnet/tx/c53f6cc7f603497ba460f985549bde86e9879674cd7b50d6ffd6b3bc19466d49) | 5d0e6f64-10f7-4214-8c94-30d841837e59 | yes |
+| 14 | sdp-demo-2026-11-13-2 | GD3G...XRQ3 | 3 USDC | paid | [bf8b6616](https://stellar.expert/explorer/testnet/tx/bf8b661631dec83a1922ad3a20a8badc01b85f7fc38b4583ee31145e6445ff04) | [1e70716b](https://stellar.expert/explorer/testnet/tx/1e70716b7668f98a17dbe9a0df449eaae388f401468730b6bbb69ec23081e941) | [db834e5f](https://stellar.expert/explorer/testnet/tx/db834e5f3cdedcc4752f1e129e5dbe32ce82c382c3d082cb6155cc4948ec9c03) | cbd517c4-5a66-4b83-b8aa-e7a62dac6b3f | yes |

@@ -11,6 +11,7 @@ export * from './mandate/client.js';
 export * from './mandate/codec.js';
 export * from './mandate/types.js';
 export * from './rails/rail.js';
+export * from './rails/sdp.js';
 export * from './rails/usdc.js';
 export * from './receipts/log.js';
 export * from './stellar/gateway.js';

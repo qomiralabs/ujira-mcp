@@ -171,6 +171,42 @@
       "contract_error": 42,
       "verified": true,
       "at": "2026-11-13T11:02:40.888Z"
+    },
+    {
+      "task_id": "sdp-demo-2026-11-13-1",
+      "recipient": "GDWQCLVZKFKKIQGXOSRZRLOBJ4V5J6UQ2L5D3RC4Y3IGEJXFZ4VJFPLX",
+      "recipient_name": "recipient-1",
+      "amount": "20000000",
+      "asset": "USDC",
+      "rail": "sdp",
+      "outcome": "paid",
+      "payout_id": "01249b884e215073da0ae5bc8442a68472948cc84de5fe1375c4b188ae6d420a",
+      "tx_hash": "081ec1b4d9dcc16bf63aadca07877bddd1d36fc501eb5003809ad403e4699908",
+      "request_tx_hash": "1c2848525a714e1f8bb7cebb0907cd986727c0b3c41b0435542880a583f892f3",
+      "sdp_distribution": "GBOORJU2KRZUIV7RDAGM3U4JRO6S7N5SSKG7SW7HDNKFXAY7225RGEKW",
+      "sdp_disbursement_id": "5d0e6f64-10f7-4214-8c94-30d841837e59",
+      "sdp_payment_id": "3c1905fe-d1b6-4658-9af1-ef4bf2749ec5",
+      "sdp_tx_hash": "c53f6cc7f603497ba460f985549bde86e9879674cd7b50d6ffd6b3bc19466d49",
+      "at": "2026-11-13T11:05:28.004Z",
+      "verified": true
+    },
+    {
+      "task_id": "sdp-demo-2026-11-13-2",
+      "recipient": "GD3GVK2SYUMIAHMRCC5ZYEAMQW6LIKC4YJ57D7A474GXIVCYKPC6XRQ3",
+      "recipient_name": "recipient-2",
+      "amount": "30000000",
+      "asset": "USDC",
+      "rail": "sdp",
+      "outcome": "paid",
+      "payout_id": "f154dd72ce17365fe8cffae692d14b792e839f115ed00e50727134774cce11ad",
+      "tx_hash": "1e70716b7668f98a17dbe9a0df449eaae388f401468730b6bbb69ec23081e941",
+      "request_tx_hash": "bf8b661631dec83a1922ad3a20a8badc01b85f7fc38b4583ee31145e6445ff04",
+      "sdp_distribution": "GBOORJU2KRZUIV7RDAGM3U4JRO6S7N5SSKG7SW7HDNKFXAY7225RGEKW",
+      "sdp_disbursement_id": "cbd517c4-5a66-4b83-b8aa-e7a62dac6b3f",
+      "sdp_payment_id": "fc1df902-561d-4a75-a8e0-036ab496a723",
+      "sdp_tx_hash": "db834e5f3cdedcc4752f1e129e5dbe32ce82c382c3d082cb6155cc4948ec9c03",
+      "at": "2026-11-13T11:05:57.201Z",
+      "verified": true
     }
   ]
 }

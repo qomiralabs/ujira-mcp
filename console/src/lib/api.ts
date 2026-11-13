@@ -32,6 +32,7 @@ import {
   type SubmitResult,
   type UnsignedTx,
 } from './schemas';
+import { apiErrorText } from './words';
 
 export class ApiError extends Error {
   readonly code: string;
@@ -54,6 +55,7 @@ export type TxAction =
   | 'pause'
   | 'resume'
   | 'revoke'
+  | 'sweep'
   | 'approve'
   | 'reject'
   | 'withdraw';
@@ -111,7 +113,8 @@ async function readError(res: Response): Promise<ApiError> {
   }
   const parsed = errorBodySchema.safeParse(body);
   if (parsed.success) {
-    return new ApiError(parsed.data.error.code, parsed.data.error.message, res.status);
+    const { code, message } = parsed.data.error;
+    return new ApiError(code, apiErrorText(code, message), res.status);
   }
   if (res.status === 429) {
     return new ApiError(
@@ -119,6 +122,9 @@ async function readError(res: Response): Promise<ApiError> {
       'Too many tries in a short time. Wait a minute and try again.',
       429,
     );
+  }
+  if (res.status === 504) {
+    return new ApiError('timeout', apiErrorText('timeout', ''), 504);
   }
   if (res.status === 404) {
     return new ApiError('not_found', 'The server does not know that address or page.', 404);

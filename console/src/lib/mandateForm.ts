@@ -5,7 +5,7 @@
 // becomes. Each check returns a sentence that says what to change.
 
 import { compareMinor, parseAmount } from './money';
-import { accountAddressProblem } from './strkey';
+import { accountAddressProblem, isAccountAddress } from './strkey';
 
 export interface RecipientDraft {
   readonly label: string;
@@ -51,6 +51,23 @@ export interface MandatePlan {
 
 export const MAX_EXPIRY_DAYS = 365;
 export const MAX_LABEL = 40;
+const LABEL = /^[A-Za-z0-9][A-Za-z0-9 ._@#-]*$/;
+
+/** What is wrong with a recipient name, or null. Matches the server's rule. */
+export function labelProblem(label: string): string | null {
+  if (label === '') return 'Give this recipient a short name.';
+  if (isAccountAddress(label)) return 'Use a name here, not an address.';
+  if (label.length > MAX_LABEL) return `Keep the name to ${MAX_LABEL} characters or fewer.`;
+  if (!LABEL.test(label)) {
+    return 'Start with a letter or digit; then use letters, digits, spaces and . _ @ # - only.';
+  }
+  return null;
+}
+
+/** How many recipients one allow transaction can add: fewer when SDP doubles each entry. */
+export function maxRecipients(sdpAvailable: boolean): number {
+  return sdpAvailable ? 5 : 10;
+}
 
 function positive(input: string, name: string): { minor?: string; error?: string } {
   const parsed = parseAmount(input);
@@ -61,7 +78,7 @@ function positive(input: string, name: string): { minor?: string; error?: string
 
 export function validateDraft(
   draft: MandateDraft,
-  options: { walletUsdc?: string | null; nowSeconds: number },
+  options: { walletUsdc?: string | null; nowSeconds: number; maxRecipients?: number },
 ): { ok: true; plan: MandatePlan } | { ok: false; errors: DraftErrors } {
   const errors: Partial<Record<DraftField, string>> = {};
   const recipientRows: Record<number, string> = {};
@@ -72,7 +89,11 @@ export function validateDraft(
   if (cap.error !== undefined) errors.perPaymentCap = cap.error;
   const daily = positive(draft.dailyCap, 'The daily limit');
   if (daily.error !== undefined) errors.dailyCap = daily.error;
-  const threshold = positive(draft.approvalThreshold, 'The approval amount');
+  // Zero is allowed: every payout then waits for the owner's approval.
+  const thresholdParsed = parseAmount(draft.approvalThreshold);
+  const threshold: { minor?: string; error?: string } = thresholdParsed.ok
+    ? { minor: thresholdParsed.minor }
+    : { error: thresholdParsed.error };
   if (threshold.error !== undefined) errors.approvalThreshold = threshold.error;
   const fund = positive(draft.fund, 'The amount to fund');
   if (fund.error !== undefined) errors.fund = fund.error;
@@ -112,23 +133,23 @@ export function validateDraft(
     errors.expiryDays = `Choose a whole number of days from 1 to ${MAX_EXPIRY_DAYS}.`;
   }
 
+  const limit = options.maxRecipients ?? 10;
   if (draft.recipients.length === 0) {
     errors.recipients = 'Add at least one recipient, or press "Add a test recipient".';
+  } else if (draft.recipients.length > limit) {
+    errors.recipients = `Add at most ${limit} recipients for now; you can add more later.`;
   }
   const seen = new Set<string>();
   const labels = new Set<string>();
   draft.recipients.forEach((r, i) => {
     const address = r.address.trim();
     const label = r.label.trim();
-    const problem = accountAddressProblem(address);
+    const problem = accountAddressProblem(address) ?? labelProblem(label);
     if (problem !== null) recipientRows[i] = problem;
     else if (seen.has(address)) recipientRows[i] = 'This address is already on the list.';
-    else if (label === '') recipientRows[i] = 'Give this recipient a short name.';
-    else if (label.length > MAX_LABEL)
-      recipientRows[i] = `Keep the name under ${MAX_LABEL} characters.`;
-    else if (labels.has(label.toLowerCase())) recipientRows[i] = 'Two recipients have this name.';
+    else if (labels.has(label)) recipientRows[i] = 'Two recipients have this name.';
     seen.add(address);
-    labels.add(label.toLowerCase());
+    labels.add(label);
   });
 
   if (Object.keys(errors).length > 0 || Object.keys(recipientRows).length > 0) {

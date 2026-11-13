@@ -53,6 +53,7 @@ export const submitSchema = z.looseObject({
   status: z.string(),
   returnValue: optionalString,
   mandate: optionalString,
+  reason: optionalString,
 });
 export type SubmitResult = z.infer<typeof submitSchema>;
 
@@ -109,6 +110,7 @@ export const payoutSchema = z.looseObject({
   reason: optionalString,
   requestTx: optionalString,
   paidTx: optionalString,
+  sdpTx: optionalString,
   at: optionalString,
 });
 export const payoutListSchema = z.looseObject({ payouts: z.array(payoutSchema) });

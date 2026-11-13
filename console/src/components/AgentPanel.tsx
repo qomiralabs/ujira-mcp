@@ -62,6 +62,12 @@ export function RequestNotice({ result, label }: { result: Receipt; label: strin
                 Payment: <TxLink hash={result.tx_hash} />
               </>
             ) : null}
+            {typeof result.sdp_tx_hash === 'string' ? (
+              <>
+                {' '}
+                SDP payout: <TxLink hash={result.sdp_tx_hash} />
+              </>
+            ) : null}
           </p>
         </Notice>
       );
@@ -97,6 +103,18 @@ export function RequestNotice({ result, label }: { result: Receipt; label: strin
         </Notice>
       );
   }
+}
+
+export function SdpWait() {
+  return (
+    <Notice tone="waiting" title="Paying through SDP, this can take a few minutes">
+      <p className="small">
+        The mandate pays the disbursement platform, which then pays the recipient. Keep this page
+        open. If it times out, press Pay now again: it picks up where it stopped and never pays
+        twice.
+      </p>
+    </Notice>
+  );
 }
 
 export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
@@ -294,6 +312,7 @@ export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
         </p>
       </form>
       <div aria-live="polite">
+        {request.busy && rail === 'sdp' ? <SdpWait /> : null}
         {error === null ? null : <ErrorNotice error={error} />}
         {outcome === null ? null : outcome.kind === 'quote' ? (
           <QuoteNotice result={outcome.result} />

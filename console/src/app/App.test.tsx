@@ -116,7 +116,7 @@ describe('the console in mock mode', () => {
     expect(url).toMatch(/\/m\/C[A-Z2-7]{55}\/mcp$/);
   });
 
-  it('asks before revoking and says where the money goes', { timeout: 20_000 }, async () => {
+  it('asks before revoking, then signs revoke and sweep', { timeout: 20_000 }, async () => {
     const user = userEvent.setup();
     render(<App api={createMockApi({ delayMs: 0 })} mock />);
     await connectAndSetUp(user);
@@ -133,13 +133,15 @@ describe('the console in mock mode', () => {
     await user.click(await screen.findByRole('link', { name: 'Open your mandate' }));
     await user.click(await screen.findByRole('button', { name: 'Revoke' }, LONG));
     expect(
-      await screen.findByText(/The 40.00 USDC it holds goes back to your wallet/),
+      await screen.findByText(/Moves the 40.00 USDC it holds back to your wallet/),
     ).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByText('Active')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Revoke' }));
     await user.click(screen.getByRole('button', { name: 'Revoke and return funds' }));
     await screen.findByText('Revoked', undefined, LONG);
+    await screen.findByText(/Step 2 of 2: the funds are back in your wallet/, undefined, LONG);
+    expect(screen.queryByRole('button', { name: 'Return the funds' })).toBeNull();
   });
 
   it('shows the API sentence when a step fails', async () => {

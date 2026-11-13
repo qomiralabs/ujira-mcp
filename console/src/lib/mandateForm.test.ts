@@ -3,7 +3,15 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_DRAFT, TASK_ID, newTaskId, validateDraft, type MandateDraft } from './mandateForm';
+import {
+  DEFAULT_DRAFT,
+  TASK_ID,
+  labelProblem,
+  maxRecipients,
+  newTaskId,
+  validateDraft,
+  type MandateDraft,
+} from './mandateForm';
 import { encodeAddress } from './strkey';
 
 const ADA = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
@@ -115,6 +123,34 @@ describe('validateDraft', () => {
     expect(rows.errors.recipientRows?.[2]).toMatch(/56 characters/);
     expect(rows.errors.recipientRows?.[3]).toBe('Give this recipient a short name.');
     expect(rows.errors.recipientRows?.[0]).toBeUndefined();
+  });
+});
+
+describe('recipient names and limits', () => {
+  it('follows the server rule for names', () => {
+    expect(labelProblem('Ada Lovelace')).toBeNull();
+    expect(labelProblem('team.lead@acme #2')).toBeNull();
+    expect(labelProblem('')).toMatch(/short name/);
+    expect(labelProblem(' Ada')).toMatch(/Start with a letter or digit/);
+    expect(labelProblem('Ada!')).toMatch(/letters, digits, spaces/);
+    expect(labelProblem('x'.repeat(41))).toMatch(/40 characters/);
+    expect(labelProblem(ADA)).toBe('Use a name here, not an address.');
+  });
+
+  it('caps the recipients one transaction can add', () => {
+    expect(maxRecipients(false)).toBe(10);
+    expect(maxRecipients(true)).toBe(5);
+    const many = Array.from({ length: 6 }, (_, i) => ({
+      label: `R${i}`,
+      address: encodeAddress('account', new Uint8Array(32).fill(i + 10)),
+    }));
+    const r = validateDraft(draft({ recipients: many }), { nowSeconds: NOW, maxRecipients: 5 });
+    expect(r.ok ? null : r.errors.recipients).toMatch(/at most 5 recipients/);
+  });
+
+  it('allows an approval amount of zero, so every payout waits', () => {
+    const r = validateDraft(draft({ approvalThreshold: '0' }), { nowSeconds: NOW });
+    expect(r.ok ? r.plan.approvalThreshold : null).toBe('0');
   });
 });
 

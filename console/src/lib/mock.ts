@@ -72,7 +72,8 @@ const DESCRIPTIONS: Record<Envelope['action'], string> = {
   fund_mandate: 'Moves test USDC from your wallet into the mandate.',
   pause: 'Pauses the mandate so every payout is blocked.',
   resume: 'Resumes the mandate so the agent can pay inside the rules again.',
-  revoke: 'Closes the mandate for good and returns its USDC to your wallet.',
+  revoke: 'Revokes the mandate for good. Nothing can be paid from it again.',
+  sweep: 'Moves everything the revoked mandate holds back to your wallet.',
   approve: 'Approves the waiting payout.',
   reject: 'Rejects the waiting payout.',
   withdraw: 'Moves USDC from the mandate back to your wallet.',
@@ -281,11 +282,15 @@ export function createMockApi(options: { delayMs?: number; now?: () => number } 
         return {};
       case 'revoke': {
         const m = mandateOf(mandateId);
+        m.revoked = true;
+        for (const p of m.payouts) if (p.status === 'pending_approval') p.status = 'cancelled';
+        return {};
+      }
+      case 'sweep': {
+        const m = mandateOf(mandateId);
         const a = acct(e.source);
         a.usdc = addMinor(a.usdc ?? '0', m.balance);
         m.balance = '0';
-        m.revoked = true;
-        for (const p of m.payouts) if (p.status === 'pending_approval') p.status = 'cancelled';
         return {};
       }
       case 'approve':

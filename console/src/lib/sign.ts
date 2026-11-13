@@ -7,16 +7,21 @@
 import type { ConsoleApi, TxAction } from './api';
 import type { Config, SubmitResult, UnsignedTx } from './schemas';
 import type { Wallet } from './wallet';
+import { reasonText } from './words';
 
 export class TxFailedError extends Error {
   readonly hash: string;
+  readonly reason: string | null;
 
-  constructor(hash: string) {
+  constructor(hash: string, reason: string | null) {
     super(
-      'The network refused this transaction. Nothing moved. Open it on Stellar Expert to see why.',
+      reason === null
+        ? 'The network refused this transaction. Nothing moved. Open it on Stellar Expert to see why.'
+        : `The network refused this transaction, so nothing moved. ${reasonText(reason)}`,
     );
     this.name = 'TxFailedError';
     this.hash = hash;
+    this.reason = reason;
   }
 }
 
@@ -31,7 +36,9 @@ export async function signAndSubmit(
     ...(tx.description === undefined ? {} : { description: tx.description }),
   });
   const result = await api.submitTx(signed);
-  if (result.status !== 'SUCCESS') throw new TxFailedError(result.hash);
+  if (result.status !== 'SUCCESS') {
+    throw new TxFailedError(result.hash, typeof result.reason === 'string' ? result.reason : null);
+  }
   return result;
 }
 

@@ -10,6 +10,7 @@ import { ErrorNotice, Field, Notice, Spinner } from '../components/ui';
 import {
   DEFAULT_DRAFT,
   MAX_LABEL,
+  maxRecipients,
   validateDraft,
   type DraftErrors,
   type MandateDraft,
@@ -47,7 +48,9 @@ function RecipientsEditor({
   setDraft: (d: MandateDraft) => void;
   errors: DraftErrors;
 }) {
-  const { api, notify } = useApp();
+  const { api, config, notify } = useApp();
+  const limit = maxRecipients(config.sdpAvailable);
+  const full = draft.recipients.length >= limit;
   const addTest = useAction(async () => {
     const r = await api.testRecipient();
     const label = nextName(draft.recipients.map((x) => x.label));
@@ -118,7 +121,7 @@ function RecipientsEditor({
           type="button"
           className="btn"
           onClick={() => void addTest.run()}
-          disabled={addTest.busy}
+          disabled={addTest.busy || full}
         >
           {addTest.busy ? <Spinner /> : null}
           {addTest.busy ? 'Making a test wallet' : 'Add a test recipient'}
@@ -126,6 +129,7 @@ function RecipientsEditor({
         <button
           type="button"
           className="btn btn-ghost"
+          disabled={full}
           onClick={() => {
             setDraft({
               ...draft,
@@ -139,6 +143,9 @@ function RecipientsEditor({
           Paste an address
         </button>
       </div>
+      {full ? (
+        <p className="muted small">That is the most one signature can add ({limit}).</p>
+      ) : null}
       {errors.recipients === undefined ? null : <p className="error-text">{errors.recipients}</p>}
       {addTest.error === null ? null : <ErrorNotice error={addTest.error} />}
     </fieldset>
@@ -164,7 +171,7 @@ function stepsFor(plan: MandatePlan): SigningStep[] {
 }
 
 function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePlan) => void }) {
-  const { api } = useApp();
+  const { api, config } = useApp();
   const account = useResource(`account:${wallet.address}`, () => api.account(wallet.address));
   const [draft, setDraft] = useState<MandateDraft>(DEFAULT_DRAFT);
   const [errors, setErrors] = useState<DraftErrors>({});
@@ -174,6 +181,7 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
   const check = (d: MandateDraft) =>
     validateDraft(d, {
       nowSeconds: nowSeconds(),
+      maxRecipients: maxRecipients(config.sdpAvailable),
       ...(walletUsdc === undefined ? {} : { walletUsdc }),
     });
 
@@ -246,7 +254,7 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
             value={draft.approvalThreshold}
             onChange={set('approvalThreshold')}
             error={errors.approvalThreshold}
-            help="Payouts of this amount or more wait until you approve them in your wallet."
+            help="Payouts of this amount or more wait until you approve them in your wallet. Use 0 to approve every payout."
           />
           <Field
             label="Ends after"

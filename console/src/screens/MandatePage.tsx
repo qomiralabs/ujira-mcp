@@ -128,21 +128,45 @@ function Rules({ m }: { m: Mandate }) {
   );
 }
 
+type RevokeStep = 'idle' | 'revoke' | 'sweep' | 'done';
+
 function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) {
   const { api, config, wallet, notify } = useApp();
   const [lastTx, setLastTx] = useState<{ what: string; hash: string } | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [revokeStep, setRevokeStep] = useState<RevokeStep>('idle');
   const [fund, setFund] = useState('10');
   const [fundError, setFundError] = useState<string | undefined>(undefined);
   const status = mandateStatus(m.state);
   const owner = wallet !== null && wallet.address === m.principal;
+  const held = compareMinor(m.state.balance, '0') > 0;
 
   const act = useAction(async (action: TxAction, what: string, params: Record<string, unknown>) => {
     if (wallet === null) return;
     const res = await buildSignSubmit(api, config, wallet, action, params);
     setLastTx({ what, hash: res.hash });
     notify(what);
+    onChanged();
+  });
+
+  // Revoking takes two signatures: the first stops the mandate for good, the
+  // second moves what it still holds back to the owner's wallet.
+  const revoke = useAction(async () => {
+    if (wallet === null) return;
+    if (status !== 'revoked') {
+      setRevokeStep('revoke');
+      const res = await buildSignSubmit(api, config, wallet, 'revoke', { mandate: m.id });
+      setLastTx({ what: 'Step 1 of 2: the mandate is revoked.', hash: res.hash });
+      onChanged();
+    }
+    if (held) {
+      setRevokeStep('sweep');
+      const res = await buildSignSubmit(api, config, wallet, 'sweep', { mandate: m.id });
+      setLastTx({ what: 'Step 2 of 2: the funds are back in your wallet.', hash: res.hash });
+    }
+    setRevokeStep('done');
     setConfirmRevoke(false);
+    notify('The mandate is revoked and its funds are back in your wallet.');
     onChanged();
   });
 
@@ -160,6 +184,9 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
     );
   }
 
+  const busy = act.busy || revoke.busy;
+  const error = act.error ?? (confirmRevoke ? null : revoke.error);
+
   return (
     <section className="card" aria-labelledby="owner-title">
       <h2 id="owner-title" className="card-title">
@@ -167,7 +194,29 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
       </h2>
       <p className="muted">Each change is a transaction you sign in your wallet.</p>
       {status === 'revoked' || status === 'expired' ? (
-        <p>{MANDATE_STATUS[status].help}</p>
+        <>
+          <p>{MANDATE_STATUS[status].help}</p>
+          {held ? (
+            <div className="stack-sm">
+              <p className="small">
+                It still holds {formatUsdc(m.state.balance)}. Sign once to move it back to your
+                wallet.
+              </p>
+              <div className="actions">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() =>
+                    void act.run('sweep', 'The funds are back in your wallet.', { mandate: m.id })
+                  }
+                >
+                  Return the funds
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           <div className="actions">
@@ -175,7 +224,7 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
               <button
                 type="button"
                 className="btn"
-                disabled={act.busy}
+                disabled={busy}
                 onClick={() =>
                   void act.run('resume', 'The mandate is active again.', { mandate: m.id })
                 }
@@ -187,7 +236,7 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
               <button
                 type="button"
                 className="btn"
-                disabled={act.busy}
+                disabled={busy}
                 onClick={() => void act.run('pause', 'The mandate is paused.', { mandate: m.id })}
               >
                 <BrandIcon name="pause" size={18} />
@@ -197,8 +246,10 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
             <button
               type="button"
               className="btn btn-danger-ghost"
-              disabled={act.busy}
+              disabled={busy}
               onClick={() => {
+                revoke.clear();
+                setRevokeStep('idle');
                 setConfirmRevoke(true);
               }}
             >
@@ -206,8 +257,8 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
             </button>
           </div>
           <p className="muted small">
-            Pause blocks every payout until you resume. Revoke closes the mandate for good and sends
-            what it holds back to your wallet.
+            Pause blocks every payout until you resume. Revoke closes the mandate for good and
+            returns what it holds to your wallet.
           </p>
           <form
             className="inline-form"
@@ -237,7 +288,7 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
               onChange={setFund}
               error={fundError}
             />
-            <button type="submit" className="btn" disabled={act.busy}>
+            <button type="submit" className="btn" disabled={busy}>
               Add funds
             </button>
           </form>
@@ -248,7 +299,7 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
           <Spinner /> Waiting for your wallet, then for Stellar.
         </p>
       ) : null}
-      {act.error === null ? null : <ErrorNotice error={act.error} />}
+      {error === null ? null : <ErrorNotice error={error} />}
       {lastTx === null ? null : (
         <p className="small">
           {lastTx.what} <TxLink hash={lastTx.hash} />
@@ -257,23 +308,38 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
       <ConfirmDialog
         open={confirmRevoke}
         title="Revoke this mandate?"
-        confirmLabel="Revoke and return funds"
+        confirmLabel={revoke.error === null ? 'Revoke and return funds' : 'Try again'}
         danger
-        busy={act.busy}
+        busy={revoke.busy}
         onCancel={() => {
           setConfirmRevoke(false);
         }}
-        onConfirm={() =>
-          void act.run('revoke', 'The mandate is revoked and its funds are back in your wallet.', {
-            mandate: m.id,
-          })
-        }
+        onConfirm={() => void revoke.run()}
       >
         <p>
-          It stops for good. The {formatUsdc(m.state.balance)} it holds goes back to your wallet,
-          and payouts waiting for approval are cancelled. This cannot be undone.
+          It stops for good and payouts waiting for approval are cancelled. This cannot be undone.
+          Your wallet asks you to sign twice:
         </p>
-        {act.error === null ? null : <ErrorNotice error={act.error} />}
+        <ol className="numbered">
+          <li>
+            <strong>Revoke.</strong> Stops the mandate.
+            {revokeStep === 'sweep' || revokeStep === 'done' ? ' Done.' : null}
+          </li>
+          <li>
+            <strong>Return the funds.</strong> Moves the {formatUsdc(m.state.balance)} it holds back
+            to your wallet.
+            {revokeStep === 'done' ? ' Done.' : null}
+          </li>
+        </ol>
+        {revoke.busy ? (
+          <p className="muted small" role="status">
+            <Spinner />{' '}
+            {revokeStep === 'sweep'
+              ? 'Step 2 of 2: sign in your wallet to return the funds.'
+              : 'Step 1 of 2: sign in your wallet to revoke.'}
+          </p>
+        ) : null}
+        {revoke.error === null ? null : <ErrorNotice error={revoke.error} />}
       </ConfirmDialog>
     </section>
   );

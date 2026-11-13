@@ -10,7 +10,7 @@ import type { Mandate, Payout, Receipt } from '../lib/schemas';
 import { buildSignSubmit } from '../lib/sign';
 import { shortAddress } from '../lib/strkey';
 import { statusWord } from '../lib/words';
-import { RequestNotice } from './AgentPanel';
+import { RequestNotice, SdpWait } from './AgentPanel';
 import {
   Amount,
   BrandIcon,
@@ -125,6 +125,7 @@ function ApprovalItem({
           </span>
         </div>
       )}
+      {payNow.busy && p.rail === 'sdp' ? <SdpWait /> : null}
       {!owner && p.status === 'pending_approval' ? (
         <p className="muted small">Only the owner wallet can approve or reject.</p>
       ) : null}

@@ -90,7 +90,44 @@ describe('createHttpApi', () => {
     expect(failure).toMatchObject({
       code: 'faucet_used',
       status: 429,
-      message: 'This wallet already received its test USDC.',
+      message: 'This wallet already received its test USDC. Each wallet gets it once.',
+    });
+  });
+
+  it('keeps the server sentence for codes it has no words for', async () => {
+    const api = createHttpApi(() =>
+      Promise.resolve(
+        respond(400, {
+          error: { code: 'invalid_rules', message: 'The expiry must be within a year' },
+        }),
+      ),
+    );
+    await expect(api.buildTx('create_mandate', ADDRESS, {})).rejects.toMatchObject({
+      code: 'invalid_rules',
+      message: 'The expiry must be within a year.',
+    });
+  });
+
+  it('turns contract reasons into plain words', async () => {
+    const api = createHttpApi(() =>
+      Promise.resolve(
+        respond(400, { error: { code: 'mandate_paused', message: 'mandate_paused' } }),
+      ),
+    );
+    await expect(
+      api.quote(MANDATE, { recipient: 'Ada', amount: '1', rail: 'usdc' }),
+    ).rejects.toMatchObject({
+      message: 'The mandate is paused. Resume it to pay again.',
+    });
+  });
+
+  it('tells the person to press Pay now again after a gateway timeout', async () => {
+    const api = createHttpApi(() => Promise.resolve(respond(504, 'Gateway Timeout')));
+    await expect(
+      api.request(MANDATE, { recipient: 'Ada', amount: '1', rail: 'sdp', taskId: 't-3' }),
+    ).rejects.toMatchObject({
+      code: 'timeout',
+      message: expect.stringMatching(/press Pay now again/) as unknown,
     });
   });
 

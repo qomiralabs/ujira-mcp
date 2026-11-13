@@ -25,7 +25,54 @@ const REASONS: Record<string, string> = {
   payout_rejected: 'The approver rejected this payout.',
   payout_expired: 'The request ran out of time before it was approved.',
   input_invalid: 'Something in the request was not valid.',
+  already_paused: 'The mandate is already paused.',
+  not_paused: 'The mandate is not paused, so there is nothing to resume.',
+  already_revoked: 'The mandate is already revoked.',
 };
+
+// Sentences for the console API's error codes. Where the server's own
+// message says more (it names the field or the amount), that one is kept.
+const API_ERRORS: Record<string, string> = {
+  invalid_request: 'The request was not valid. Check the values and try again.',
+  invalid_json: 'The request could not be read. Reload the page and try again.',
+  body_too_large: 'That request is too large to send.',
+  rate_limited: 'Too many tries in a short time. Wait a minute and try again.',
+  account_not_found: 'This wallet does not exist on testnet yet. Get test XLM first.',
+  trustline_missing: 'This wallet cannot hold USDC yet. Add the USDC trustline first.',
+  faucet_used: 'This wallet already received its test USDC. Each wallet gets it once.',
+  faucet_busy: 'Test USDC for this wallet is already on its way. Wait a few seconds.',
+  faucet_empty:
+    'The test USDC faucet is empty right now. Try https://faucet.circle.com (Stellar testnet).',
+  faucet_disabled:
+    'The test USDC faucet is offline on this server. Get test USDC at https://faucet.circle.com (Stellar testnet).',
+  tx_not_allowed: 'The server only sends UJIRA and USDC transactions, and this was neither.',
+  invalid_xdr: 'The wallet returned a transaction we could not read. Try signing again.',
+  unsigned: 'The transaction came back without a signature. Sign it in your wallet.',
+  tx_rejected: 'Stellar refused the transaction. Nothing moved. Try again in a moment.',
+  submission_unknown:
+    'Stellar has not confirmed the transaction yet. Wait a minute and refresh before trying again.',
+  simulation_failed: 'The transaction would fail on chain, so it was not sent. Nothing moved.',
+  not_owner: 'Only the wallet that owns this mandate can do that.',
+  already_allowed: 'Every one of these recipients is already allowed. Nothing to sign.',
+  too_many_recipients: 'Too many recipients for one transaction. Add fewer at a time.',
+  duplicate_recipient: 'Each recipient and each name may appear only once.',
+  mandate_not_found: 'This server does not know that mandate. Check the link or create a new one.',
+  timeout:
+    'This took longer than the page can wait. The payout carries on: press Pay now again and it resumes without paying twice.',
+  rpc_timeout: 'The Stellar network took too long to answer. Try again in a moment.',
+  rpc_unavailable: 'The Stellar network is not answering right now. Try again in a moment.',
+  task_conflict: 'This task ID was already used for a different payout. Use a new task ID.',
+  internal_error: 'Something went wrong on the server. Try again in a moment.',
+};
+
+/** A sentence for an API error code, falling back to the server's message. */
+export function apiErrorText(code: string, serverMessage: string): string {
+  const own = API_ERRORS[code] ?? REASONS[code];
+  if (own !== undefined) return own;
+  const m = serverMessage.trim();
+  if (m === '') return 'Something went wrong. Try again.';
+  return /[.!?]$/.test(m) ? m : `${m}.`;
+}
 
 function sentence(code: string): string {
   const words = code.replace(/[_-]+/g, ' ').trim();

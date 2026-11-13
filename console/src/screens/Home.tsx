@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
@@ -189,7 +189,7 @@ function SetupStep(props: {
   n: number;
   state: StepState;
   title: string;
-  text: string;
+  text: ReactNode;
   detail?: string | undefined;
   action?: { label: string; busy: boolean; onClick: () => void; disabled?: boolean } | undefined;
 }) {
@@ -308,9 +308,17 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
             state={s.usdc}
             title={`Get ${formatAmount(faucetAmount)} test USDC`}
             text={
-              faucetEnabled
-                ? 'Our faucet sends test USDC you can put in a mandate. Once per wallet.'
-                : 'The faucet is off on this server right now. Ask the team for test USDC.'
+              faucetEnabled ? (
+                'Our faucet sends test USDC you can put in a mandate. Once per wallet.'
+              ) : (
+                <>
+                  Faucet offline, get test USDC at{' '}
+                  <a href="https://faucet.circle.com" target="_blank" rel="noreferrer">
+                    https://faucet.circle.com
+                  </a>{' '}
+                  (Stellar testnet).
+                </>
+              )
             }
             detail={
               a?.usdc === null || a?.usdc === undefined

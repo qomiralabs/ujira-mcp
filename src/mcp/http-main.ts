@@ -10,6 +10,7 @@ import { accessSync, constants, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { createEngine, loadSettings } from '../config.js';
+import { consoleFromEnv } from '../console/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from './http.js';
 import { loadHttpSettings } from './public.js';
@@ -41,14 +42,19 @@ function main(): void {
   const settings = loadSettings();
   const http = loadHttpSettings();
   checkReceiptsWritable(settings.receiptsPath);
-  const { engine } = createEngine(settings);
+  const wiring = createEngine(settings);
+  const { routes, settings: consoleSettings } = consoleFromEnv(settings, wiring, http, log);
   const server = createHttpServer({
-    engine,
+    engine: wiring.engine,
     settings: http,
     assetCode: settings.assetCode,
     recipients: [...settings.recipientRefs.keys()],
     log,
+    extra: routes,
   });
+  log(
+    `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}`,
+  );
   server.on('error', (error: NodeJS.ErrnoException) => {
     process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
     process.exit(1);

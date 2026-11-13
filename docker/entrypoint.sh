@@ -11,6 +11,11 @@ if [ "$(id -u)" = "0" ]; then
   dir=$(dirname "${UJIRA_RECEIPTS_FILE:-/data/receipts.json}")
   mkdir -p "$dir"
   chown node:node "$dir"
+  # The console registry lives in the data directory, the receipts one unless set apart.
+  if [ -n "${UJIRA_DATA_DIR:-}" ]; then
+    mkdir -p "$UJIRA_DATA_DIR"
+    chown node:node "$UJIRA_DATA_DIR"
+  fi
   exec setpriv --reuid=node --regid=node --init-groups -- "$@"
 fi
 exec "$@"

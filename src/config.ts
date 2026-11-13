@@ -150,7 +150,9 @@ export function loadSettings(env: Env = process.env): Settings {
     recipientRefs,
     agent,
     executor,
-    receiptsPath: set(env, 'UJIRA_RECEIPTS_FILE') ?? join(homedir(), '.ujira-mcp', 'receipts.json'),
+    receiptsPath:
+      set(env, 'UJIRA_RECEIPTS_FILE') ??
+      join(set(env, 'UJIRA_DATA_DIR') ?? join(homedir(), '.ujira-mcp'), 'receipts.json'),
     ...(sdp === undefined ? {} : { sdp }),
   };
 }
@@ -209,6 +211,8 @@ export interface Wiring {
   readonly engine: PayoutEngine;
   readonly mandate: MandateClient;
   readonly gateway: SorobanGateway;
+  /** One log per process: its writes are serialized in memory, so a second one on the same file would race. */
+  readonly receipts: ReceiptLog;
 }
 
 /**
@@ -230,15 +234,16 @@ export function createEngine(
   const rails: PayoutRail[] = [new UsdcRail(mandate, settings.executor)];
   if (settings.sdp !== undefined) rails.push(sdpRail(settings, settings.sdp, mandate));
   rails.push(...(options.extraRails?.(mandate) ?? []));
+  const receipts = new ReceiptLog(settings.receiptsPath);
   const engine = new PayoutEngine({
     mandate,
     agent: settings.agent,
     rails,
-    receipts: new ReceiptLog(settings.receiptsPath),
+    receipts,
     assetCode: settings.assetCode,
     network: settings.network,
     recipientRefs: settings.recipientRefs,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
-  return { engine, mandate, gateway };
+  return { engine, mandate, gateway, receipts };
 }

@@ -32,6 +32,7 @@ import {
   type ConsoleLimits,
   type ConsoleSettings,
 } from '../src/console/settings.js';
+import { TestWalletStore } from '../src/console/wallets.js';
 import { createHttpServer } from '../src/mcp/http.js';
 import { DEFAULT_MAX_AMOUNT, type HttpSettings } from '../src/mcp/public.js';
 import { TESTNET_PASSPHRASE, type TxSigner } from '../src/stellar/gateway.js';
@@ -113,6 +114,8 @@ export function consoleSettings(
     usdc: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
     treasury,
     faucetAmount: 50n * UNIT,
+    faucetCooldownSeconds: 600,
+    recycleIntervalSeconds: 300,
     faucetFloor: 100n * UNIT,
     sdpProofUrl: 'https://qomiralabs.github.io/ujira-demo/instaward.html',
     ...over,
@@ -148,6 +151,7 @@ export interface World {
   registry: ConsoleRegistry;
   settings: ConsoleSettings;
   lines: string[];
+  wallets: TestWalletStore | undefined;
 }
 
 export async function startConsole(
@@ -156,11 +160,17 @@ export async function startConsole(
     sdp?: ConsoleSdp;
     register?: boolean;
     keypairs?: Keypair[];
+    /** false runs without a test wallet store, as a server without a treasury does. */
+    wallets?: boolean;
   } = {},
 ): Promise<World> {
   const world = setup();
   const settings = options.settings ?? consoleSettings();
   const registry = ConsoleRegistry.open(join(settings.dataDir, 'console-registry.json'));
+  const wallets =
+    options.wallets === false
+      ? undefined
+      : TestWalletStore.open(join(settings.dataDir, 'test-wallets.json'));
   if (options.register !== false) {
     await registry.addMandate({
       id: MANDATE,
@@ -184,6 +194,7 @@ export async function startConsole(
     receipts: world.receipts,
     registry,
     chain,
+    ...(wallets === undefined ? {} : { wallets }),
     ...(options.sdp === undefined ? {} : { sdp: options.sdp }),
     now: () => Number(world.rpc.now) * 1000,
     log: (line) => lines.push(line),
@@ -206,6 +217,7 @@ export async function startConsole(
     registry,
     settings,
     lines,
+    wallets,
   };
 }
 

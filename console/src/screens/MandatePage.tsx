@@ -8,6 +8,7 @@ import { useAction, useResource } from '../app/hooks';
 import { AgentPanel } from '../components/AgentPanel';
 import { Approvals } from '../components/Approvals';
 import { ReceiptsTable } from '../components/ReceiptsTable';
+import { TopUpPanel } from '../components/TopUp';
 import {
   Amount,
   BrandIcon,
@@ -294,6 +295,14 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
           </form>
         </>
       )}
+      <TopUpPanel
+        wallet={wallet}
+        intro={
+          status === 'revoked' || status === 'expired'
+            ? 'Want to try again with a new mandate? The faucet tops your wallet up with test USDC.'
+            : 'Wallet running low? The faucet tops it up with test USDC, then add funds above.'
+        }
+      />
       {act.busy ? (
         <p className="muted small" role="status">
           <Spinner /> Waiting for your wallet, then for Stellar.

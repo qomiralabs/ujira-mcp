@@ -25,7 +25,15 @@ export const configSchema = z.looseObject({
   executor: z.optional(z.string()),
   sdpAvailable: z.boolean(),
   sdpProofUrl: z.optional(z.string()),
-  faucet: z.optional(z.looseObject({ amount: minor, enabled: z.boolean() })),
+  faucet: z.optional(
+    z.looseObject({
+      amount: minor,
+      enabled: z.boolean(),
+      // The faucet tops a wallet up to target; older servers sent only amount.
+      target: z.optional(minor),
+      cooldownSeconds: z.optional(z.number().check(z.nonnegative())),
+    }),
+  ),
 });
 export type Config = z.infer<typeof configSchema>;
 
@@ -148,5 +156,9 @@ export type Receipt = z.infer<typeof receiptSchema>;
 export const receiptListSchema = z.looseObject({ receipts: z.array(receiptSchema) });
 
 export const errorBodySchema = z.looseObject({
-  error: z.looseObject({ code: z.string(), message: z.string() }),
+  error: z.looseObject({
+    code: z.string(),
+    message: z.string(),
+    retryAfterSeconds: z.optional(z.number().check(z.nonnegative())),
+  }),
 });

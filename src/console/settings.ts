@@ -48,7 +48,12 @@ export interface ConsoleSettings {
   readonly factory: string;
   readonly usdc: { readonly code: 'USDC'; readonly issuer: string; readonly contract: string };
   readonly treasury?: TxSigner;
+  /** The faucet tops a wallet up to this many minor units. */
   readonly faucetAmount: bigint;
+  /** The least time between two top ups of one wallet. */
+  readonly faucetCooldownSeconds: number;
+  /** How often test recipients send what they received back to the treasury. */
+  readonly recycleIntervalSeconds: number;
   /** The faucet stops once the treasury would drop below this. */
   readonly faucetFloor: bigint;
   readonly sdpProofUrl: string;
@@ -149,6 +154,8 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
     },
     ...(treasury === undefined ? {} : { treasury }),
     faucetAmount,
+    faucetCooldownSeconds: whole(env, 'UJIRA_FAUCET_COOLDOWN_SECONDS', 600, 0, 7 * 86_400),
+    recycleIntervalSeconds: whole(env, 'UJIRA_RECYCLE_INTERVAL_SECONDS', 300, 10, 86_400),
     // Two claims' worth stays back by default, so a drained faucet still leaves the operator's own demos funded.
     faucetFloor: amount(env, 'UJIRA_FAUCET_FLOOR', faucetAmount * 2n),
     sdpProofUrl: url(env, 'UJIRA_SDP_PROOF_URL', SDP_PROOF_URL),
@@ -165,4 +172,9 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
 /** Where the registry lives inside the data directory. */
 export function registryPath(settings: Pick<ConsoleSettings, 'dataDir'>): string {
   return join(settings.dataDir, 'console-registry.json');
+}
+
+/** The test recipients' keys, kept apart from the registry. */
+export function testWalletsPath(settings: Pick<ConsoleSettings, 'dataDir'>): string {
+  return join(settings.dataDir, 'test-wallets.json');
 }

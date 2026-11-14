@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
+import { FaucetOffline, TopUpResult, useTopUp } from '../components/TopUp';
 import {
   BrandIcon,
   ErrorNotice,
@@ -192,7 +193,11 @@ function SetupStep(props: {
   text: ReactNode;
   detail?: string | undefined;
   action?: { label: string; busy: boolean; onClick: () => void; disabled?: boolean } | undefined;
+  /** The action stays usable once the step is done, like a top up. */
+  repeatable?: boolean;
 }) {
+  const showAction = props.action !== undefined && (props.state !== 'done' || props.repeatable);
+  const usable = props.state === 'next' || (props.state === 'done' && props.repeatable === true);
   return (
     <li className={`setup-step setup-${props.state}`}>
       <span className="setup-n" aria-hidden="true">
@@ -212,11 +217,11 @@ function SetupStep(props: {
         <p className="muted">{props.text}</p>
         {props.detail === undefined ? null : <p className="setup-detail">{props.detail}</p>}
       </div>
-      {props.state !== 'done' && props.action !== undefined ? (
+      {showAction && props.action !== undefined ? (
         <button
           type="button"
           className={props.state === 'next' ? 'btn btn-primary' : 'btn'}
-          disabled={props.state !== 'next' || props.action.busy || props.action.disabled === true}
+          disabled={!usable || props.action.busy || props.action.disabled === true}
           onClick={props.action.onClick}
         >
           {props.action.busy ? <Spinner /> : null}
@@ -247,8 +252,7 @@ function setupStates(a: Account | undefined): {
 export function SetupChecklist({ wallet }: { wallet: Wallet }) {
   const { api, config, notify } = useApp();
   const account = useResource(`account:${wallet.address}`, () => api.account(wallet.address));
-  const faucetAmount = config.faucet?.amount ?? '500000000';
-  const faucetEnabled = config.faucet?.enabled !== false;
+  const topUp = useTopUp(wallet, account.reload);
   const xlm = useAction(async () => {
     await api.onboardXlm(wallet.address);
     notify('Your wallet now has test XLM.');
@@ -260,14 +264,9 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
     notify('Your wallet can now hold USDC.');
     account.reload();
   });
-  const usdc = useAction(async () => {
-    const res = await api.onboardUsdc(wallet.address);
-    notify(`${formatAmount(res.amount)} test USDC arrived in your wallet.`);
-    account.reload();
-  });
   const a = account.data;
   const s = setupStates(a);
-  const error = xlm.error ?? trust.error ?? usdc.error;
+  const error = xlm.error ?? trust.error;
 
   return (
     <section className="card" aria-labelledby="setup-title">
@@ -277,7 +276,9 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
         </h2>
         {s.ready ? <span className="muted">All set</span> : null}
       </div>
-      <p className="muted">Three quick steps, once per wallet. Everything here is test money.</p>
+      <p className="muted">
+        Three quick steps. Come back to top up whenever you run low. Everything here is test money.
+      </p>
       {account.loading ? (
         <Skeleton lines={3} label="Checking your wallet" />
       ) : account.error !== null && a === undefined ? (
@@ -306,18 +307,12 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
           <SetupStep
             n={3}
             state={s.usdc}
-            title={`Get ${formatAmount(faucetAmount)} test USDC`}
+            title="Get test USDC"
             text={
-              faucetEnabled ? (
-                'Our faucet sends test USDC you can put in a mandate. Once per wallet.'
+              topUp.enabled ? (
+                `Our faucet tops your wallet up so you can fund a mandate. ${topUp.hint}`
               ) : (
-                <>
-                  Faucet offline, get test USDC at{' '}
-                  <a href="https://faucet.circle.com" target="_blank" rel="noreferrer">
-                    https://faucet.circle.com
-                  </a>{' '}
-                  (Stellar testnet).
-                </>
+                <FaucetOffline />
               )
             }
             detail={
@@ -326,15 +321,17 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
                 : `${formatAmount(a.usdc)} USDC in your wallet`
             }
             action={{
-              label: `Get ${formatAmount(faucetAmount)} USDC`,
-              busy: usdc.busy,
-              onClick: () => void usdc.run(),
-              disabled: !faucetEnabled,
+              label: topUp.label,
+              busy: topUp.busy,
+              onClick: topUp.run,
+              disabled: !topUp.enabled,
             }}
+            repeatable
           />
         </ol>
       )}
       {error === null ? null : <ErrorNotice error={error} />}
+      <TopUpResult t={topUp} />
       <div className="actions">
         <a href="#/new" className={s.ready ? 'btn btn-primary' : 'btn'}>
           Create a mandate

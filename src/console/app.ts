@@ -60,6 +60,7 @@ import {
   trustlineTx,
   type BuildRequest,
 } from './txbuild.js';
+import type { TestWalletStore } from './wallets.js';
 
 export const EXPLORER_TX = 'https://stellar.expert/explorer/testnet/tx/';
 const EXPLORER_CONTRACT = 'https://stellar.expert/explorer/testnet/contract/';
@@ -77,6 +78,8 @@ export interface ConsoleOptions {
   readonly sdp?: ConsoleSdp;
   readonly now?: () => number;
   readonly log?: (line: string) => void;
+  /** Where test recipients' keys are kept for recycling; without it they are discarded. */
+  readonly wallets?: TestWalletStore;
   /** For tests: the keypair a test recipient gets. */
   readonly newKeypair?: () => Keypair;
 }
@@ -118,6 +121,13 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+/** A wait in words: "45 seconds", "1 minute", "7 minutes". */
+export function waitWords(seconds: number): string {
+  if (seconds < 60) return seconds === 1 ? '1 second' : `${String(seconds)} seconds`;
+  const minutes = Math.ceil(seconds / 60);
+  return minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+}
+
 export function createConsole(o: ConsoleOptions): ExtraRoutes {
   const { settings, registry, chain } = o;
   const now = o.now ?? Date.now;
@@ -156,7 +166,9 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     const hit = limiter.take(key);
     if (!hit.ok) {
       const minutes = Math.max(1, Math.ceil(hit.retryAfterMs / 60_000));
-      throw new ApiError(429, 'rate_limited', `Too many ${what}; try again in ${minutes} minutes`);
+      throw new ApiError(429, 'rate_limited', `Too many ${what}; try again in ${minutes} minutes`, {
+        retryAfterSeconds: Math.max(1, Math.ceil(hit.retryAfterMs / 1000)),
+      });
     }
   }
 
@@ -220,7 +232,10 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       sdpAvailable: o.sdp !== undefined,
       sdpProofUrl: settings.sdpProofUrl,
       faucet: {
+        // amount is kept for pages built before top ups; it is the target.
         amount: settings.faucetAmount.toString(),
+        target: settings.faucetAmount.toString(),
+        cooldownSeconds: settings.faucetCooldownSeconds,
         enabled: settings.treasury !== undefined,
       },
     };
@@ -265,26 +280,45 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       );
     }
     const { address: addr } = parse(addressBody, raw);
-    if (registry.faucetClaim(addr) !== undefined) {
-      throw new ApiError(409, 'faucet_used', 'This wallet already received test USDC');
-    }
     if (faucetBusy.has(addr)) {
       throw new ApiError(409, 'faucet_busy', 'Test USDC for this wallet is already on its way');
     }
+    // Checked before any network call, so a caller hammering one wallet costs nothing.
+    const last = registry.faucetClaim(addr);
+    const waitMs =
+      last === undefined ? 0 : Date.parse(last.at) + settings.faucetCooldownSeconds * 1000 - now();
+    if (waitMs > 0) {
+      const seconds = Math.ceil(waitMs / 1000);
+      throw new ApiError(
+        429,
+        'faucet_cooldown',
+        `This wallet was topped up a moment ago; try again in ${waitWords(seconds)}`,
+        { retryAfterSeconds: seconds },
+      );
+    }
+    const target = settings.faucetAmount;
     faucetBusy.add(addr);
     try {
-      const target = await chain.account(addr, settings.usdc);
-      if (!target.exists) {
+      const wallet = await chain.account(addr, settings.usdc);
+      if (!wallet.exists) {
         throw new ApiError(400, 'account_not_found', 'Get test XLM first, so the wallet exists');
       }
-      if (target.usdc === null) {
+      if (wallet.usdc === null) {
         throw new ApiError(400, 'trustline_missing', 'Add the USDC trustline first');
       }
+      if (wallet.usdc >= target) {
+        throw new ApiError(
+          409,
+          'faucet_not_needed',
+          `This wallet already holds ${formatUnits(wallet.usdc)} USDC, at or above the ${formatUnits(target)} USDC the faucet tops up to`,
+        );
+      }
+      const amount = target - wallet.usdc;
       const held = (await chain.account(treasury.publicKey, settings.usdc)).usdc ?? 0n;
-      if (held < settings.faucetFloor + settings.faucetAmount) {
+      if (held < settings.faucetFloor + amount) {
         throw new ApiError(503, 'faucet_empty', 'The test USDC faucet is empty for now');
       }
-      take(limiters.faucet, client, 'faucet claims from your address');
+      take(limiters.faucet, client, 'faucet top ups from your address');
       const tx = new TransactionBuilder(await chain.loadAccount(treasury.publicKey), {
         fee: INCLUSION_FEE,
         networkPassphrase: TESTNET_PASSPHRASE,
@@ -293,7 +327,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
           Operation.payment({
             destination: addr,
             asset: new Asset(settings.usdc.code, settings.usdc.issuer),
-            amount: formatUnits(settings.faucetAmount),
+            amount: formatUnits(amount),
           }),
         )
         .setTimeout(60)
@@ -308,7 +342,13 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         hash: sent.hash,
         at: new Date(now()).toISOString(),
       });
-      return { hash: sent.hash, amount: settings.faucetAmount.toString() };
+      return {
+        hash: sent.hash,
+        amount: amount.toString(),
+        balance: target.toString(),
+        target: target.toString(),
+        cooldownSeconds: settings.faucetCooldownSeconds,
+      };
     } finally {
       faucetBusy.delete(addr);
     }
@@ -336,7 +376,6 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     await chain.friendbot(addr);
     const tx = trustlineTx(await loadWithRetry(addr), settings.usdc);
     tx.sign(keypair);
-    // The secret goes out of scope here and is never stored: the wallet only ever receives.
     const sent = await chain.submit(tx);
     if (sent.status !== 'SUCCESS') {
       throw new ApiError(
@@ -344,6 +383,12 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         'recipient_failed',
         `The test wallet's trustline failed (${sent.hash})`,
       );
+    }
+    // Kept only so the recycler can send what this wallet is paid back to the
+    // faucet. Without a store the key goes out of scope here, never written.
+    if (o.wallets !== undefined) {
+      await o.wallets.add(keypair, new Date(now()).toISOString());
+      log(`test recipient ${addr} created, recycled to the faucet`);
     }
     return { address: addr, hash: sent.hash };
   }
@@ -646,7 +691,19 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     } catch (error) {
       const e = toApiError(error);
       if (e.status >= 500) log(`api error ${e.code}`);
-      send(res, e.status, { error: { code: e.code, message: e.message } }, headers);
+      const retry = e.retryAfterSeconds;
+      send(
+        res,
+        e.status,
+        {
+          error: {
+            code: e.code,
+            message: e.message,
+            ...(retry === undefined ? {} : { retryAfterSeconds: retry }),
+          },
+        },
+        retry === undefined ? headers : { ...headers, 'retry-after': String(retry) },
+      );
     }
   }
 

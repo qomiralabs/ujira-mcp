@@ -37,12 +37,15 @@ import { apiErrorText } from './words';
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
+  /** Set when the refusal clears with time, such as the faucet cooldown. */
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, retryAfterSeconds?: number) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -80,6 +83,7 @@ export interface ConsoleApi {
   account: (address: string) => Promise<Account>;
   onboardXlm: (address: string) => Promise<void>;
   trustline: (address: string) => Promise<UnsignedTx>;
+  /** Tops the wallet up to the faucet target; amount is what was sent. */
   onboardUsdc: (address: string) => Promise<{ hash: string; amount: string }>;
   testRecipient: () => Promise<{ address: string; hash?: string | null | undefined }>;
   buildTx: (
@@ -113,8 +117,13 @@ async function readError(res: Response): Promise<ApiError> {
   }
   const parsed = errorBodySchema.safeParse(body);
   if (parsed.success) {
-    const { code, message } = parsed.data.error;
-    return new ApiError(code, apiErrorText(code, message), res.status);
+    const { code, message, retryAfterSeconds } = parsed.data.error;
+    return new ApiError(
+      code,
+      apiErrorText(code, message, retryAfterSeconds),
+      res.status,
+      retryAfterSeconds,
+    );
   }
   if (res.status === 429) {
     return new ApiError(

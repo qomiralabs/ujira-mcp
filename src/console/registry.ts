@@ -2,8 +2,8 @@
 // Copyright 2026 Qomira Labs
 
 // What the console remembers that the chain does not tell it: which mandates
-// it created and for whom, the names people gave their recipients, and which
-// addresses already took from the faucet. One JSON file in the data
+// it created and for whom, the names people gave their recipients, and when
+// each address last took from the faucet. One JSON file in the data
 // directory, read once at start and rewritten whole on each change, through
 // a temporary file and a rename so a crash never leaves half a file.
 //
@@ -23,7 +23,7 @@ import { accountAddress, contractAddress, hex32 } from '../ids.js';
 /** Bounds that keep the file small whatever a flood of callers does. */
 export const MAX_MANDATES = 50_000;
 export const MAX_RECIPIENTS = 50;
-export const MAX_FAUCET_CLAIMS = 200_000;
+export const MAX_FAUCET_CLAIMS = 20_000;
 
 const txHash = z.string().regex(/^[0-9a-f]{64}$/);
 
@@ -175,10 +175,17 @@ export class ConsoleRegistry {
     return this.claims.get(address);
   }
 
+  /**
+   * Keeps only the latest top up per address, which is all the cooldown needs.
+   * Past the cap the oldest go first; by then their cooldown is long over.
+   */
   recordFaucet(claim: FaucetClaim): Promise<void> {
     return this.change((draft) => {
-      if (draft.faucet.length >= MAX_FAUCET_CLAIMS) draft.faucet.shift();
+      draft.faucet = draft.faucet.filter((c) => c.address !== claim.address);
       draft.faucet.push(claim);
+      if (draft.faucet.length > MAX_FAUCET_CLAIMS) {
+        draft.faucet.splice(0, draft.faucet.length - MAX_FAUCET_CLAIMS);
+      }
     });
   }
 }

@@ -43,7 +43,11 @@ function main(): void {
   const http = loadHttpSettings();
   checkReceiptsWritable(settings.receiptsPath);
   const wiring = createEngine(settings);
-  const { routes, settings: consoleSettings } = consoleFromEnv(settings, wiring, http, log);
+  const {
+    routes,
+    settings: consoleSettings,
+    recycler,
+  } = consoleFromEnv(settings, wiring, http, log);
   const server = createHttpServer({
     engine: wiring.engine,
     settings: http,
@@ -53,8 +57,9 @@ function main(): void {
     extra: routes,
   });
   log(
-    `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}`,
+    `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}, recycler ${recycler === undefined ? 'off' : `every ${String(consoleSettings.recycleIntervalSeconds)}s`}`,
   );
+  recycler?.start(consoleSettings.recycleIntervalSeconds * 1000);
   server.on('error', (error: NodeJS.ErrnoException) => {
     process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
     process.exit(1);
@@ -65,6 +70,7 @@ function main(): void {
     );
   });
   const stop = () => {
+    recycler?.stop();
     server.close();
     // Let a payout in flight finish, but not forever.
     setTimeout(() => process.exit(0), 10_000).unref();

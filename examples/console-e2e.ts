@@ -7,6 +7,11 @@
 //
 //   UJIRA_CONSOLE_URL=http://127.0.0.1:8787 npx tsx examples/console-e2e.ts
 //
+// It ends by waiting for the server's recycler to send the test recipient's
+// USDC back to the faucet, and for the faucet cooldown to pass so it can top
+// up again, so a full run takes about as long as the longer of the two
+// (UJIRA_RECYCLE_INTERVAL_SECONDS here should match the server's, default 300).
+//
 // The keypair is generated for this run and never written anywhere. Only
 // public facts (addresses, contract IDs, transaction hashes) are printed and
 // saved to evidence/console-e2e.json.
@@ -32,6 +37,7 @@ class ApiFailure extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -46,10 +52,26 @@ async function call(path: string, body?: unknown): Promise<Json> {
   });
   const json = (await res.json()) as Json;
   if (!res.ok) {
-    const error = json['error'] as { code?: string; message?: string } | undefined;
-    throw new ApiFailure(res.status, error?.code ?? 'unknown', error?.message ?? res.statusText);
+    const error = json['error'] as
+      { code?: string; message?: string; retryAfterSeconds?: number } | undefined;
+    throw new ApiFailure(
+      res.status,
+      error?.code ?? 'unknown',
+      error?.message ?? res.statusText,
+      error?.retryAfterSeconds,
+    );
   }
   return json;
+}
+
+/** Public reads from Horizon, for checking where the recycled USDC went. */
+async function horizon(url: string): Promise<Json> {
+  const res = await fetch(url, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`Horizon answered HTTP ${res.status}`);
+  return (await res.json()) as Json;
 }
 
 const sleep = (ms: number) =>
@@ -102,17 +124,32 @@ async function main(): Promise<void> {
   const build = (action: string, params: Json) =>
     retrying(() => call('/api/tx/build', { action, source: me, params }));
 
-  // 1. Onboard: test XLM, a USDC trustline, test USDC from the faucet.
+  // 1. Onboard: test XLM, a USDC trustline, a top up to the faucet target.
+  const faucetConfig = config['faucet'] as { target?: string; cooldownSeconds?: number };
+  const target = BigInt(faucetConfig.target ?? '0');
+  check(target > 0n, `the faucet tops up to ${String(faucetConfig.target)} minor units`);
   await call('/api/onboard/xlm', { address: me });
   await signAndSubmit(
     'trustline',
     await retrying(() => call('/api/onboard/trustline', { address: me })),
   );
   const faucet = await call('/api/onboard/usdc', { address: me });
-  hashes.push({ step: 'faucet', hash: String(faucet['hash']) });
+  const faucetAt = Date.now();
+  hashes.push({ step: 'faucet_top_up_1', hash: String(faucet['hash']) });
   log(`faucet: ${String(faucet['amount'])} minor units, ${String(faucet['hash'])}`);
+  check(faucet['amount'] === target.toString(), 'an empty wallet gets the whole target');
   const account = await call(`/api/accounts/${me}`);
-  check(account['usdc'] === faucet['amount'], 'the wallet holds the faucet USDC');
+  check(account['usdc'] === target.toString(), 'the wallet holds the faucet target');
+
+  // Asking again at once is refused with the time left, and sends nothing.
+  let cooldownSeconds = 0;
+  try {
+    await call('/api/onboard/usdc', { address: me });
+  } catch (error) {
+    if (!(error instanceof ApiFailure) || error.code !== 'faucet_cooldown') throw error;
+    cooldownSeconds = error.retryAfterSeconds ?? 0;
+  }
+  check(cooldownSeconds > 0, `a second top up waits out the cooldown (${cooldownSeconds}s left)`);
 
   // 2. A test recipient made by the server.
   const recipient = await call('/api/recipients/test', {});
@@ -235,12 +272,57 @@ async function main(): Promise<void> {
   check((closed['state'] as Json)['revoked'] === true, 'the mandate is revoked');
   check((closed['state'] as Json)['balance'] === '0', 'the balance went back to the owner');
 
+  // 10. The test recipient sends what it was paid back to the faucet treasury.
+  // The treasury is whoever paid the first top up, read from the chain.
+  const horizonUrl = String(config['horizonUrl']).replace(/\/+$/, '');
+  const faucetTx = await horizon(`${horizonUrl}/transactions/${String(faucet['hash'])}`);
+  const treasury = String(faucetTx['source_account']);
+  const intervalSeconds = Number(process.env['UJIRA_RECYCLE_INTERVAL_SECONDS'] ?? '300');
+  const recycleDeadline = Date.now() + (intervalSeconds + 120) * 1000;
+  log(`waiting up to ${intervalSeconds + 120}s for the test recipient to recycle to ${treasury}`);
+  let testerUsdc = String((await call(`/api/accounts/${tester}`))['usdc']);
+  while (testerUsdc !== '0' && Date.now() < recycleDeadline) {
+    await sleep(10_000);
+    testerUsdc = String((await call(`/api/accounts/${tester}`))['usdc']);
+  }
+  check(testerUsdc === '0', 'the test recipient holds no USDC after recycling');
+  const payments = await horizon(`${horizonUrl}/accounts/${tester}/payments?order=desc&limit=50`);
+  const records = ((payments['_embedded'] as Json | undefined)?.['records'] ?? []) as Json[];
+  const recycled = records.filter(
+    (p) =>
+      p['type'] === 'payment' &&
+      p['from'] === tester &&
+      p['to'] === treasury &&
+      p['asset_code'] === 'USDC',
+  );
+  check(recycled.length > 0, `${recycled.length} recycle payment(s) went back to the treasury`);
+  for (const p of recycled.reverse()) {
+    hashes.push({ step: 'recycle_to_treasury', hash: String(p['transaction_hash']) });
+    log(`recycled ${String(p['amount'])} USDC: ${String(p['transaction_hash'])}`);
+  }
+
+  // 11. Once the cooldown is over, a top up sends only what is missing.
+  const readyAt = faucetAt + (cooldownSeconds + 5) * 1000;
+  if (Date.now() < readyAt) {
+    log(`waiting ${Math.ceil((readyAt - Date.now()) / 1000)}s for the faucet cooldown`);
+    await sleep(readyAt - Date.now());
+  }
+  const before = BigInt(String((await call(`/api/accounts/${me}`))['usdc']));
+  check(before < target, `the wallet holds ${before} minor units, below the target`);
+  const topUp = await call('/api/onboard/usdc', { address: me });
+  hashes.push({ step: 'faucet_top_up_2', hash: String(topUp['hash']) });
+  log(`top up: ${String(topUp['amount'])} minor units, ${String(topUp['hash'])}`);
+  check(topUp['amount'] === (target - before).toString(), 'the top up is target minus balance');
+  const after = await call(`/api/accounts/${me}`);
+  check(after['usdc'] === target.toString(), 'the wallet is back at the faucet target');
+
   const out = {
     network: 'testnet',
     console: base,
     owner: me,
     mandate,
     test_recipient: tester,
+    treasury,
     sdp: config['sdpAvailable'] === true,
     at: new Date().toISOString(),
     transactions: hashes,

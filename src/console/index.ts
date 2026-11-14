@@ -11,8 +11,15 @@ import type { HttpSettings } from '../mcp/public.js';
 import { SdpClient } from '../rails/sdp.js';
 import { createConsole } from './app.js';
 import { StellarConsoleChain } from './chain.js';
+import { Recycler } from './recycler.js';
 import { ConsoleRegistry } from './registry.js';
-import { loadConsoleSettings, registryPath, type ConsoleSettings } from './settings.js';
+import {
+  loadConsoleSettings,
+  registryPath,
+  testWalletsPath,
+  type ConsoleSettings,
+} from './settings.js';
+import { TestWalletStore } from './wallets.js';
 
 export { createConsole } from './app.js';
 export { loadConsoleSettings } from './settings.js';
@@ -23,7 +30,7 @@ export function consoleFromEnv(
   http: HttpSettings,
   log: (line: string) => void,
   env: Readonly<Record<string, string | undefined>> = process.env,
-): { routes: ExtraRoutes; settings: ConsoleSettings } {
+): { routes: ExtraRoutes; settings: ConsoleSettings; recycler?: Recycler } {
   const settings = loadConsoleSettings(env);
   const sdp = base.sdp;
   if (sdp !== undefined && sdp.assetIssuer !== settings.usdc.issuer) {
@@ -32,6 +39,14 @@ export function consoleFromEnv(
       'the SDP asset issuer must be the USDC issuer the console uses (UJIRA_USDC_ISSUER)',
     );
   }
+  const chain = new StellarConsoleChain({
+    rpcUrl: base.rpcUrl,
+    horizonUrl: settings.horizonUrl,
+    friendbotUrl: settings.friendbotUrl,
+  });
+  // Test wallets are only worth keeping when there is a treasury to send their money back to.
+  const wallets =
+    settings.treasury === undefined ? undefined : TestWalletStore.open(testWalletsPath(settings));
   const routes = createConsole({
     settings,
     http,
@@ -40,11 +55,8 @@ export function consoleFromEnv(
     gateway: wiring.gateway,
     receipts: wiring.receipts,
     registry: ConsoleRegistry.open(registryPath(settings)),
-    chain: new StellarConsoleChain({
-      rpcUrl: base.rpcUrl,
-      horizonUrl: settings.horizonUrl,
-      friendbotUrl: settings.friendbotUrl,
-    }),
+    chain,
+    ...(wallets === undefined ? {} : { wallets }),
     ...(sdp === undefined
       ? {}
       : {
@@ -60,5 +72,13 @@ export function consoleFromEnv(
         }),
     log,
   });
-  return { routes, settings };
+  if (wallets === undefined || settings.treasury === undefined) return { routes, settings };
+  const recycler = new Recycler({
+    wallets,
+    chain,
+    usdc: settings.usdc,
+    treasury: settings.treasury.publicKey,
+    log,
+  });
+  return { routes, settings, recycler };
 }

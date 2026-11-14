@@ -19,13 +19,26 @@ async function connectAndSetUp(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Get test XLM' }));
   await user.click(await screen.findByRole('button', { name: 'Add USDC' }, LONG));
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Get 50.00 USDC' })).toHaveProperty(
-      'disabled',
-      false,
-    );
+    expect(screen.getByRole('button', { name: TOP_UP })).toHaveProperty('disabled', false);
   });
-  await user.click(screen.getByRole('button', { name: 'Get 50.00 USDC' }));
+  await user.click(screen.getByRole('button', { name: TOP_UP }));
   await screen.findByText('50.00 USDC in your wallet', undefined, LONG);
+}
+
+const TOP_UP = 'Top up to 50 test USDC';
+
+async function createWithTestRecipient(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('link', { name: 'Create a mandate' }));
+  await user.click(await screen.findByRole('button', { name: 'Add a test recipient' }));
+  await screen.findByDisplayValue('Ada');
+  await user.click(screen.getByRole('button', { name: 'Review and sign' }));
+  for (let i = 0; i < 3; i++) {
+    await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
+    await waitFor(() => {
+      expect(screen.queryByText(/Waiting for your wallet/)).toBeNull();
+    });
+  }
+  await user.click(await screen.findByRole('link', { name: 'Open your mandate' }));
 }
 
 describe('the console in mock mode', () => {
@@ -116,21 +129,73 @@ describe('the console in mock mode', () => {
     expect(url).toMatch(/\/m\/C[A-Z2-7]{55}\/mcp$/);
   });
 
-  it('asks before revoking, then signs revoke and sweep', { timeout: 20_000 }, async () => {
+  it('keeps the top up usable after setup and explains the cooldown', async () => {
+    const user = userEvent.setup();
+    let clock = 1_800_000_000_000;
+    render(<App api={createMockApi({ delayMs: 0, now: () => clock })} mock />);
+    await connectAndSetUp(user);
+    const setup = within(screen.getByRole('region', { name: 'Get your wallet ready' }));
+    await setup.findByText(/Sent 50\.00 test USDC to your wallet/);
+
+    // The step is done, yet the button stays: asking again explains the wait in words.
+    const again = setup.getByRole('button', { name: TOP_UP });
+    expect(again).toHaveProperty('disabled', false);
+    await user.click(again);
+    await setup.findByText(/You can top up again in about 10 minutes\./);
+    expect(setup.queryByText('That did not work')).toBeNull();
+
+    // Past the cooldown, a full wallet is told there is nothing to top up.
+    clock += 601_000;
+    await user.click(setup.getByRole('button', { name: TOP_UP }));
+    await setup.findByText(/nothing to top up/);
+  });
+
+  it('says how often the faucet works before the first top up', async () => {
+    const user = userEvent.setup();
+    render(<App api={createMockApi({ delayMs: 0 })} mock />);
+    await user.click(await screen.findByRole('button', { name: /Connect Demo wallet/ }));
+    expect(
+      await screen.findByText(
+        /Use it whenever you run low, once every 10 minutes\./,
+        undefined,
+        LONG,
+      ),
+    ).toBeTruthy();
+  });
+
+  it('offers a top up when the wallet cannot fund the mandate', async () => {
     const user = userEvent.setup();
     render(<App api={createMockApi({ delayMs: 0 })} mock />);
     await connectAndSetUp(user);
     await user.click(screen.getByRole('link', { name: 'Create a mandate' }));
-    await user.click(await screen.findByRole('button', { name: 'Add a test recipient' }));
-    await screen.findByDisplayValue('Ada');
-    await user.click(screen.getByRole('button', { name: 'Review and sign' }));
-    for (let i = 0; i < 3; i++) {
-      await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
-      await waitFor(() => {
-        expect(screen.queryByText(/Waiting for your wallet/)).toBeNull();
-      });
-    }
-    await user.click(await screen.findByRole('link', { name: 'Open your mandate' }));
+    const fund = await screen.findByLabelText(/Fund it with/);
+    expect(screen.queryByText(/does not hold enough test USDC to fund this/)).toBeNull();
+    await user.clear(fund);
+    await user.type(fund, '60');
+    expect(await screen.findByText(/does not hold enough test USDC to fund this/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: TOP_UP })).toBeTruthy();
+    // Test recipients are explained as recycled back to the faucet.
+    expect(screen.getByText(/send the USDC they receive back to our faucet/)).toBeTruthy();
+  });
+
+  it('lets the owner top up from the mandate page', { timeout: 20_000 }, async () => {
+    const user = userEvent.setup();
+    let clock = Date.now();
+    render(<App api={createMockApi({ delayMs: 0, now: () => clock })} mock />);
+    await connectAndSetUp(user);
+    await createWithTestRecipient(user);
+    const owner = within(await screen.findByRole('region', { name: 'Owner controls' }, LONG));
+    expect(owner.getByText(/Wallet running low\?/)).toBeTruthy();
+    clock += 601_000;
+    await user.click(owner.getByRole('button', { name: TOP_UP }));
+    await owner.findByText(/Sent 40\.00 test USDC to your wallet/);
+  });
+
+  it('asks before revoking, then signs revoke and sweep', { timeout: 20_000 }, async () => {
+    const user = userEvent.setup();
+    render(<App api={createMockApi({ delayMs: 0 })} mock />);
+    await connectAndSetUp(user);
+    await createWithTestRecipient(user);
     await user.click(await screen.findByRole('button', { name: 'Revoke' }, LONG));
     expect(
       await screen.findByText(/Moves the 40.00 USDC it holds back to your wallet/),

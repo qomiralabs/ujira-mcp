@@ -39,7 +39,9 @@ const API_ERRORS: Record<string, string> = {
   rate_limited: 'Too many tries in a short time. Wait a minute and try again.',
   account_not_found: 'This wallet does not exist on testnet yet. Get test XLM first.',
   trustline_missing: 'This wallet cannot hold USDC yet. Add the USDC trustline first.',
-  faucet_used: 'This wallet already received its test USDC. Each wallet gets it once.',
+  faucet_not_needed:
+    'Your wallet already holds the full test amount or more, so there is nothing to top up.',
+  faucet_cooldown: 'You topped up this wallet a moment ago. Try again in a few minutes.',
   faucet_busy: 'Test USDC for this wallet is already on its way. Wait a few seconds.',
   faucet_empty:
     'The test USDC faucet is empty right now. Try https://faucet.circle.com (Stellar testnet).',
@@ -65,8 +67,34 @@ const API_ERRORS: Record<string, string> = {
   internal_error: 'Something went wrong on the server. Try again in a moment.',
 };
 
+/** How long until something is possible again: "less than a minute", "about 9 minutes". */
+export function waitWords(seconds: number): string {
+  if (seconds < 60) return 'less than a minute';
+  const minutes = Math.ceil(seconds / 60);
+  return minutes === 1 ? 'about 1 minute' : `about ${String(minutes)} minutes`;
+}
+
+/** How often the faucet can be used: "once every 10 minutes". */
+export function cooldownWords(seconds: number): string {
+  if (seconds <= 0) return 'as often as you like';
+  if (seconds < 60) return `once every ${String(seconds)} seconds`;
+  const minutes = Math.round(seconds / 60);
+  return minutes === 1 ? 'once a minute' : `once every ${String(minutes)} minutes`;
+}
+
+export function cooldownText(retryAfterSeconds: number): string {
+  return `You topped up this wallet a moment ago. You can top up again in ${waitWords(retryAfterSeconds)}.`;
+}
+
 /** A sentence for an API error code, falling back to the server's message. */
-export function apiErrorText(code: string, serverMessage: string): string {
+export function apiErrorText(
+  code: string,
+  serverMessage: string,
+  retryAfterSeconds?: number,
+): string {
+  if (code === 'faucet_cooldown' && retryAfterSeconds !== undefined) {
+    return cooldownText(retryAfterSeconds);
+  }
   const own = API_ERRORS[code] ?? REASONS[code];
   if (own !== undefined) return own;
   const m = serverMessage.trim();

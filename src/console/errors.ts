@@ -11,12 +11,20 @@ import { ContractRefusedError, EngineError, type EngineErrorCode } from '../erro
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** For a refusal that clears with time, so a page can say when to try again. */
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(status: number, code: string, message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    options?: { cause?: unknown; retryAfterSeconds?: number },
+  ) {
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = options?.retryAfterSeconds;
   }
 }
 

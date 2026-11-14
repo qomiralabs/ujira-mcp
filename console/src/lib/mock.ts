@@ -10,6 +10,7 @@ import { ApiError, type AgentCall, type ConsoleApi, type TxAction } from './api'
 import { compareMinor, subMinor, addMinor, wholeUnits } from './money';
 import type { Config, Mandate, Payout, Receipt } from './schemas';
 import { encodeAddress, isAccountAddress } from './strkey';
+import { cooldownText } from './words';
 
 const PASSPHRASE = 'Test SDF Network ; September 2015';
 
@@ -30,7 +31,8 @@ const newContract = () => encodeAddress('contract', randomBytes(32));
 interface MockAccount {
   exists: boolean;
   usdc: string | null;
-  faucetUsed: boolean;
+  /** When the faucet last topped it up, in ms; null when never. */
+  lastTopUp: number | null;
 }
 
 interface MockMandate {
@@ -96,13 +98,18 @@ export function createMockApi(options: { delayMs?: number; now?: () => number } 
     executor: newAccount(),
     sdpAvailable: false,
     sdpProofUrl: 'https://github.com/qomiralabs/ujira-mcp#sdp-rail',
-    faucet: { amount: wholeUnits(50), enabled: true },
+    faucet: {
+      amount: wholeUnits(50),
+      target: wholeUnits(50),
+      cooldownSeconds: 600,
+      enabled: true,
+    },
   };
 
   const acct = (address: string): MockAccount => {
     let a = accounts.get(address);
     if (a === undefined) {
-      a = { exists: false, usdc: null, faucetUsed: false };
+      a = { exists: false, usdc: null, lastTopUp: null };
       accounts.set(address, a);
     }
     return a;
@@ -373,17 +380,28 @@ export function createMockApi(options: { delayMs?: number; now?: () => number } 
             400,
           );
         }
-        if (a.faucetUsed) {
-          throw new ApiError('faucet_used', 'This wallet already received its test USDC.', 429);
+        const target = config.faucet?.target ?? '0';
+        const cooldownMs = (config.faucet?.cooldownSeconds ?? 0) * 1000;
+        if (a.lastTopUp !== null && now() - a.lastTopUp < cooldownMs) {
+          const left = Math.ceil((a.lastTopUp + cooldownMs - now()) / 1000);
+          throw new ApiError('faucet_cooldown', cooldownText(left), 429, left);
         }
-        a.faucetUsed = true;
-        a.usdc = addMinor(a.usdc, config.faucet?.amount ?? '0');
-        return { hash: newHash(), amount: config.faucet?.amount ?? '0' };
+        if (compareMinor(a.usdc, target) >= 0) {
+          throw new ApiError(
+            'faucet_not_needed',
+            'Your wallet already holds the full test amount or more, so there is nothing to top up.',
+            409,
+          );
+        }
+        const amount = subMinor(target, a.usdc);
+        a.lastTopUp = now();
+        a.usdc = target;
+        return { hash: newHash(), amount };
       }),
     testRecipient: () =>
       wait(() => {
         const address = newAccount();
-        accounts.set(address, { exists: true, usdc: '0', faucetUsed: false });
+        accounts.set(address, { exists: true, usdc: '0', lastTopUp: null });
         return { address, hash: newHash() };
       }),
     buildTx: (action, source, params) =>

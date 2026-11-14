@@ -204,11 +204,13 @@ The same server hosts the UJIRA Console: a web app where anyone with a testnet w
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `UJIRA_DATA_DIR` | the directory of `UJIRA_RECEIPTS_FILE`, else `./data` | Where the console registry (mandates it created, recipient names, faucet claims) is kept. Put it on a volume. |
-| `UJIRA_TREASURY_SECRET` or `UJIRA_TREASURY_KEY_FILE` | none | The key that pays test USDC from the faucet. Without it the faucet is off. |
-| `UJIRA_FAUCET_AMOUNT` | `500000000` (50 USDC) | What one faucet claim pays, in minor units. Each wallet claims once. |
+| `UJIRA_DATA_DIR` | the directory of `UJIRA_RECEIPTS_FILE`, else `./data` | Where the console registry (mandates it created, recipient names, last faucet top up per wallet) and the test recipients' keys (`test-wallets.json`, mode 600) are kept. Put it on a volume. |
+| `UJIRA_TREASURY_SECRET` or `UJIRA_TREASURY_KEY_FILE` | none | The key that pays test USDC from the faucet. Without it the faucet and the recycler are off, and test recipients' keys are not kept. |
+| `UJIRA_FAUCET_AMOUNT` | `500000000` (50 USDC) | The faucet's target, in minor units: a top up sends the target minus what the wallet holds, and nothing when it holds the target or more. |
+| `UJIRA_FAUCET_COOLDOWN_SECONDS` | `600` | The least time between two top ups of one wallet. Earlier asks answer `faucet_cooldown` with `retryAfterSeconds`. |
 | `UJIRA_FAUCET_FLOOR` | twice the amount | The faucet refuses once the treasury would drop below this. |
-| `UJIRA_FAUCET_PER_HOUR` | `3` | Faucet claims an hour from one caller address. |
+| `UJIRA_FAUCET_PER_HOUR` | `3` | Faucet top ups an hour from one caller address. |
+| `UJIRA_RECYCLE_INTERVAL_SECONDS` | `300` | How often each test recipient sends its whole USDC balance back to the treasury, paying its own fee. Only wallets this server made are swept; past 5000 the oldest are dropped from recycling. |
 | `UJIRA_TEST_RECIPIENTS_PER_HOUR` | `10` | Test recipient wallets an hour from one caller address. |
 | `UJIRA_FRIENDBOT_PER_HOUR` | `10` | Test XLM requests an hour from one caller address. |
 | `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
@@ -218,9 +220,11 @@ The same server hosts the UJIRA Console: a web app where anyone with a testnet w
 | `UJIRA_HORIZON_URL`, `UJIRA_FRIENDBOT_URL`, `UJIRA_PUBLIC_RPC_URL` | the public testnet ones | Network endpoints; the public RPC URL is the one browsers are told about. |
 | `UJIRA_FACTORY`, `UJIRA_USDC_ISSUER`, `UJIRA_USDC_CONTRACT` | the testnet deployment | The mandate factory and the USDC the console uses. |
 
+The faucet tops a wallet up rather than paying once, so a reviewer who spent their test USDC can always get more, and the test money flows back: a test recipient made by "Add a test recipient" is a throwaway wallet the server created, and the recycler returns whatever it is paid to the treasury. Its key is kept only in `test-wallets.json`, never logged and never returned by any route; the reviewer's own wallet key never reaches the server at all.
+
 With SDP configured, the console allows each recipient twice, once at their own wallet and once at the SDP distribution account, so the same mandate pays on either rail. `UJIRA_SDP_ASSET_ISSUER` must then be the console's USDC issuer.
 
-`UJIRA_CONSOLE_URL=http://127.0.0.1:8080 npm run console:e2e` walks the whole console story against a running server with a throwaway wallet that signs the server-built transactions: onboard, create, allow, fund, pay, an approval, SDP when the server has it, pause and resume, receipts over the API and the mandate's MCP URL, then revoke and sweep. It saves the public transaction hashes to `evidence/console-e2e.json`.
+`UJIRA_CONSOLE_URL=http://127.0.0.1:8080 npm run console:e2e` walks the whole console story against a running server with a throwaway wallet that signs the server-built transactions: onboard, create, allow, fund, pay, an approval, SDP when the server has it, pause and resume, receipts over the API and the mandate's MCP URL, then revoke and sweep, then waits for the test recipient's USDC to be recycled to the treasury and for the faucet cooldown, and tops up again. It saves the public transaction hashes to `evidence/console-e2e.json`.
 
 ## Tools
 

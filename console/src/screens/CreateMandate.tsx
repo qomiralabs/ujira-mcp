@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
 import { SigningSteps, type SigningStep } from '../components/SigningSteps';
+import { TopUpPanel } from '../components/TopUp';
 import { ErrorNotice, Field, Notice, Spinner } from '../components/ui';
 import {
   DEFAULT_DRAFT,
@@ -16,7 +17,7 @@ import {
   type MandateDraft,
   type MandatePlan,
 } from '../lib/mandateForm';
-import { formatAmount, formatUsdc } from '../lib/money';
+import { compareMinor, formatAmount, formatUsdc, parseAmount } from '../lib/money';
 import type { Wallet } from '../lib/wallet';
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -143,6 +144,11 @@ function RecipientsEditor({
           Paste an address
         </button>
       </div>
+      <p className="muted small">
+        Test recipients send the USDC they receive back to our faucet a few minutes later, so the
+        demo stays funded for the next person. Your receipts and Stellar Expert links still show
+        every payment.
+      </p>
       {full ? (
         <p className="muted small">That is the most one signature can add ({limit}).</p>
       ) : null}
@@ -195,6 +201,22 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
   const set = (key: Exclude<keyof MandateDraft, 'recipients'>) => (value: string) => {
     change({ ...draft, [key]: value });
   };
+
+  // Re-check once a top up lands, so a stale "not enough" goes away by itself.
+  useEffect(() => {
+    if (!tried) return;
+    const r = validateDraft(draft, {
+      nowSeconds: nowSeconds(),
+      maxRecipients: maxRecipients(config.sdpAvailable),
+      ...(walletUsdc === undefined ? {} : { walletUsdc }),
+    });
+    setErrors(r.ok ? {} : r.errors);
+    // Only a new wallet balance triggers this; typing re-checks on its own.
+  }, [walletUsdc]);
+
+  const wanted = parseAmount(draft.fund);
+  const short =
+    typeof walletUsdc === 'string' && wanted.ok && compareMinor(wanted.minor, walletUsdc) > 0;
 
   const end = endDate(draft.expiryDays);
   const errorCount =
@@ -285,6 +307,13 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
             }
           />
         </div>
+        {short ? (
+          <TopUpPanel
+            wallet={wallet}
+            intro="Your wallet does not hold enough test USDC to fund this. Top it up, or fund less."
+            onDone={account.reload}
+          />
+        ) : null}
       </fieldset>
       <RecipientsEditor draft={draft} setDraft={change} errors={errors} />
       {errorCount > 0 ? (

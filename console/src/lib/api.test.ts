@@ -80,17 +80,72 @@ describe('createHttpApi', () => {
   it('turns the API error shape into an ApiError with its sentence', async () => {
     const api = createHttpApi(() =>
       Promise.resolve(
-        respond(429, {
-          error: { code: 'faucet_used', message: 'This wallet already received its test USDC.' },
+        respond(409, {
+          error: {
+            code: 'faucet_not_needed',
+            message: 'This wallet already holds 50 USDC, at or above the 50 USDC target',
+          },
         }),
       ),
     );
     const failure = await api.onboardUsdc(ADDRESS).catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({
-      code: 'faucet_used',
-      status: 429,
-      message: 'This wallet already received its test USDC. Each wallet gets it once.',
+      code: 'faucet_not_needed',
+      status: 409,
+      message:
+        'Your wallet already holds the full test amount or more, so there is nothing to top up.',
+    });
+  });
+
+  it('says in words how long the faucet cooldown has left', async () => {
+    const cooldown = (retryAfterSeconds?: number) =>
+      createHttpApi(() =>
+        Promise.resolve(
+          respond(429, {
+            error: {
+              code: 'faucet_cooldown',
+              message: 'This wallet was topped up a moment ago; try again in 9 minutes',
+              ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+            },
+          }),
+        ),
+      )
+        .onboardUsdc(ADDRESS)
+        .catch((e: unknown) => e);
+    expect(await cooldown(540)).toMatchObject({
+      code: 'faucet_cooldown',
+      retryAfterSeconds: 540,
+      message: 'You topped up this wallet a moment ago. You can top up again in about 9 minutes.',
+    });
+    expect(await cooldown(30)).toMatchObject({
+      message:
+        'You topped up this wallet a moment ago. You can top up again in less than a minute.',
+    });
+    expect(await cooldown()).toMatchObject({
+      retryAfterSeconds: undefined,
+      message: 'You topped up this wallet a moment ago. Try again in a few minutes.',
+    });
+  });
+
+  it('reads the faucet target and cooldown from the config', async () => {
+    const api = createHttpApi(() =>
+      Promise.resolve(
+        respond(200, {
+          network: 'testnet',
+          networkPassphrase: 'Test SDF Network ; September 2015',
+          explorerTxBase: 'https://stellar.expert/explorer/testnet/tx/',
+          asset: { code: 'USDC', issuer: ADDRESS, decimals: 7 },
+          sdpAvailable: false,
+          faucet: { amount: '500000000', target: '500000000', cooldownSeconds: 600, enabled: true },
+        }),
+      ),
+    );
+    expect((await api.config()).faucet).toEqual({
+      amount: '500000000',
+      target: '500000000',
+      cooldownSeconds: 600,
+      enabled: true,
     });
   });
 

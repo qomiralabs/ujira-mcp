@@ -224,3 +224,88 @@ docker compose -p ujira-sdp -f ~/sdp/sdp-backend/dev/docker-compose.yml stop
 
 `down -v` also removes the database volume, which loses every tenant, user,
 API key and disbursement.
+
+## Hosted on Render
+
+The hosted console needs an SDP that does not depend on a laptop, so the same
+three pieces also run on Render. Only one SDP may pay from the distribution
+account at a time: while the Render SDP is in use, the local Docker SDP stays
+stopped.
+
+| Resource        | Render type                                         | Plan                               |
+| --------------- | --------------------------------------------------- | ---------------------------------- |
+| `ujira-sdp-db`  | Postgres 14                                         | Basic 256 MB, 1 GB disk            |
+| `ujira-sdp-api` | Web service from the public image, pinned by digest | Starter, health check on `/health` |
+| `ujira-sdp-tss` | Background worker from the same image               | Starter                            |
+
+All three are in one region. The image is
+`docker.io/stellar/stellar-disbursement-platform-backend@sha256:94cb4544c34288ecbf4fba94b2c0af9b62e8efa9bc8d463acf336c38f8a88af1`,
+which is the `7.1.0` tag.
+
+### Network
+
+- The database has an empty IP allow list, so only services on Render's
+  private network can reach it. `DATABASE_URL` is the internal connection
+  string with `?sslmode=require`.
+- Render sends public traffic only to `PORT` (8000). The admin API
+  (`ADMIN_PORT`, 8003) and metrics (8002) listen on the private network
+  only; requests to them from the internet time out.
+
+### Start commands
+
+Render's Docker command replaces the image entrypoint, but it keeps quotes as
+literal characters, so `sh -c "a && b"` fails with `not found`. The script
+therefore lives in an environment variable and the Docker command is
+`sh -c eval${IFS}"$SDP_START"` (the worker uses `SDP_TSS_START`):
+
+```sh
+# sdp-api, same steps as the upstream compose file
+SDP_START='./stellar-disbursement-platform db admin migrate up && ./stellar-disbursement-platform db tss migrate up && ./stellar-disbursement-platform db auth migrate up --all && ./stellar-disbursement-platform db sdp migrate up --all && ./stellar-disbursement-platform db setup-for-network --all && exec ./stellar-disbursement-platform serve'
+# sdp-tss
+SDP_TSS_START='./stellar-disbursement-platform channel-accounts ensure 2 && exec ./stellar-disbursement-platform tss'
+```
+
+Create the API service first and the worker after the API is live, so the
+TSS tables exist when the worker starts.
+
+### Environment
+
+The API gets the variables from the compose file's `sdp-api` service, with
+`BASE_URL`, `SDP_UI_BASE_URL` and `CORS_ALLOWED_ORIGINS` set to the service's
+public URL, `SINGLE_TENANT_MODE=true`, `EMAIL_SENDER_TYPE=DRY_RUN` and
+`SMS_SENDER_TYPE=DRY_RUN`. The worker gets the variables from the `sdp-tss`
+service. Leave unused provider variables unset.
+
+The distribution and SEP-10 keys are the same testnet keys as the local SDP.
+Everything else is generated for Render and kept outside every repository
+(mode 600): the EC256 key, the encryption passphrase (a new Stellar secret
+key), the admin API key, the SEP-24 JWT secret, the user password and the
+rail's API key. Do not copy the local values.
+
+### Tenant, user and API key
+
+Run the tenant and user setup from step 5 as a one off job on the API service
+(`POST /v1/services/<id>/jobs`), so the admin API never needs to be public.
+A job runs with the service's image and environment, so the password goes in
+a temporary environment variable and is piped to `auth add-user` the same
+way as with `docker exec -i`. SDP wants twelve characters or more with at
+least one special character. `tenants ensure-default` logs the tenant ID
+that `add-user` needs. Remove the temporary variables when the job has
+succeeded.
+
+Then log in through the public URL and create the rail's API key as in step 6. The rail is configured with `UJIRA_SDP_URL` (the public URL),
+`UJIRA_SDP_API_KEY`, `UJIRA_SDP_DISTRIBUTION` and `UJIRA_SDP_ASSET_ISSUER`;
+`UJIRA_SDP_TENANT` is not needed in single tenant mode. Waiting for SDP to
+pay can take longer than the default HTTP timeout, so the hosted console sets
+`UJIRA_HTTP_TIMEOUT_MS=300000`.
+
+### Checking it
+
+```sh
+curl -s https://<sdp-api host>/health   # "status": "pass", "database": "pass"
+```
+
+A disbursement paid through the Render SDP, and the hosted console's
+end to end run (`npm run console:e2e` with `UJIRA_CONSOLE_URL` set) reports
+`the SDP payout is paid`. Service logs are available from Render's logs API
+(`GET /v1/logs?ownerId=<workspace>&resource=<service or job id>`).

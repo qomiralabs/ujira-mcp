@@ -22,7 +22,8 @@ export const TESTNET_USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT
 export const TESTNET_USDC_CONTRACT = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
 export const TESTNET_HORIZON_URL = 'https://horizon-testnet.stellar.org';
 export const TESTNET_FRIENDBOT_URL = 'https://friendbot.stellar.org';
-export const SDP_PROOF_URL = 'https://qomiralabs.github.io/ujira-demo/instaward.html';
+/** The proof page is served by this same server, so a path keeps visitors on its origin. */
+export const SDP_PROOF_URL = '/instaward';
 
 export interface ConsoleLimits {
   /** Faucet claims an hour from one caller address. */
@@ -39,7 +40,12 @@ export interface ConsoleLimits {
 
 export interface ConsoleSettings {
   readonly dataDir: string;
+  /** The built dashboard app, served under /app. */
   readonly consoleDir: string;
+  /** The marketing site and the Instaward page, served at the root. */
+  readonly siteDir: string;
+  /** Pages asked for on any other host redirect to this one, such as ujira.co. */
+  readonly canonicalHost?: string;
   readonly publicOrigin?: string;
   readonly horizonUrl: string;
   readonly friendbotUrl: string;
@@ -114,9 +120,35 @@ function strkey(env: Env, name: string, fallback: string, schema: z.ZodType<stri
   return raw;
 }
 
-/** console/dist next to the package, from both src/console and dist/console. */
-function defaultConsoleDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'console', 'dist');
+/** An absolute http(s) URL, or a path on this server such as /instaward. */
+function urlOrPath(env: Env, name: string, fallback: string): string {
+  const raw = value(env, name) ?? fallback;
+  // Two slashes would be another host, and a backslash reads as one in browsers.
+  if (raw.startsWith('/')) {
+    if (raw.startsWith('//') || raw.includes('\\') || /\s/.test(raw)) {
+      throw new EngineError('config_invalid', `${name} must be an http or https URL or a path`);
+    }
+    return raw;
+  }
+  return url(env, name, fallback);
+}
+
+/** A host name with an optional port, such as ujira.co; no scheme, no path. */
+const HOST =
+  /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*(?::\d{1,5})?$/;
+
+function host(env: Env, name: string): string | undefined {
+  const raw = value(env, name)?.toLowerCase();
+  if (raw === undefined) return undefined;
+  if (raw.length > 259 || !HOST.test(raw)) {
+    throw new EngineError('config_invalid', `${name} must be a host name such as ujira.co`);
+  }
+  return raw;
+}
+
+/** A folder next to the package, from both src/console and dist/console. */
+function packageDir(...parts: string[]): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', ...parts);
 }
 
 export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
@@ -139,9 +171,12 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
   }
   const treasury = signerFromEnv(env, 'UJIRA_TREASURY');
   const faucetAmount = amount(env, 'UJIRA_FAUCET_AMOUNT', 500_000_000n);
+  const canonicalHost = host(env, 'UJIRA_CANONICAL_HOST');
   return {
     dataDir,
-    consoleDir: resolve(value(env, 'UJIRA_CONSOLE_DIR') ?? defaultConsoleDir()),
+    consoleDir: resolve(value(env, 'UJIRA_CONSOLE_DIR') ?? packageDir('console', 'dist')),
+    siteDir: resolve(value(env, 'UJIRA_SITE_DIR') ?? packageDir('site')),
+    ...(canonicalHost === undefined ? {} : { canonicalHost }),
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
     horizonUrl: url(env, 'UJIRA_HORIZON_URL', TESTNET_HORIZON_URL),
     friendbotUrl: url(env, 'UJIRA_FRIENDBOT_URL', TESTNET_FRIENDBOT_URL),
@@ -158,7 +193,7 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
     recycleIntervalSeconds: whole(env, 'UJIRA_RECYCLE_INTERVAL_SECONDS', 300, 10, 86_400),
     // Two claims' worth stays back by default, so a drained faucet still leaves the operator's own demos funded.
     faucetFloor: amount(env, 'UJIRA_FAUCET_FLOOR', faucetAmount * 2n),
-    sdpProofUrl: url(env, 'UJIRA_SDP_PROOF_URL', SDP_PROOF_URL),
+    sdpProofUrl: urlOrPath(env, 'UJIRA_SDP_PROOF_URL', SDP_PROOF_URL),
     limits: {
       faucetPerHour: whole(env, 'UJIRA_FAUCET_PER_HOUR', 3, 1, 10_000),
       testRecipientsPerHour: whole(env, 'UJIRA_TEST_RECIPIENTS_PER_HOUR', 10, 1, 10_000),

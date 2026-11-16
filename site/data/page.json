@@ -1,0 +1,6 @@
+{
+  "_comment": "Paste the demo video link into demo_video_url (https only). Set npm_published to true once @ujira/mcp is on npm. The testnet proof page reads this file when it loads.",
+  "demo_video_url": "",
+  "npm_published": true,
+  "mcp_url": "https://ujira.co/mcp"
+}

@@ -46,7 +46,6 @@ import {
 } from './mandates.js';
 import { defaultLabel, type ConsoleRegistry, type MandateEntry } from './registry.js';
 import type { ConsoleSettings } from './settings.js';
-import { createStatic } from './static.js';
 import {
   INCLUSION_FEE,
   MAX_ALLOW_ENTRIES,
@@ -61,6 +60,7 @@ import {
   type BuildRequest,
 } from './txbuild.js';
 import type { TestWalletStore } from './wallets.js';
+import { createWeb } from './web.js';
 
 export const EXPLORER_TX = 'https://stellar.expert/explorer/testnet/tx/';
 const EXPLORER_CONTRACT = 'https://stellar.expert/explorer/testnet/contract/';
@@ -150,7 +150,11 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     ...(o.sdp === undefined ? {} : { sdp: o.sdp }),
     now: () => new Date(now()),
   };
-  const serveStatic = createStatic(settings.consoleDir);
+  const pages = createWeb({
+    siteDir: settings.siteDir,
+    appDir: settings.consoleDir,
+    ...(settings.canonicalHost === undefined ? {} : { canonicalHost: settings.canonicalHost }),
+  });
   /** Labels typed for an allow_recipients transaction that has not landed yet. */
   const pendingLabels = new Map<string, Map<string, string>>();
   const faucetBusy = new Set<string>();
@@ -756,7 +760,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         await api(req, res, path, client);
         return true;
       }
-      return serveStatic(req, res, path);
+      return pages(req, res, path);
     },
   };
 }

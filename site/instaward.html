@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Check UJIRA on Stellar testnet | UJIRA</title>
+<meta name="description" content="The UJIRA mandate contract, payout engine and MCP server, each checked live against Stellar testnet in your browser.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4 4 92 92'%3E%3Cpath d='M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46' fill='none' stroke='%230F4C5C' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='50' cy='38' r='13' fill='%23F4A300'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Nunito:wght@800&display=swap">
+<style>
+/* Colour tokens: light and dark modes from the UJIRA token file. */
+:root {
+  --bg: #FBF7F0; --surface: #FFFFFF; --rule: #E8E0D2; --rule-strong: #D9CFBF;
+  --text: #0B2A33; --text-2: #4A5A60; --text-3: #6B6358;
+  --accent: #F4A300; --accent-text: #8F5A00; --on-accent: #0B2A33;
+  --paid: #15803D; --waiting: #B45309; --blocked: #DC2626;
+  --link: #0F4C5C; --logo: #0F4C5C; --code-bg: #F4EFE6;
+  --band-ground: #FBF7F0; --band-tri: #E8E0D2;
+  --sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --display: "Nunito", "Inter", system-ui, sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A3540; --surface: #0F4C5C; --rule: #155C6E; --rule-strong: #1F6E82;
+    --text: #FBF7F0; --text-2: #A9BCC1; --text-3: #A9BCC1;
+    --accent-text: #FFC14D; --paid: #4ADE80; --waiting: #FBBF24; --blocked: #F87171;
+    --link: #FBF7F0; --logo: #FBF7F0; --code-bg: #0A3540;
+    --band-ground: #0F4C5C; --band-tri: #155C6E;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0A3540; --surface: #0F4C5C; --rule: #155C6E; --rule-strong: #1F6E82;
+  --text: #FBF7F0; --text-2: #A9BCC1; --text-3: #A9BCC1;
+  --accent-text: #FFC14D; --paid: #4ADE80; --waiting: #FBBF24; --blocked: #F87171;
+  --link: #FBF7F0; --logo: #FBF7F0; --code-bg: #0A3540;
+  --band-ground: #0F4C5C; --band-tri: #155C6E;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box }
+html { -webkit-font-smoothing: antialiased; text-size-adjust: 100% }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 16px/1.6 var(--sans) }
+h1, h2, h3, p, dl, dd, ol, ul { margin: 0 }
+ul, ol { padding: 0; list-style: none }
+a { color: var(--link); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px }
+a:hover { text-decoration-thickness: 2px }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
+.mono, code, pre { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap }
+.wrap { width: 100%; max-width: 1120px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)) }
+.skip { position: absolute; left: 12px; top: -60px; background: var(--surface); padding: 8px 12px; border-radius: 6px; z-index: 10 }
+.skip:focus { top: 12px }
+
+/* top bar */
+.bar { border-bottom: 1px solid var(--rule) }
+.bar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px }
+.logo { display: inline-flex; color: var(--logo) }
+.logo svg { height: 28px; width: auto; display: block }
+.bar nav { display: flex; gap: 20px; font-size: 15px }
+.bar nav a { color: var(--text-2); text-decoration: none }
+.bar nav a:hover { color: var(--text); text-decoration: underline }
+
+/* intro */
+.intro { padding: 48px 0 40px; display: grid; gap: 16px }
+.label { font: 500 12px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--text-2) }
+h1 { font: 800 40px/1.1 var(--display); letter-spacing: -0.02em; max-width: 760px; text-wrap: balance }
+.lede { font-size: 18px; line-height: 1.6; color: var(--text-2); max-width: 680px }
+.net { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 8px }
+.net-status { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2) }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none }
+.dot.ok { background: var(--paid) }
+.dot.bad { background: var(--blocked) }
+
+.weave { height: 24px; background-color: var(--band-ground); background-repeat: repeat-x; background-size: 240px 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M0 0h24L0 24z' fill='%23E8E0D2'/%3E%3Cpath d='M24 48h24L48 24z' fill='%23E8E0D2'/%3E%3Crect x='18' y='18' width='12' height='12' transform='rotate(45 24 24)' fill='%23F4A300'/%3E%3Crect x='42' y='20' width='12' height='8' fill='%23E8E0D2'/%3E%3C/svg%3E");
+  background-size: 24px 24px; border-bottom: 1px solid var(--rule) }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .weave { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M0 0h24L0 24z' fill='%23155C6E'/%3E%3Cpath d='M24 48h24L48 24z' fill='%23155C6E'/%3E%3Crect x='18' y='18' width='12' height='12' transform='rotate(45 24 24)' fill='%23F4A300'/%3E%3Crect x='42' y='20' width='12' height='8' fill='%23155C6E'/%3E%3C/svg%3E") } }
+:root[data-theme="dark"] .weave { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M0 0h24L0 24z' fill='%23155C6E'/%3E%3Cpath d='M24 48h24L48 24z' fill='%23155C6E'/%3E%3Crect x='18' y='18' width='12' height='12' transform='rotate(45 24 24)' fill='%23F4A300'/%3E%3Crect x='42' y='20' width='12' height='8' fill='%23155C6E'/%3E%3C/svg%3E") }
+
+/* summary */
+.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 32px 0 }
+.sum { display: grid; gap: 8px; align-content: start; padding: 20px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; color: var(--text); text-decoration: none }
+.sum:hover { border-color: var(--rule-strong); text-decoration: none }
+.sum .num { font: 500 12px/1.2 var(--mono); letter-spacing: .14em; color: var(--text-2) }
+.sum b { font-size: 18px; font-weight: 600; line-height: 1.3 }
+.sum p { font-size: 14px; color: var(--text-2); line-height: 1.55 }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--text); font: 500 15px/1 var(--sans); cursor: pointer; text-decoration: none; white-space: nowrap }
+.btn:hover { border-color: var(--text-3); text-decoration: none }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent) }
+.btn.primary:hover { filter: brightness(1.05) }
+.btn.small { min-height: 32px; padding: 0 10px; font-size: 13px }
+.btn[disabled] { opacity: .55; cursor: progress }
+.btn svg { width: 16px; height: 16px; flex: none }
+
+/* sections */
+main { padding-bottom: 64px }
+.sec { margin-top: 24px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 28px }
+.sec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px }
+.sec-head h2 { font: 600 24px/1.25 var(--sans); letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
+.sec-head p { color: var(--text-2); margin-top: 6px; max-width: 680px }
+.sec-head .ico { width: 24px; height: 24px; color: var(--text-2); flex: none }
+h3 { font: 600 17px/1.35 var(--sans); margin-bottom: 10px }
+.sub { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--rule) }
+.muted { color: var(--text-2) }
+.small { font-size: 14px }
+.note { font-size: 14px; color: var(--text-2); margin-top: 12px }
+
+/* tags and pills */
+.tag { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--rule-strong); color: var(--text-2); background: var(--bg); white-space: nowrap }
+.tag.live { color: var(--text) }
+.tag.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--paid) }
+.tag.wip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--text-2) }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px; font: 500 13px/1.3 var(--sans); white-space: nowrap; border: 1px solid currentColor }
+.pill svg { width: 14px; height: 14px; flex: none }
+.pill.paid { color: var(--paid); background: color-mix(in srgb, var(--paid) 9%, var(--surface)) }
+.pill.waiting { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 9%, var(--surface)) }
+.pill.blocked { color: var(--blocked); background: color-mix(in srgb, var(--blocked) 8%, var(--surface)) }
+.pill.neutral { color: var(--text); background: var(--bg); border-color: var(--rule-strong) }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pill.paid, :root:not([data-theme="light"]) .pill.waiting, :root:not([data-theme="light"]) .pill.blocked { background: var(--bg) } }
+:root[data-theme="dark"] .pill.paid, :root[data-theme="dark"] .pill.waiting, :root[data-theme="dark"] .pill.blocked { background: var(--bg) }
+
+/* contract id */
+.idrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg) }
+.idrow .k { font: 500 12px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); width: 100% }
+.idrow code { font-size: 14px; word-break: break-all; flex: 1 1 360px }
+.idrow .acts { display: flex; gap: 8px; flex-wrap: wrap }
+
+/* rules grid */
+.rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 20px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden }
+.rule { padding: 16px 18px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); display: grid; gap: 4px; align-content: start; min-width: 0 }
+.rule:nth-child(3n) { border-right: 0 }
+.rule dt { font: 500 12px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-2) }
+.rule dd.v { font: 500 18px/1.35 var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere }
+.rule dd.v.word { font: 600 17px/1.35 var(--sans) }
+.rule dd.d { font-size: 14px; color: var(--text-2); line-height: 1.5 }
+.rules.loading .rule dd.v { color: transparent; background: var(--bg); border-radius: 4px; width: 70% }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 14px; font-size: 14px; color: var(--text-2) }
+.addr { font-family: var(--mono); font-size: 14px }
+details { margin-top: 16px }
+summary { cursor: pointer; font-size: 14px; color: var(--text-2); width: max-content; max-width: 100% }
+summary:hover { color: var(--text) }
+pre { margin: 10px 0 0; padding: 14px 16px; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px; overflow: auto; font-size: 13px; line-height: 1.55; max-height: 420px }
+
+/* evidence links */
+.links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px }
+.lk { display: grid; gap: 6px; align-content: start; padding: 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg) }
+.lk a { font-weight: 600 }
+.lk p { font-size: 14px; color: var(--text-2); line-height: 1.5 }
+
+/* states */
+.state { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border-radius: 6px; border: 1px dashed var(--rule-strong); color: var(--text-2); font-size: 15px }
+.state svg { width: 20px; height: 20px; flex: none; margin-top: 2px }
+.state b { color: var(--text); font-weight: 600 }
+.state.err { border-style: solid; border-color: var(--blocked) }
+.state .btn { margin-top: 10px }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--rule-strong); border-top-color: var(--text-2); animation: spin .9s linear infinite; flex: none; margin-top: 3px }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+/* run summary */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px }
+.stat { padding: 14px 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg) }
+.stat dt { font-size: 14px; color: var(--text-2) }
+.stat dd { font: 500 24px/1.3 var(--mono); font-variant-numeric: tabular-nums }
+
+/* payout table */
+.tbl-wrap { border: 1px solid var(--rule); border-radius: 10px; overflow-x: auto }
+table { width: 100%; border-collapse: collapse; font-size: 14px }
+th { text-align: left; font: 500 12px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); padding: 12px 14px; background: var(--bg); border-bottom: 1px solid var(--rule) }
+td { padding: 14px; border-bottom: 1px solid var(--rule); vertical-align: top }
+tbody tr:last-child td { border-bottom: 0 }
+td.task { min-width: 112px; overflow-wrap: anywhere }
+td.amt { font: 500 15px/1.4 var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap }
+th.amt { text-align: right }
+td .why { display: block; margin-top: 6px; color: var(--text-2); font-size: 13px; line-height: 1.45; max-width: 260px; white-space: normal }
+td .sm { display: block; font-size: 12px; color: var(--text-2); margin-top: 4px }
+.ver { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 1.35; color: var(--text-2) }
+.ver svg { width: 16px; height: 16px; flex: none }
+.ver.ok { color: var(--paid) }
+.ver.bad { color: var(--blocked) }
+.legend { display: grid; gap: 6px; margin-top: 14px; font-size: 14px; color: var(--text-2) }
+.legend b { color: var(--text); font-family: var(--mono); font-weight: 500 }
+
+/* mcp */
+.tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px }
+.tool { padding: 16px 18px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); display: grid; gap: 6px; align-content: start }
+.tool code { font-size: 15px; font-weight: 500 }
+.tool p { font-size: 14px; color: var(--text-2); line-height: 1.55 }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 0 }
+.tabs button { font: 500 14px/1 var(--sans); padding: 12px 14px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); cursor: pointer; margin-bottom: -1px }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text) }
+.codebox { position: relative }
+.codebox pre { margin-top: 12px; padding-right: 88px }
+.codebox .btn { position: absolute; top: 22px; right: 10px }
+.steps { display: grid; gap: 8px; counter-reset: s; margin-top: 12px }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 8px; font-size: 15px }
+.steps li::before { content: counter(s); font: 500 13px/24px var(--mono); width: 24px; height: 24px; text-align: center; border: 1px solid var(--rule-strong); border-radius: 50% }
+.video { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; padding: 18px; border: 1px dashed var(--rule-strong); border-radius: 10px; background: var(--bg) }
+.video.ready { border-style: solid }
+.video .play { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--rule-strong); color: var(--text-2) }
+.video .play svg { width: 20px; height: 20px }
+
+/* footer */
+footer { border-top: 1px solid var(--rule); padding: 28px 0 40px; font-size: 14px; color: var(--text-2) }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px }
+footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px }
+.built { font: 500 12px/1.6 var(--mono); letter-spacing: .14em }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 12px); opacity: 0; background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-size: 14px; transition: opacity .3s var(--ease), transform .3s var(--ease); pointer-events: none; z-index: 20 }
+.toast.on { opacity: 1; transform: translate(-50%, 0) }
+
+@media (max-width: 900px) {
+  .summary, .links { grid-template-columns: minmax(0, 1fr) }
+  .rules { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .rule:nth-child(3n) { border-right: 1px solid var(--rule) }
+  .rule:nth-child(2n) { border-right: 0 }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .tools { grid-template-columns: minmax(0, 1fr) }
+}
+@media (max-width: 960px) {
+  /* the payout table becomes one card per payout */
+  .tbl-wrap { border: 0; border-radius: 0; overflow: visible }
+  table, tbody, tr, td { display: block; width: 100% }
+  thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) }
+  tbody { display: grid; gap: 12px }
+  tr { border: 1px solid var(--rule); border-radius: 10px; padding: 6px 14px }
+  td { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule) }
+  tbody tr td:last-child { border-bottom: 0 }
+  td::before { content: attr(data-label); font: 500 11px/1.6 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-2) }
+  td.amt { text-align: left }
+  td .why { max-width: none }
+}
+@media (max-width: 720px) {
+  h1 { font-size: 30px }
+  .intro { padding: 32px 0 28px }
+  .lede { font-size: 17px }
+  .sec { padding: 20px 16px }
+  .sec-head h2 { font-size: 21px }
+  .bar nav { gap: 14px; font-size: 14px }
+  .bar nav .hide-s { display: none }
+  .rules { grid-template-columns: minmax(0, 1fr) }
+  .rule { border-right: 0 !important }
+  .video { grid-template-columns: minmax(0, 1fr) }
+  .codebox pre { padding-right: 16px; padding-top: 48px }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the checks</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="ujira-mandate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.25" y="3.75" width="13.5" height="16.5" rx="2.25"/><path d="M8.75 8.25h6.5M8.75 12h6.5M8.75 15.75h3.5"/></symbol>
+  <symbol id="ujira-payout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 12h12.5M12.5 7.75L16.75 12l-4.25 4.25"/><circle cx="19" cy="12" r="1.5"/></symbol>
+  <symbol id="ujira-agent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.25" y="7.5" width="13.5" height="11.25" rx="3"/><path d="M12 4.5v3"/><circle cx="12" cy="3.75" r=".75"/><path d="M9.5 12.5v1.5M14.5 12.5v1.5"/></symbol>
+  <symbol id="ujira-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.25"/><path d="M10 9v6M14 9v6"/></symbol>
+  <symbol id="ujira-approval" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.75l6.75 2.25v5.25c0 4.5-3 7.5-6.75 9-3.75-1.5-6.75-4.5-6.75-9V6z"/><path d="M9 12l2.25 2.25L15 10.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.4l2.9 2.9 6-6.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 9v4.5M10 6.5h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3L7.5 8.5M11 9.5V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 20 20"><rect x="7" y="7" width="9.5" height="9.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M13 7V5a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 4 5v6a1.5 1.5 0 0 0 1.5 1.5H7" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 20 20"><path d="M7 4.5v11l9-5.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+</svg>
+
+<header class="bar">
+  <div class="wrap">
+    <a class="logo" href="/" aria-label="UJIRA website">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 12 290 76" role="img" aria-label="UJIRA"><path d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46" fill="none" stroke="currentColor" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="40" r="11" fill="#F4A300"/><g transform="translate(104,32) scale(0.9)"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3.5V22a14.5 14.5 0 0 0 29 0V3.5"/><path d="M73 3.5V25a11.5 11.5 0 0 1-23 0"/><path d="M89 3.5V36.5"/><path d="M105.5 36.5V3.5H119a9 9 0 0 1 0 18H105.5M118 21.5L130 36.5"/><path d="M142 36.5L157.5 3.5L173 36.5M148 25H167"/></g><circle cx="18" cy="17" r="5.5" fill="#F4A300"/></g></svg>
+    </a>
+    <nav aria-label="Site">
+      <a href="/" class="hide-s">Website</a>
+      <a href="/app">Open the dashboard</a>
+      <a href="https://github.com/qomiralabs" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap intro">
+  <p class="label">Testnet proof</p>
+  <h1>See UJIRA working on Stellar testnet</h1>
+  <p class="lede">Three parts, each checked as this page opens. Your browser asks Stellar testnet directly, so nothing below is a screenshot or a copy we typed in. Every link opens stellar.expert, an explorer UJIRA does not run. To try it yourself, open the <a href="/app">UJIRA dashboard</a>: connect a testnet wallet (Freighter, or Albedo with nothing to install), get test USDC, create your own mandate, and let an agent pay inside your rules. No terminal needed.</p>
+  <div class="net">
+    <span class="net-status" id="netStatus" role="status" aria-live="polite"><span class="dot"></span>Connecting to Stellar testnet</span>
+    <a class="btn primary" href="/app">Try it yourself in the UJIRA dashboard</a>
+    <button class="btn" id="recheck" type="button"><svg aria-hidden="true"><use href="#i-refresh"/></svg>Check everything again</button>
+  </div>
+</div>
+<div class="weave" aria-hidden="true"></div>
+
+<main id="main" class="wrap">
+  <div class="summary" aria-label="The three parts at a glance">
+    <a class="sum" href="#mandate"><span class="num">01 MANDATE CONTRACT</span><b id="sum1">Checking the contract</b><p>The rules a principal sets, enforced on chain: budget, limits, allowed recipients, approvals and expiry.</p></a>
+    <a class="sum" href="#engine"><span class="num">02 PAYOUT ENGINE</span><b id="sum2">Loading the test run</b><p>Each request checked against the mandate, paid in USDC or through SDP, with a receipt per payment.</p></a>
+    <a class="sum" href="#mcp"><span class="num">03 MCP SERVER</span><b id="sum3">Four tools for agents</b><p>Lets an AI agent quote, request and track payouts, only inside the mandate's rules.</p></a>
+  </div>
+
+  <!-- 1. Mandate contract -->
+  <section class="sec" id="mandate" aria-labelledby="h-mandate">
+    <div class="sec-head">
+      <div>
+        <h2 id="h-mandate"><svg class="ico" aria-hidden="true"><use href="#ujira-mandate"/></svg>1. Mandate contract <span id="mTag" class="tag">Checking</span></h2>
+        <p>A Soroban smart contract that holds the payout budget. The agent key can only ask it to pay; the contract refuses anything outside the rules below, and only the principal can pause or revoke it.</p>
+      </div>
+    </div>
+    <div id="mandateBody"></div>
+
+    <div class="sub">
+      <h3>Source code and test results</h3>
+      <div class="links" id="evidenceLinks">
+        <div class="lk"><a href="https://github.com/qomiralabs/ujira-contracts/tree/development/soroban/contracts/mandate" rel="noopener">Contract source</a><p>The mandate in Rust, in the public ujira-contracts repository.</p></div>
+        <div class="lk" id="lkTests"><span class="muted">Checking for the test results</span></div>
+        <div class="lk" id="lkReadme"><span class="muted">Checking for the evidence notes</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Payout engine -->
+  <section class="sec" id="engine" aria-labelledby="h-engine">
+    <div class="sec-head">
+      <div>
+        <h2 id="h-engine"><svg class="ico" aria-hidden="true"><use href="#ujira-payout"/></svg>2. Payout engine <span id="eTag" class="tag">Checking</span></h2>
+        <p>Every test payout from the testnet run. The engine checks each request against the mandate before paying, then records a receipt: task, recipient, amount and transaction. The last column asks Stellar testnet, live, whether that transaction really happened.</p>
+      </div>
+    </div>
+    <div id="engineBody"></div>
+  </section>
+
+  <!-- 3. MCP server -->
+  <section class="sec" id="mcp" aria-labelledby="h-mcp">
+    <div class="sec-head">
+      <div>
+        <h2 id="h-mcp"><svg class="ico" aria-hidden="true"><use href="#ujira-agent"/></svg>3. MCP server <span id="cTag" class="tag">Checking</span></h2>
+        <p>MCP is the standard way AI assistants call outside tools. With the UJIRA server added, an assistant such as Claude Desktop or Cursor can pay people from a mandate, and the contract still decides what is allowed.</p>
+      </div>
+    </div>
+
+    <h3>The four tools</h3>
+    <ul class="tools">
+      <li class="tool"><code>quote_payout</code><p>Works out what a payout would cost and whether the mandate would allow it. Nothing is paid.</p></li>
+      <li class="tool"><code>request_payout</code><p>Asks the mandate to pay a recipient for a task. Over a limit it is refused; at or above the approval amount it waits for a person to approve.</p></li>
+      <li class="tool"><code>payout_status</code><p>Says where a payout stands: waiting for approval, paid or refused, with its transaction on Stellar.</p></li>
+      <li class="tool"><code>list_receipts</code><p>Lists the receipts for paid payouts: task, recipient, amount and transaction hash.</p></li>
+    </ul>
+
+    <div class="sub">
+      <h3>Quickstart</h3>
+      <p class="muted small" id="mcpIntro">Add the server to your assistant's MCP settings, then restart it. Testnet only.</p>
+      <ol class="steps" id="mcpSteps"></ol>
+      <div class="tabs" role="tablist" aria-label="Choose your assistant">
+        <button type="button" role="tab" id="tab-claude" aria-controls="panel-code" aria-selected="true">Claude Desktop</button>
+        <button type="button" role="tab" id="tab-cursor" aria-controls="panel-code" aria-selected="false" tabindex="-1">Cursor</button>
+      </div>
+      <div class="codebox" id="panel-code" role="tabpanel" aria-labelledby="tab-claude">
+        <p class="note" id="mcpWhere"></p>
+        <pre><code id="mcpSnippet"></code></pre>
+        <p class="note" id="npmNote"></p>
+        <button class="btn small" type="button" id="copySnippet"><svg aria-hidden="true"><use href="#i-copy"/></svg>Copy</button>
+      </div>
+      <div class="meta" id="mcpLinks"></div>
+    </div>
+
+    <div class="sub">
+      <h3>Demo video</h3>
+      <!-- DEMO VIDEO: set "demo_video_url" in data/page.json; the page picks it up without a redeploy of this file. -->
+      <div id="videoSlot"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Stellar testnet only. No real money moves on this page. Built on Stellar.</span>
+    <nav aria-label="Footer"><a href="/">Website</a><a href="/app">Dashboard</a><a href="/instaward" aria-current="page">Testnet proof</a></nav>
+    <span class="built">BUILT AT QOMIRA LABS</span>
+  </div>
+</footer>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/assets/wallets.js" defer></script>
+<script>
+"use strict";
+/* Where everything is read from. Published files are fetched live from
+   GitHub first; the copies in data/ are the fallback when GitHub is slow,
+   blocked, or has not published a file yet. */
+const NET = {
+  rpc: "https://soroban-testnet.stellar.org",
+  horizon: "https://horizon-testnet.stellar.org",
+  passphrase: "Test SDF Network ; September 2015",
+  expert: "https://stellar.expert/explorer/testnet",
+};
+const RAW = "https://raw.githubusercontent.com/qomiralabs";
+const GH = "https://github.com/qomiralabs";
+const SRC = {
+  demo: [RAW + "/ujira-contracts/development/deployments/testnet-demo.json", "/data/testnet-demo.json"],
+  deployment: [RAW + "/ujira-contracts/development/deployments/testnet.json", "/data/testnet.json"],
+  run: [RAW + "/ujira-mcp/development/evidence/testnet-run.json", "/data/testnet-run.json"],
+  page: ["/data/page.json"],
+};
+const TESTS_TXT = RAW + "/ujira-contracts/development/evidence/contract-tests.txt";
+const TESTS_URL = GH + "/ujira-contracts/blob/development/evidence/contract-tests.txt";
+const EVID_MD = RAW + "/ujira-contracts/development/evidence/README.md";
+const EVID_URL = GH + "/ujira-contracts/blob/development/evidence/README.md";
+const MCP_PKG = RAW + "/ujira-mcp/development/package.json";
+const DECIMALS = 7; // every Stellar asset, USDC included, counts in 10^-7 units
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const short = (a) => (a && a.length > 14 ? a.slice(0, 6) + "..." + a.slice(-6) : a || "");
+const isContract = (s) => typeof s === "string" && /^C[A-Z2-7]{55}$/.test(s);
+const isAccount = (s) => typeof s === "string" && /^[GM][A-Z2-7]{55}([A-Z2-7]{13})?$/.test(s);
+const isHash = (s) => typeof s === "string" && /^[0-9a-f]{64}$/i.test(s);
+const icon = (id) => `<svg aria-hidden="true"><use href="#${id}"/></svg>`;
+const ext = (href, text, cls = "") => `<a href="${esc(href)}" rel="noopener"${cls ? ` class="${cls}"` : ""}>${text}</a>`;
+const expertLink = (kind, id, text) => ext(`${NET.expert}/${kind}/${encodeURIComponent(id)}`, text || esc(short(id)), kind === "tx" ? "mono" : "addr");
+const addrLink = (a) => (isContract(a) ? expertLink("contract", a) : isAccount(a) ? expertLink("account", a.length > 56 ? a : a) : esc(a));
+
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), 2200); }
+async function copy(text) { try { await navigator.clipboard.writeText(text); toast("Copied"); } catch { toast("Copy did not work here. Select the text instead."); } }
+
+/* ---------- money: integer minor units only, never floats ---------- */
+function toMinor(v, decimals = DECIMALS) {
+  if (typeof v === "bigint") return v;
+  if (typeof v === "number") { if (!Number.isSafeInteger(v)) return null; return BigInt(v); }
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (/^-?\d+$/.test(s)) return BigInt(s);
+  const m = /^(-?)(\d+)\.(\d+)$/.exec(s); // a decimal string, as Horizon gives amounts
+  if (!m || m[3].length > decimals) return null;
+  const n = BigInt(m[2]) * 10n ** BigInt(decimals) + BigInt(m[3].padEnd(decimals, "0"));
+  return m[1] ? -n : n;
+}
+function formatMinor(units, code, decimals = DECIMALS) {
+  if (units == null) return "";
+  let u = BigInt(units); const neg = u < 0n; if (neg) u = -u;
+  const scale = 10n ** BigInt(decimals);
+  const whole = (u / scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  let frac = (u % scale).toString().padStart(decimals, "0");
+  frac = frac.replace(/0+$/, ""); if (frac.length < 2) frac = frac.padEnd(2, "0");
+  return (neg ? "-" : "") + whole + "." + frac + (code ? " " + code : "");
+}
+
+/* ---------- fetch helpers with a time limit ---------- */
+async function getJSON(url, ms = 12000) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+    if (r.status === 404) return { missing: true };
+    if (!r.ok) throw new Error(`${r.status} from ${new URL(url, location.href).host}`);
+    return { data: await r.json() };
+  } finally { clearTimeout(t); }
+}
+async function getText(url, ms = 12000) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+    if (r.status === 404) return { missing: true };
+    if (!r.ok) throw new Error(String(r.status));
+    return { text: await r.text() };
+  } finally { clearTimeout(t); }
+}
+/* Tries each source in order and keeps the first one that is present and valid. */
+async function loadFirst(urls, validate) {
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const r = await getJSON(url);
+      if (r.missing) continue;
+      const v = validate(r.data);
+      if (v) return { value: v, url, live: url.startsWith("http") };
+      lastErr = new Error("unexpected format in " + url);
+    } catch (e) { lastErr = e; }
+  }
+  return { value: null, error: lastErr };
+}
+
+/* ---------- validators for every file read from outside ---------- */
+function vDemo(d) {
+  if (!d || typeof d !== "object") return null;
+  const id = [d.mandate_contract, d.mandate, d.contract_id, d.mandate_id, d.contract].find(isContract);
+  if (!id) return null;
+  const list = Array.isArray(d.recipients) ? d.recipients : Array.isArray(d.allowlist) ? d.allowlist : [];
+  const allow = list.filter((e) => e && /^[0-9a-f]{64}$/i.test(e.recipient_ref || "") && isAccount(e.destination || ""))
+    .map((e) => ({ recipient_ref: e.recipient_ref, destination: e.destination, name: typeof e.name === "string" ? e.name.slice(0, 40) : "" }));
+  const txs = d.transactions && typeof d.transactions === "object" ? d.transactions : {};
+  const created = [d.create_transaction, txs.create_mandate, d.create_tx_hash].find(isHash) || null;
+  return { id, principal: isAccount(d.principal) ? d.principal : null, agent: isAccount(d.agent) ? d.agent : null, created_tx: created,
+    allow_tx: isHash(txs.allow_recipients) ? txs.allow_recipients : null, fund_tx: isHash(txs.fund_mandate) ? txs.fund_mandate : null,
+    created_at: typeof d.created_at === "string" ? d.created_at : "", allowlist: allow };
+}
+function vDeployment(d) {
+  if (!d || !Array.isArray(d.supported_assets)) return null;
+  const assets = {};
+  for (const a of d.supported_assets) if (a && isContract(a.contract) && typeof a.code === "string") assets[a.contract] = { code: a.code, issuer: a.issuer, test: !!a.test_only };
+  return { factory: isContract(d.factory) ? d.factory : null, assets };
+}
+const OUTCOMES = new Set(["paid", "blocked", "approval_required", "approved_then_paid"]);
+function vRun(d) {
+  if (!d || !Array.isArray(d.payouts)) return null;
+  const payouts = [];
+  for (const p of d.payouts) {
+    if (!p || typeof p !== "object" || !OUTCOMES.has(p.outcome)) continue;
+    const amount = toMinor(p.amount, Number.isInteger(p.decimals) ? p.decimals : DECIMALS);
+    payouts.push({
+      task: typeof p.task_id === "string" ? p.task_id.slice(0, 80) : "",
+      recipient: typeof p.recipient === "string" ? p.recipient : "",
+      amount, decimals: Number.isInteger(p.decimals) ? p.decimals : DECIMALS,
+      asset: typeof p.asset === "string" ? p.asset.slice(0, 12) : "",
+      rail: p.rail === "sdp" ? "sdp" : "usdc",
+      outcome: p.outcome,
+      reason: typeof p.reason === "string" ? p.reason.slice(0, 240) : "",
+      tx: isHash(p.tx_hash) ? p.tx_hash.toLowerCase() : null,
+      reqTx: isHash(p.request_tx_hash) ? p.request_tx_hash.toLowerCase() : null,
+      approveTx: isHash(p.approve_tx_hash) ? p.approve_tx_hash.toLowerCase() : null,
+      contractError: p.blocked_by === "contract" && Number.isInteger(p.contract_error) ? p.contract_error : null,
+      sdpTx: isHash(p.sdp_tx_hash) ? p.sdp_tx_hash.toLowerCase() : null,
+      sdpDist: isAccount(p.sdp_distribution) ? p.sdp_distribution : null,
+      sdpPayment: typeof p.sdp_payment_id === "string" ? p.sdp_payment_id.slice(0, 80) : "",
+      name: typeof p.recipient_name === "string" ? p.recipient_name.slice(0, 40) : "",
+      sdp: typeof p.sdp_disbursement_id === "string" ? p.sdp_disbursement_id.slice(0, 80) : "",
+      at: typeof p.at === "string" ? p.at : "",
+    });
+  }
+  return {
+    mandate: isContract(d.mandate_contract) ? d.mandate_contract : null,
+    principal: isAccount(d.principal) ? d.principal : null,
+    agent: isAccount(d.agent) ? d.agent : null,
+    created: typeof d.created_at === "string" ? d.created_at : "",
+    payouts,
+  };
+}
+function vPage(d) { return d && typeof d === "object" ? d : null; }
+
+/* ---------- Soroban reads ---------- */
+let sdkReady = null;
+function sdk() {
+  if (!sdkReady) sdkReady = new Promise((res, rej) => {
+    const ok = () => (window.StellarSdk && window.StellarSdk.rpc ? res(window.StellarSdk) : rej(new Error("the Stellar library did not load")));
+    if (document.readyState === "complete") ok(); else window.addEventListener("load", ok, { once: true });
+  });
+  return sdkReady;
+}
+// Any well formed account works as the source of a read: nothing is signed or sent.
+const READ_SOURCE = "GDQKNFDGVOVPAGQOVTRWHBULBG3VGFTS6HF6BG7IVRBTZVJFMINIGT7K";
+async function readContract(id, fn, args = []) {
+  const S = await sdk();
+  const server = new S.rpc.Server(NET.rpc);
+  const tx = new S.TransactionBuilder(new S.Account(READ_SOURCE, "0"), { fee: "100", networkPassphrase: NET.passphrase })
+    .addOperation(new S.Contract(id).call(fn, ...args)).setTimeout(60).build();
+  const sim = await server.simulateTransaction(tx);
+  if (sim.error) throw new Error(String(sim.error).split("\n")[0].slice(0, 200));
+  return S.scValToNative(sim.result.retval);
+}
+async function latestLedger() { const S = await sdk(); return (await new S.rpc.Server(NET.rpc).getLatestLedger()).sequence; }
+
+/* ---------- state ---------- */
+const params = new URLSearchParams(location.search);
+const chosen = isContract(params.get("mandate")) ? params.get("mandate") : null;
+let DATA = { demo: null, deployment: null, run: null, page: null, runSrc: null, demoSrc: null };
+
+function setTag(el, kind, text) { el.className = "tag " + kind; el.textContent = text; }
+function loadingBox(text) { return `<div class="state" role="status"><span class="spin" aria-hidden="true"></span><span>${esc(text)}</span></div>`; }
+function wipBox(title, body) { return `<div class="state">${icon("i-info")}<div><b>${esc(title)}</b><br>${body}</div></div>`; }
+function errBox(title, body, retry) { return `<div class="state err" role="alert">${icon("i-info")}<div><b>${esc(title)}</b><br>${body}${retry ? `<br><button class="btn small" type="button" data-retry="${retry}">${icon("i-refresh")}Try again</button>` : ""}</div></div>`; }
+
+/* ---------- 1. mandate ---------- */
+const MODES = { 1: ["Allowlist only", "Only recipients the principal added to the mandate's allowlist can be paid."], 2: ["Checked recipients", "Only recipients carrying a signed check from the principal's verifier can be paid."], 3: ["Allowlist and checks", "A recipient must be on the allowlist and carry a signed check."] };
+function when(sec) {
+  const d = new Date(Number(sec) * 1000);
+  if (isNaN(d)) return "";
+  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+}
+function relDays(sec) {
+  const days = Math.round((Number(sec) * 1000 - Date.now()) / 86400000);
+  if (days > 1) return `in ${days} days`;
+  if (days === 1) return "tomorrow";
+  if (days === 0) return "today";
+  return `${-days} days ago`;
+}
+function rule(k, v, d, word) { return `<div class="rule"><dt>${esc(k)}</dt><dd class="v${word ? " word" : ""}">${v}</dd><dd class="d">${d}</dd></div>`; }
+
+async function renderMandate() {
+  const tag = $("#mTag"), body = $("#mandateBody");
+  const id = chosen || (DATA.demo && DATA.demo.id) || (DATA.run && DATA.run.mandate);
+  if (!id) {
+    setTag(tag, "wip", "In progress");
+    $("#sum1").textContent = "In progress: demo mandate being set up";
+    body.innerHTML = wipBox("The demo mandate is being created on testnet today.", "Its contract ID appears here as soon as it is published, and its rules are then read live from the contract. The contract code itself is already deployed: " + expertLink("contract", "CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7", "see the mandate factory on stellar.expert") + ".");
+    return;
+  }
+  const srcNote = chosen ? "You chose this mandate in the page address." : DATA.demoSrc ? (DATA.demoSrc.live ? "ID read from ujira-contracts on GitHub just now." : "ID from the copy bundled with this page.") : "ID taken from the payout run file.";
+  body.innerHTML = `
+    <div class="idrow"><span class="k">Demo mandate contract ID</span><code id="mid">${esc(id)}</code>
+      <span class="acts"><button class="btn small" type="button" data-copy="${esc(id)}">${icon("i-copy")}Copy</button>${ext(`${NET.expert}/contract/${id}`, `${icon("i-ext")}Open on stellar.expert`, "btn small")}</span></div>
+    <p class="note">${esc(srcNote)}${!chosen && DATA.demo && DATA.demo.id === id ? [
+      DATA.demo.created_tx ? ` Created in ${expertLink("tx", DATA.demo.created_tx, "this transaction")}` : "",
+      DATA.demo.allow_tx ? `, recipients allowed in ${expertLink("tx", DATA.demo.allow_tx, "this one")}` : "",
+      DATA.demo.fund_tx ? `, funded in ${expertLink("tx", DATA.demo.fund_tx, "this one")}` : "",
+      DATA.demo.created_tx ? "." : ""].join("") : ""}</p>
+    <div id="rulesBox">${loadingBox("Asking the contract for its rules over Soroban RPC")}</div>`;
+  setTag(tag, "", "Checking");
+  try {
+    const [cfg, st] = await Promise.all([readContract(id, "config"), readContract(id, "state")]);
+    const at = new Date();
+    let ledger = null; try { ledger = await latestLedger(); } catch { /* the reads above already worked */ }
+    const asset = (DATA.deployment && DATA.deployment.assets[cfg.asset]) || null;
+    const code = asset ? asset.code : "units";
+    const L = cfg.limits || {};
+    const m = (v) => esc(formatMinor(BigInt(v), code));
+    const state = st.revoked ? ["Revoked", "blocked-ish", "The principal ended this mandate. It can never pay again."] : st.expired ? ["Expired", "", "Past its expiry date, so it can no longer pay."] : st.paused ? ["Paused", "", "The principal paused it. Nothing can be paid until they resume it."] : ["Active", "", "Taking payout requests inside the rules below."];
+    const approvers = Array.isArray(cfg.approvers) ? cfg.approvers : [];
+    const agents = Array.isArray(cfg.agents) ? cfg.agents : [];
+    const mode = MODES[cfg.recipient_mode] || ["Mode " + esc(cfg.recipient_mode), ""];
+    const thr = BigInt(L.approval_threshold || 0), cap = BigInt(L.per_payment_cap || 0);
+    const approvalText = approvers.length === 0 || thr > cap
+      ? ["Not needed", "Every payout under the per payment cap goes through without a person approving it."]
+      : [`${esc(cfg.approvals_required)} of ${approvers.length}`, `Payouts of ${m(thr)} or more wait until ${esc(cfg.approvals_required)} ${cfg.approvals_required == 1 ? "approver signs" : "approvers sign"} off: ${approvers.map(addrLink).join(", ")}.`];
+    let allowHtml = `<dd class="d">${esc(mode[1])}</dd>`;
+    const allow = (DATA.demo && !chosen && DATA.demo.allowlist) || [];
+    const statePill = st.revoked || st.expired || st.paused
+      ? `<span class="pill neutral">${icon(st.paused && !st.revoked ? "ujira-pause" : "i-x")}${state[0]}</span>`
+      : `<span class="pill neutral">${icon("i-check")}${state[0]}</span>`;
+    $("#rulesBox").innerHTML = `
+      <dl class="rules">
+        ${rule("Status", statePill, esc(state[2]))}
+        ${rule("Total budget", m(L.total_budget), `The most this mandate can ever pay out. ${m(st.spent)} paid so far.`)}
+        ${rule("Per payment cap", m(L.per_payment_cap), "The largest single payout. A bigger one is refused on chain.")}
+        ${rule("Daily limit", m(L.per_recipient_daily_cap), "The most one recipient can be paid in a day.")}
+        ${rule("Approvals", approvalText[0], approvalText[1], true)}
+        <div class="rule"><dt>Allowed recipients</dt><dd class="v word">${esc(mode[0])}</dd>${allowHtml}${allow.length ? `<dd class="d" id="allowList">Checking ${allow.length} allowlist entr${allow.length === 1 ? "y" : "ies"}</dd>` : ""}</div>
+        ${rule("Expires", esc(when(L.expires_at)), `${esc(relDays(L.expires_at))}. After this it pays nothing, and the principal can take the rest back.`)}
+        ${rule("Paused", st.paused ? "Yes" : "No", "The principal can pause and resume at any time.", true)}
+        ${rule("Revoked", st.revoked ? "Yes" : "No", "Revoking is permanent. The principal can then withdraw what is left.", true)}
+        ${rule("Balance now", m(st.balance), `${m(st.free)} free to pay, ${m(BigInt(st.pending) + BigInt(st.committed))} held for open payouts.`)}
+        ${rule("Principal", addrLink(cfg.principal), "The owner. Sets the rules and can pause, revoke or withdraw.")}
+        ${rule("Agent key", agents.length ? agents.map(addrLink).join("<br>") : "None", "Can ask for payouts. Cannot change a rule or move money anywhere else.")}
+      </dl>
+      <p class="meta"><span>Read live over Soroban RPC at ${esc(at.toLocaleTimeString())}${ledger ? `, ledger ${ledger.toLocaleString("en-US")}` : ""}.</span><span>Asset: ${asset ? `${esc(asset.code)}${asset.test ? " (a test asset)" : ""}, ` : ""}${expertLink("contract", cfg.asset)}</span></p>
+      <details><summary>Show the raw answer from the contract</summary><pre>${esc(JSON.stringify({ config: cfg, state: st }, (k, v) => (typeof v === "bigint" ? v.toString() : v && v.type === "Buffer" ? undefined : v instanceof Uint8Array ? Array.from(v, (b) => b.toString(16).padStart(2, "0")).join("") : v), 2))}</pre></details>`;
+    setTag(tag, "live", "Live");
+    $("#sum1").textContent = `${state[0]}: rules read live from testnet`;
+    if (allow.length) checkAllowlist(id, allow);
+  } catch (e) {
+    setTag(tag, "", "Not reachable");
+    $("#sum1").textContent = "Could not read the contract just now";
+    $("#rulesBox").innerHTML = errBox("The contract could not be read just now.", `Soroban RPC said: ${esc(e.message || e)}. The contract ID above still opens on stellar.expert.`, "mandate");
+  }
+}
+async function checkAllowlist(id, allow) {
+  const S = await sdk(); const box = $("#allowList"); if (!box) return;
+  const rows = await Promise.all(allow.slice(0, 12).map(async (e) => {
+    try {
+      const ok = await readContract(id, "is_allowed", [S.nativeToScVal(Uint8Array.from(e.recipient_ref.match(/../g).map((h) => parseInt(h, 16))), { type: "bytes" }), new S.Address(e.destination).toScVal()]);
+      return `${ok ? "Allowed" : "Not allowed"}: ${e.name ? esc(e.name) + " " : ""}${addrLink(e.destination)}`;
+    } catch { return `Not checked: ${e.name ? esc(e.name) + " " : ""}${addrLink(e.destination)}`; }
+  }));
+  box.innerHTML = rows.join("<br>");
+}
+
+/* contract tests and evidence notes */
+async function renderEvidence() {
+  const t = $("#lkTests"), r = $("#lkReadme");
+  try {
+    const res = await getText(TESTS_TXT);
+    if (res.missing) t.innerHTML = `<span><span class="tag wip">In progress</span></span><p>The full test output is being published to <span class="mono">evidence/contract-tests.txt</span> today.</p>`;
+    else {
+      let passed = 0, failed = 0, found = false;
+      for (const m of res.text.matchAll(/test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed/g)) { found = true; passed += +m[1]; failed += +m[2]; }
+      t.innerHTML = `${ext(TESTS_URL, "Contract test results")}<p>${found ? `<span class="mono">${passed.toLocaleString("en-US")}</span> tests passed, <span class="mono">${failed}</span> failed, in the output published to the repository.` : "The output of the contract test run, as published to the repository."}</p>`;
+    }
+  } catch { t.innerHTML = `${ext(TESTS_URL, "Contract test results")}<p>GitHub did not answer just now; the link still works.</p>`; }
+  try {
+    const res = await getText(EVID_MD);
+    r.innerHTML = res.missing ? `<span><span class="tag wip">In progress</span></span><p>Notes on how to rerun the tests and the testnet run are being written today.</p>` : `${ext(EVID_URL, "Evidence notes")}<p>How the tests and the testnet run were done, and how to run them again.</p>`;
+  } catch { r.innerHTML = `${ext(EVID_URL, "Evidence notes")}<p>GitHub did not answer just now; the link still works.</p>`; }
+}
+
+/* ---------- 2. payout engine ---------- */
+const OUT = {
+  paid: ["paid", "i-check", "Paid"],
+  approved_then_paid: ["paid", "i-check", "Paid after approval"],
+  approval_required: ["waiting", "i-clock", "Waiting for approval"],
+  blocked: ["blocked", "i-x", "Blocked"],
+};
+const REASONS = [
+  [/daily/i, "Over the recipient's daily limit"],
+  [/per.?payment|payment.?cap|over.?cap|cap/i, "Over the per payment cap"],
+  [/budget|insufficient|exceed/i, "More than the budget left"],
+  [/allow|recipient.?not/i, "Recipient is not on the allowlist"],
+  [/pause/i, "The mandate is paused"],
+  [/revok/i, "The mandate is revoked"],
+  [/expir/i, "The mandate has expired"],
+];
+function reasonText(r) {
+  if (!r) return "";
+  if (/\s/.test(r) && r.length > 24) return r; // already a sentence
+  const hit = REASONS.find(([re]) => re.test(r));
+  return hit ? hit[1] : r.replace(/_/g, " ");
+}
+async function renderEngine() {
+  const tag = $("#eTag"), body = $("#engineBody");
+  const run = DATA.run;
+  if (!run || !run.payouts.length) {
+    setTag(tag, "wip", "In progress");
+    $("#sum2").textContent = "In progress: test run under way";
+    body.innerHTML = wipBox("The testnet payout run is under way today.", `Its payouts, including blocked and approval cases, appear here as soon as the engine publishes <span class="mono">evidence/testnet-run.json</span> to ${ext(GH + "/ujira-mcp", "qomiralabs/ujira-mcp")}. Each one is then checked live against Stellar testnet.`);
+    return;
+  }
+  const P = run.payouts;
+  const count = (f) => P.filter(f).length;
+  const paid = count((p) => p.outcome === "paid" || p.outcome === "approved_then_paid");
+  const blocked = count((p) => p.outcome === "blocked");
+  const approvals = count((p) => p.outcome === "approved_then_paid" || p.outcome === "approval_required");
+  const withTx = P.filter((p) => p.tx || p.reqTx);
+  const src = DATA.runSrc && DATA.runSrc.live ? `Read from ${ext(GH + "/ujira-mcp/blob/development/evidence/testnet-run.json", "ujira-mcp evidence/testnet-run.json")} on GitHub just now.` : `From the copy of ujira-mcp <span class="mono">evidence/testnet-run.json</span> bundled with this page.`;
+  body.innerHTML = `
+    <dl class="stats">
+      <div class="stat"><dt>Test payouts</dt><dd>${P.length}</dd></div>
+      <div class="stat"><dt>Paid</dt><dd>${paid}</dd></div>
+      <div class="stat"><dt>Blocked by the mandate</dt><dd>${blocked}</dd></div>
+      <div class="stat"><dt>Confirmed on testnet</dt><dd id="verCount">0 of ${withTx.length}</dd></div>
+    </dl>
+    <div class="tbl-wrap"><table>
+      <caption class="sr">Every test payout in the testnet run, with live confirmation from Stellar testnet</caption>
+      <thead><tr><th scope="col">Task</th><th scope="col">Recipient</th><th scope="col" class="amt">Amount</th><th scope="col">Rail</th><th scope="col">Outcome</th><th scope="col">Transaction</th><th scope="col">Checked on testnet</th></tr></thead>
+      <tbody>${P.map(row).join("")}</tbody>
+    </table></div>
+    <div class="legend">
+      <span><b>USDC</b> paid straight from the mandate contract to the recipient's Stellar wallet.</span>
+      <span><b>SDP</b> paid through the Stellar Disbursement Platform (SDP 7.1.0), on an SDP testnet instance run by the team. The mandate pays the SDP distribution account, then SDP pays the recipient: two transactions, both shown and both checked.${P.some((p) => p.rail === "sdp") ? "" : ` <span class="tag wip">In progress</span> No payout in this run went through SDP yet.`}</span>
+      <span>${approvals} payout${approvals === 1 ? "" : "s"} needed a person's approval first. ${src} ${ext(GH + "/ujira-mcp/blob/development/evidence/RUN.md", "How the run was done")}.${run.created ? ` Run recorded ${esc(new Date(run.created).toLocaleString())}.` : ""}</span>
+    </div>`;
+  setTag(tag, "live", "Live");
+  $("#sum2").textContent = `${P.length} test payouts: ${paid} paid, ${blocked} blocked`;
+  verifyAll(P);
+}
+function row(p, i) {
+  const o = OUT[p.outcome];
+  const code = p.asset || (p.rail === "sdp" ? "USDC" : "USDC");
+  const why = p.outcome === "blocked" ? `<span class="why">${esc(reasonText(p.reason) || "Refused by the mandate rules")}${p.contractError != null ? `. Refused by the contract itself, error ${esc(p.contractError)}.` : ""}</span>` : p.outcome === "approval_required" ? `<span class="why">Held by the contract until an approver signs off.</span>` : p.outcome === "approved_then_paid" ? `<span class="why">Over the approval amount, so it waited for an approver, then paid.</span>` : "";
+  const txs = [];
+  if (p.rail === "sdp" && p.tx) {
+    txs.push(`<span class="sm">Mandate to SDP: ${expertLink("tx", p.tx, esc(short(p.tx)))}</span>`);
+    txs.push(`<span class="sm">SDP to recipient: ${p.sdpTx ? expertLink("tx", p.sdpTx, esc(short(p.sdpTx))) : "not recorded"}</span>`);
+  } else if (p.tx) txs.push(expertLink("tx", p.tx, esc(short(p.tx))));
+  if (p.reqTx && p.reqTx !== p.tx) txs.push(`<span class="sm">Request: ${expertLink("tx", p.reqTx, esc(short(p.reqTx)))}</span>`);
+  if (p.approveTx) txs.push(`<span class="sm">Approval: ${expertLink("tx", p.approveTx, esc(short(p.approveTx)))}</span>`);
+  if (p.sdp) txs.push(`<span class="sm">SDP disbursement <span class="mono">${esc(p.sdp.slice(0, 8))}</span>${p.sdpPayment ? `, payment <span class="mono">${esc(p.sdpPayment.slice(0, 8))}</span>` : ""}</span>`);
+  const rec = (isAccount(p.recipient) ? expertLink("account", p.recipient) : `<span class="addr">${esc(short(p.recipient))}</span>`) + (p.name ? `<span class="sm">${esc(p.name)}</span>` : "");
+  return `<tr>
+    <td data-label="Task" class="task"><span class="mono">${esc(p.task || "-")}</span></td>
+    <td data-label="Recipient">${rec}</td>
+    <td data-label="Amount" class="amt">${p.amount == null ? "-" : esc(formatMinor(p.amount, code, p.decimals))}</td>
+    <td data-label="Rail"><span class="mono">${p.rail === "sdp" ? "SDP" : "USDC"}</span></td>
+    <td data-label="Outcome"><span class="pill ${o[0]}">${icon(o[1])}${o[2]}</span>${why}</td>
+    <td data-label="Transaction">${txs.length ? txs.join("") : `<span class="muted small">${p.outcome === "blocked" ? "None: refused before anything was paid" : "None yet"}</span>`}</td>
+    <td data-label="Checked on testnet" id="v${i}">${p.tx || p.reqTx ? `<span class="ver">${icon("i-clock")}Checking</span>` : `<span class="ver">Nothing to check</span>`}</td>
+  </tr>`;
+}
+/* Asks Horizon for each transaction. A paid row is confirmed when the
+   transaction exists and succeeded; the operations then show whether the
+   recipient and amount match the receipt. */
+async function verifyLeg(hash, to, amount, decimals) {
+  const r = await getJSON(`${NET.horizon}/transactions/${hash}`, 15000);
+  if (r.missing) return { found: false };
+  const tx = r.data; let match = false;
+  if (tx.successful) {
+    try {
+      const ops = await getJSON(`${NET.horizon}/transactions/${hash}/operations?limit=50`, 15000);
+      const recs = (ops.data && ops.data._embedded && ops.data._embedded.records) || [];
+      for (const op of recs) {
+        if (/^(payment|path_payment_strict_(receive|send))$/.test(op.type) && op.to === to && toMinor(op.amount, decimals) === amount) match = true;
+        for (const c of op.asset_balance_changes || []) if (c.type === "transfer" && c.to === to && toMinor(c.amount, decimals) === amount) match = true;
+      }
+    } catch { /* the transaction itself is confirmed; the match is a bonus */ }
+  }
+  return { found: true, ok: !!tx.successful, ledger: Number(tx.ledger), match };
+}
+async function verifyOne(p) {
+  if (p.rail === "sdp" && p.tx && p.sdpTx) {
+    const [a, b] = await Promise.all([verifyLeg(p.tx, p.sdpDist, p.amount, p.decimals), verifyLeg(p.sdpTx, p.recipient, p.amount, p.decimals)]);
+    if (!a.found || !b.found) return { cls: "bad", ic: "i-x", text: `${!a.found ? "Mandate to SDP" : "SDP to recipient"} leg not found on testnet` };
+    if (!a.ok || !b.ok) return { cls: "bad", ic: "i-x", text: `${!a.ok ? "Mandate to SDP" : "SDP to recipient"} leg failed on chain` };
+    return { cls: "ok", ic: "i-check", text: `Both legs confirmed, ledgers ${a.ledger.toLocaleString("en-US")} and ${b.ledger.toLocaleString("en-US")}${a.match && b.match ? ", recipient and amount match" : ""}` };
+  }
+  const hash = p.tx || p.reqTx;
+  const r = await getJSON(`${NET.horizon}/transactions/${hash}`, 15000);
+  if (r.missing) return { cls: "bad", ic: "i-x", text: "Not found on testnet" };
+  const tx = r.data;
+  const time = tx.created_at ? new Date(tx.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  if (!p.tx) return tx.successful ? { cls: "ok", ic: "i-check", text: `Request on chain, ledger ${Number(tx.ledger).toLocaleString("en-US")}` } : { cls: "ok", ic: "i-check", text: `Refused on chain, ledger ${Number(tx.ledger).toLocaleString("en-US")}` };
+  if (!tx.successful) return { cls: "bad", ic: "i-x", text: `Failed on chain, ledger ${Number(tx.ledger).toLocaleString("en-US")}`, ok: false };
+  let match = "";
+  try {
+    const ops = await getJSON(`${NET.horizon}/transactions/${hash}/operations?limit=50`, 15000);
+    const recs = (ops.data && ops.data._embedded && ops.data._embedded.records) || [];
+    const moves = [];
+    for (const op of recs) {
+      if (op.type === "payment" || op.type === "path_payment_strict_receive" || op.type === "path_payment_strict_send") moves.push({ to: op.to, amount: op.amount });
+      for (const c of op.asset_balance_changes || []) if (c.type === "transfer") moves.push({ to: c.to, amount: c.amount });
+    }
+    if (p.amount != null && isAccount(p.recipient) && moves.some((mv) => mv.to === p.recipient && toMinor(mv.amount, p.decimals) === p.amount)) match = ", recipient and amount match";
+  } catch { /* the transaction itself is confirmed; the match is a bonus */ }
+  return { cls: "ok", ic: "i-check", text: `Confirmed, ledger ${Number(tx.ledger).toLocaleString("en-US")}${time ? `, ${time}` : ""}${match}`, ok: true };
+}
+async function verifyAll(P) {
+  let done = 0; const total = P.filter((p) => p.tx || p.reqTx).length;
+  const queue = P.map((p, i) => [p, i]).filter(([p]) => p.tx || p.reqTx);
+  async function worker() {
+    while (queue.length) {
+      const [p, i] = queue.shift(); const cell = $("#v" + i); if (!cell) continue;
+      try {
+        const v = await verifyOne(p);
+        cell.innerHTML = `<span class="ver ${v.cls}">${icon(v.ic)}${esc(v.text)}</span>`;
+        if (v.cls === "ok") done++;
+      } catch { cell.innerHTML = `<span class="ver">${icon("i-info")}Horizon did not answer. ${expertLink("tx", p.tx || p.reqTx, "Check on stellar.expert")}</span>`; }
+      const c = $("#verCount"); if (c) c.textContent = `${done} of ${total}`;
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+
+/* ---------- 3. MCP ---------- */
+const DEFAULT_MCP = {
+  name: "ujira",
+  command: "node",
+  args: ["/path/to/ujira-mcp/dist/mcp/main.js"],
+  env: {
+    UJIRA_MANDATE_FILE: "/home/you/.config/ujira-testnet/mine/mandate.json",
+    UJIRA_AGENT_KEY_FILE: "/home/you/.config/ujira-testnet/mine/identity/agent.toml",
+    UJIRA_EXECUTOR_KEY_FILE: "/home/you/.config/ujira-testnet/mine/identity/executor.toml",
+  },
+  steps: ["Clone qomiralabs/ujira-mcp and build it: npm ci, then npm run build.", "Make a testnet mandate and its agent and executor keys, as the README shows. Keys stay in files on your machine, never in the settings.", "Paste the settings below into your assistant, with your own absolute paths, then restart it and ask it to quote a payout."],
+};
+let mcpTab = "claude";
+function mcpSnippet(cfg) { return JSON.stringify({ mcpServers: { [cfg.name || "ujira"]: { command: cfg.command, args: cfg.args, ...(cfg.env && Object.keys(cfg.env).length ? { env: cfg.env } : {}) } } }, null, 2); }
+function npmPublished() { return !!(DATA.page && DATA.page.npm_published === true); }
+function renderSnippet() {
+  const cfg = Object.assign({}, DEFAULT_MCP, (DATA.page && DATA.page.mcp) || {});
+  if (npmPublished()) { cfg.command = "npx"; cfg.args = ["-y", "@ujira/mcp"]; cfg.steps = cfg.steps.slice(1); }
+  $("#mcpSnippet").textContent = mcpSnippet(cfg);
+  $("#mcpWhere").innerHTML = mcpTab === "claude"
+    ? `In Claude Desktop: Settings, Developer, Edit Config. That opens <span class="mono">claude_desktop_config.json</span>; add this to it.`
+    : `In Cursor: Settings, MCP, Add new MCP server, or put this in <span class="mono">.cursor/mcp.json</span> in your project.`;
+  $("#mcpSteps").innerHTML = (cfg.steps || []).map((s) => `<li><span>${esc(s)}</span></li>`).join("");
+  $("#npmNote").innerHTML = npmPublished()
+    ? `Runs the <span class="mono">@ujira/mcp</span> package from npm. From a clone, use <span class="mono">node</span> with <span class="mono">/path/to/ujira-mcp/dist/mcp/main.js</span> instead.`
+    : `<span class="tag wip">Publishing today</span> The npm package <span class="mono">@ujira/mcp</span> is not out yet. Once it is, the command becomes <span class="mono">npx -y @ujira/mcp</span> and no clone is needed. Until then, run it from a clone as shown.`;
+  for (const [b, k] of [["#tab-claude", "claude"], ["#tab-cursor", "cursor"]]) { const el = $(b); el.setAttribute("aria-selected", String(mcpTab === k)); el.tabIndex = mcpTab === k ? 0 : -1; }
+  $("#panel-code").setAttribute("aria-labelledby", mcpTab === "claude" ? "tab-claude" : "tab-cursor");
+}
+async function renderMcp() {
+  renderSnippet();
+  const links = [ext(GH + "/ujira-mcp", "ujira-mcp on GitHub"), ext(GH + "/ujira-mcp#readme", "README")];
+  if (npmPublished()) links.push(ext("https://www.npmjs.com/package/@ujira/mcp", "@ujira/mcp on npm"));
+  $("#mcpLinks").innerHTML = links.map((l) => `<span>${l}</span>`).join("");
+  let published = null;
+  try { const r = await getText(MCP_PKG); published = !r.missing; } catch { published = null; }
+  const tag = $("#cTag");
+  if (published === true) { setTag(tag, "live", "Code published"); $("#sum3").textContent = "Four tools, code published"; const hosted = DATA.page && typeof DATA.page.mcp_url === "string" && /^https:\/\//.test(DATA.page.mcp_url) ? DATA.page.mcp_url : "";
+    $("#mcpIntro").innerHTML = hosted
+      ? `<b>No install:</b> in Claude (web or Desktop) open Settings, Connectors, Add custom connector, name it UJIRA and paste <span class="mono" style="user-select:all;word-break:break-all">${esc(hosted)}</span>. Cursor takes the same URL as a remote MCP server. It is a shared public demo on Stellar testnet: real testnet payouts from the demo mandate, at most 10 USDC each and 5 an hour per visitor, so nothing ever waits for an approver. ${ext(hosted.replace(/\/mcp$/, "/healthz"), "Server health")}<br><br>Or run your own copy against your own mandate with npm, as below. Testnet only.`
+      : "Add the server to your assistant's MCP settings, then restart it. Testnet only."; }
+  else if (published === false) {
+    setTag(tag, "wip", "In progress"); $("#sum3").textContent = "In progress: server merging today";
+    $("#mcpIntro").innerHTML = `<span class="tag wip">In progress</span> The server code is being merged into the repository today. The settings below are what it will take; the README has the final version.`;
+  } else { setTag(tag, "", "GitHub did not answer"); }
+  const url = DATA.page && typeof DATA.page.demo_video_url === "string" && /^https:\/\//.test(DATA.page.demo_video_url) ? DATA.page.demo_video_url : "";
+  $("#videoSlot").innerHTML = url
+    ? `<div class="video ready"><span class="play">${icon("i-play")}</span><div><b>Watch the demo</b><br><span class="muted small">An agent paying people through UJIRA on testnet, start to finish.</span><br>${ext(url, "Open the demo video")}</div></div>`
+    : `<div class="video"><span class="play">${icon("i-play")}</span><div><span class="tag wip">In progress</span><br><b>Demo video link goes here.</b><br><span class="muted small">An agent paying people through UJIRA on testnet, start to finish. Being recorded today.</span></div></div>`;
+}
+
+/* ---------- boot ---------- */
+async function network() {
+  const el = $("#netStatus");
+  try { const n = await latestLedger(); el.innerHTML = `<span class="dot ok"></span>Connected to Stellar testnet, ledger ${n.toLocaleString("en-US")}`; }
+  catch { el.innerHTML = `<span class="dot bad"></span>Stellar testnet did not answer. Some checks below may fail; try again in a minute.`; }
+}
+async function loadData() {
+  const [demo, dep, run, page] = await Promise.all([loadFirst(SRC.demo, vDemo), loadFirst(SRC.deployment, vDeployment), loadFirst(SRC.run, vRun), loadFirst(SRC.page, vPage)]);
+  DATA = { demo: demo.value, demoSrc: demo.value ? demo : null, deployment: dep.value, run: run.value, runSrc: run.value ? run : null, page: page.value };
+}
+async function boot() {
+  const btn = $("#recheck"); btn.disabled = true;
+  $("#mandateBody").innerHTML = loadingBox("Finding the demo mandate");
+  $("#engineBody").innerHTML = loadingBox("Loading the testnet run");
+  await loadData();
+  await Promise.all([network(), renderMandate(), renderEngine(), renderMcp(), renderEvidence()]);
+  btn.disabled = false;
+  document.documentElement.dataset.ready = "1";
+}
+document.addEventListener("click", (e) => {
+  const c = e.target.closest("[data-copy]"); if (c) copy(c.dataset.copy);
+  const r = e.target.closest("[data-retry]"); if (r) (r.dataset.retry === "mandate" ? renderMandate() : boot());
+});
+$("#recheck").addEventListener("click", boot);
+$("#copySnippet").addEventListener("click", () => copy($("#mcpSnippet").textContent));
+for (const [b, k] of [["#tab-claude", "claude"], ["#tab-cursor", "cursor"]]) $(b).addEventListener("click", () => { mcpTab = k; renderSnippet(); });
+$(".tabs").addEventListener("keydown", (e) => { if (e.key === "ArrowRight" || e.key === "ArrowLeft") { mcpTab = mcpTab === "claude" ? "cursor" : "claude"; renderSnippet(); $(mcpTab === "claude" ? "#tab-claude" : "#tab-cursor").focus(); } });
+const th = params.get("theme"); if (th === "light" || th === "dark") document.documentElement.dataset.theme = th;
+boot();
+</script>
+</body>
+</html>

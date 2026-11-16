@@ -1,0 +1,59 @@
+{
+  "network": "testnet",
+  "network_passphrase": "Test SDF Network ; September 2015",
+  "mandate": "CDEEDQ64YS6XHBTWC3QLS5JWOLI3LSO46VDDZE66FW6CZGHZNRDV4GZW",
+  "factory": "CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7",
+  "asset": {
+    "code": "USDC",
+    "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    "contract": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+  },
+  "principal": "GAIZY3VB6Z6Y5KK5NRPOK3KBCJQXZAKE3YJGRNJ3A6M75B3EBS6NZKKV",
+  "agent": "GACBXFHFLY77OVTLBI5T373ZHBW5E5IPSATXDEKLSUTD62GNND7UEZVN",
+  "approver": "GDCJIVK4ZTSYFLLEAFXOZUWPHRH53GDUQX6CIFZRBVCWZ6YYHOOTDQ4V",
+  "executor": "GD3XRLSLLSHDWCYVIVDKAZ2AQPBFCPV35HJGWGGYKVAWCYJKWWBRVRMK",
+  "recipients": [
+    {
+      "name": "recipient-1",
+      "recipient_ref": "a5af47dc553b19356f6fd85bdabb3be0256fb70fbc800ce3d3100508609b76a7",
+      "destination": "GDWQCLVZKFKKIQGXOSRZRLOBJ4V5J6UQ2L5D3RC4Y3IGEJXFZ4VJFPLX"
+    },
+    {
+      "name": "recipient-2",
+      "recipient_ref": "f4aaf5afaf4b5ef3698f2b9d28791174954f8d075c50c3e5d4097c447a97dd35",
+      "destination": "GD3GVK2SYUMIAHMRCC5ZYEAMQW6LIKC4YJ57D7A474GXIVCYKPC6XRQ3"
+    },
+    {
+      "name": "recipient-3",
+      "recipient_ref": "d75b056f3861f7bf82c3d298e16b369da6df053240596100ebee6240960835d2",
+      "destination": "GCF3NTSN3MT2MR4E2F6OI4FTRAAXI462LSVBRYR5ARK2UXAZO4HWCUK6"
+    }
+  ],
+  "limits": {
+    "total_budget": "5000000000",
+    "per_payment_cap": "500000000",
+    "per_recipient_daily_cap": "1000000000",
+    "approval_threshold": "200000000",
+    "payout_ttl_seconds": 86400,
+    "expires_at": 1799748513
+  },
+  "recipient_mode": "allowlist",
+  "approvals_required": 1,
+  "max_fee_bps": 100,
+  "tenant_tag": "cfa27d4dcd100292193afb5283c798111f5b9f2c494f0f28d1ef02a8cf2a053d",
+  "salt": "12613a4cc1186622af91b117afd946f45ce98e442237571440d7578ade29de54",
+  "funded": "5000000000",
+  "amount_decimals": 7,
+  "transactions": {
+    "trust_principal": "f0f5f128e1ae2336e6ab674ddcf66731d57b865865c6f5cab2f9a82c80ad9632",
+    "trust_recipient-1": "3d979dc0b5700a50138c3192b413e56d62525afa1732ff6cf4ece1357c836ad2",
+    "trust_recipient-2": "25aafe410286125587f0a507f520a9d53893bf14bd2559ebc307efe72af5c695",
+    "trust_recipient-3": "62f3e713481667c87de65c0e3396e351ec3d1f60d4c16c588ac085d2558532f1",
+    "buy_usdc": "0ee8526c212039d2929894dbb61577fd3b0c5d7174ca49fcf02a0d3fc8e369b0",
+    "create_mandate": "b93359b57625e3991738fa580817204f244a6f0c3c83e26b8d8f16c7e642cb7f",
+    "allow_recipients": "a016cfb7658e179a70c840169a776890e48640f2e32a18b34e7266931c34c653",
+    "fund_mandate": "b9e9f9281a0198f746c10f50e5a57a1e0e469a6865ddf84305ba0044685a57b2"
+  },
+  "create_transaction": "b93359b57625e3991738fa580817204f244a6f0c3c83e26b8d8f16c7e642cb7f",
+  "created_at": "2026-11-13T10:09:00Z"
+}

@@ -7,8 +7,9 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  // The console web app has its own lint setup in console/.
-  { ignores: ['dist/', 'coverage/', 'node_modules/', 'console/'] },
+  // The console web app has its own lint setup in console/. site/ is the
+  // static marketing site, kept as published, with a bundled wallet script.
+  { ignores: ['dist/', 'coverage/', 'node_modules/', 'console/', 'site/'] },
   js.configs.recommended,
   {
     files: ['**/*.ts'],

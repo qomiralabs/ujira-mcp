@@ -65,6 +65,14 @@ export function labelProblem(label: string): string | null {
 }
 
 /** How many recipients one allow transaction can add: fewer when SDP doubles each entry. */
+const NAMES = ['Ada', 'Kofi', 'Wanjiru', 'Tunde', 'Amara', 'Zawadi', 'Chidi', 'Nia'];
+
+/** A friendly name for the next test recipient that is not taken yet. */
+export function nextName(taken: readonly string[]): string {
+  const lower = new Set(taken.map((t) => t.toLowerCase()));
+  return NAMES.find((n) => !lower.has(n.toLowerCase())) ?? `Recipient ${taken.length + 1}`;
+}
+
 export function maxRecipients(sdpAvailable: boolean): number {
   return sdpAvailable ? 5 : 10;
 }

@@ -5,8 +5,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { explorerAccount, explorerContract, useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
+import { usePortfolio } from '../app/portfolio';
 import { AgentPanel } from '../components/AgentPanel';
 import { Approvals } from '../components/Approvals';
+import { ConnectClaude } from '../components/ConnectClaude';
+import { Link } from '../components/Link';
 import { ReceiptsTable } from '../components/ReceiptsTable';
 import { TopUpPanel } from '../components/TopUp';
 import {
@@ -18,6 +21,7 @@ import {
   Field,
   Notice,
   Skeleton,
+  SoonTag,
   Spinner,
   StatusPill,
   TxLink,
@@ -88,9 +92,11 @@ function Rules({ m }: { m: Mandate }) {
   ];
   return (
     <section className="card" aria-labelledby="rules-title">
-      <h2 id="rules-title" className="card-title">
-        The rules
-      </h2>
+      <div className="card-head">
+        <h2 id="rules-title" className="card-title">
+          The rules
+        </h2>
+      </div>
       <dl className="rules">
         {rows.map(([k, v, help]) => (
           <div key={k}>
@@ -125,6 +131,12 @@ function Rules({ m }: { m: Mandate }) {
           ))}
         </ul>
       )}
+      <p className="soon-line small">
+        <span className="muted">
+          Change these rules or add approvers from the dashboard. Today a new mandate sets them.
+        </span>
+        <SoonTag label="In progress" />
+      </p>
     </section>
   );
 }
@@ -354,49 +366,10 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
   );
 }
 
-function ConnectClaude({ m }: { m: Mandate }) {
-  const first = m.recipients[0]?.label ?? 'a recipient';
-  return (
-    <section className="card" aria-labelledby="claude-title">
-      <h2 id="claude-title" className="card-title">
-        Connect Claude
-      </h2>
-      <p className="muted">
-        Let Claude act as the agent for this mandate. It can quote, request payouts, check their
-        status and list receipts, and nothing more.
-      </p>
-      <div className="copy-row">
-        <label className="sr-only" htmlFor="mcp-url">
-          MCP address for this mandate
-        </label>
-        <input
-          id="mcp-url"
-          className="mono"
-          readOnly
-          value={m.mcpUrl}
-          onFocus={(e) => {
-            e.target.select();
-          }}
-        />
-        <CopyButton text={m.mcpUrl} label="Copy address" />
-      </div>
-      <ol className="numbered">
-        <li>In Claude, open Settings, then Connectors.</li>
-        <li>
-          Choose Add custom connector, paste the address above and save. No sign in is needed.
-        </li>
-        <li>
-          Ask in a chat, for example: &ldquo;Quote 2 USDC to {first} for task demo-1, then pay
-          it.&rdquo; Payouts at or above {formatUsdc(m.rules.approvalThreshold)} wait for your
-          approval here.
-        </li>
-      </ol>
-    </section>
-  );
-}
-
 export function MandatePage({ id }: { id: string }) {
   const { api, config } = useApp();
+  const portfolio = usePortfolio();
+  const reloadPortfolio = portfolio?.reload;
   const mandate = useResource(`mandate:${id}`, () => api.mandate(id), POLL_MS);
   const payouts = useResource(`payouts:${id}`, () => api.payouts(id), POLL_MS);
   const receipts = useResource(`receipts:${id}`, () => api.receipts(id), POLL_MS);
@@ -409,14 +382,16 @@ export function MandatePage({ id }: { id: string }) {
     reloadMandate();
     reloadPayouts();
     reloadReceipts();
+    reloadPortfolio?.();
     // Chain state can trail a finished request by a ledger; look once more.
     if (followUp.current !== null) clearTimeout(followUp.current);
     followUp.current = setTimeout(() => {
       reloadMandate();
       reloadPayouts();
       reloadReceipts();
+      reloadPortfolio?.();
     }, 4000);
-  }, [reloadMandate, reloadPayouts, reloadReceipts]);
+  }, [reloadMandate, reloadPayouts, reloadReceipts, reloadPortfolio]);
 
   useEffect(
     () => () => {
@@ -429,10 +404,9 @@ export function MandatePage({ id }: { id: string }) {
   if (m === undefined) {
     return (
       <div className="stack">
-        <a href="#/" className="back">
+        <Link to="/mandates" className="back">
           &larr; Your mandates
-        </a>
-        <h1>Mandate</h1>
+        </Link>
         {mandate.error === null ? (
           <Skeleton lines={5} label="Loading the mandate" />
         ) : (
@@ -450,13 +424,13 @@ export function MandatePage({ id }: { id: string }) {
   return (
     <div className="stack">
       <div className="page-head">
-        <a href="#/" className="back">
+        <Link to="/mandates" className="back">
           &larr; Your mandates
-        </a>
+        </Link>
         <div className="title-row">
-          <h1>
-            Mandate <span className="mono title-id">{shortAddress(m.id, 6)}</span>
-          </h1>
+          <p className="mono title-id" title={m.id}>
+            {m.id}
+          </p>
           <StatusPill tone={word.tone}>{word.label}</StatusPill>
         </div>
         <p className="muted">
@@ -505,8 +479,7 @@ export function MandatePage({ id }: { id: string }) {
         />
       </div>
       <ReceiptsTable
-        m={m}
-        receipts={receipts.data}
+        rows={receipts.data?.map((receipt) => ({ mandate: m, receipt }))}
         loading={receipts.loading}
         error={receipts.error}
         onRetry={receipts.reload}

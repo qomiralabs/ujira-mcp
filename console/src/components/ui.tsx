@@ -23,7 +23,7 @@ export type BrandIconName =
 export function BrandIcon({ name, size = 20 }: { name: BrandIconName; size?: number }) {
   return (
     <svg className="icon" width={size} height={size} aria-hidden="true" focusable="false">
-      <use href={`/icons.svg#ujira-${name}`} />
+      <use href={`${import.meta.env.BASE_URL}icons.svg#ujira-${name}`} />
     </svg>
   );
 }
@@ -266,6 +266,72 @@ export function ConfirmDialog({
   );
 }
 
-export function SoonTag() {
-  return <span className="soon">Soon</span>;
+/** Marks a feature that is visible but not built yet. Never a payment status. */
+export function SoonTag({ label = 'Soon' }: { label?: 'Soon' | 'In progress' }) {
+  return <span className="soon">{label}</span>;
+}
+
+/** A row of figures at the top of a page: what it is, the value, one line of context. */
+export function Kpi({
+  label,
+  value,
+  note,
+  action,
+}: {
+  label: string;
+  value: ReactNode;
+  note?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="kpi">
+      <p className="kpi-label">{label}</p>
+      <p className="kpi-value">{value}</p>
+      {note === undefined ? null : <p className="kpi-note">{note}</p>}
+      {action ?? null}
+    </div>
+  );
+}
+
+/** A screen that is planned and on the way: shown, labelled, never hidden. */
+export function ComingSoon({
+  title,
+  lede,
+  items,
+  children,
+}: {
+  title: string;
+  lede: string;
+  items: readonly { readonly title: string; readonly text: string }[];
+  children?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section className="card coming" aria-labelledby={id}>
+      <div className="card-head">
+        <h2 id={id} className="card-title">
+          {title}
+        </h2>
+        <SoonTag label="In progress" />
+      </div>
+      <p className="muted coming-lede">{lede}</p>
+      <ul className="coming-items">
+        {items.map((i) => (
+          <li key={i.title}>
+            <span>
+              <strong>{i.title}</strong>
+              <span className="muted small">{i.text}</span>
+            </span>
+            <SoonTag />
+          </li>
+        ))}
+      </ul>
+      <div className="ghost" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      {children}
+    </section>
+  );
 }

@@ -10,9 +10,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './app/App';
+import { migrateLegacyHash } from './app/routes';
 import { createHttpApi } from './lib/api';
 import { mockRequested } from './lib/wallet';
 
+// Links from before the move to /app used hash routes; read them as paths.
+migrateLegacyHash();
 const mock = mockRequested();
 // The mock API is only downloaded when someone asks for it.
 const api = mock ? (await import('./lib/mock')).createMockApi() : createHttpApi();

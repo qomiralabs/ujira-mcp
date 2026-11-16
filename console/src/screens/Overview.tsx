@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
-import { useApp } from '../app/context';
-import { useAction, useResource } from '../app/hooks';
-import { FaucetOffline, TopUpResult, useTopUp } from '../components/TopUp';
+import { explorerAccount, useApp } from '../app/context';
+import { useAction, useResource, type Resource } from '../app/hooks';
 import {
+  allReceipts,
+  heldTotal,
+  usePortfolio,
+  waitingPayouts,
+  type MandateBundle,
+} from '../app/portfolio';
+import { WalletChoices } from '../components/Connect';
+import { Link } from '../components/Link';
+import { MandateList } from '../components/MandateList';
+import { ReceiptsTable } from '../components/ReceiptsTable';
+import { FaucetOffline, TopUpPanel, TopUpResult, useTopUp } from '../components/TopUp';
+import {
+  Amount,
   BrandIcon,
   ErrorNotice,
+  Kpi,
   Notice,
   Skeleton,
   SoonTag,
@@ -19,15 +32,7 @@ import { compareMinor, formatAmount } from '../lib/money';
 import type { Account } from '../lib/schemas';
 import { signAndSubmit } from '../lib/sign';
 import { shortAddress } from '../lib/strkey';
-import {
-  MOCK_WALLET,
-  connectAlbedo,
-  connectFreighter,
-  mockWallet,
-  rememberWallet,
-  type Wallet,
-  type WalletKind,
-} from '../lib/wallet';
+import type { Wallet } from '../lib/wallet';
 
 const STEPS: readonly { icon: BrandIconName; title: string; text: string }[] = [
   {
@@ -102,51 +107,27 @@ function ComingNext() {
           </span>
           <SoonTag />
         </li>
+        <li>
+          <BrandIcon name="approval" />
+          <span>
+            <strong>Several approvers with passkeys</strong>
+            <span className="muted">
+              Two of three people approve a big payout. No seed phrases.
+            </span>
+          </span>
+          <SoonTag />
+        </li>
       </ul>
     </section>
   );
 }
 
-const WALLET_CHOICES: readonly { kind: WalletKind; name: string; text: string }[] = [
-  {
-    kind: 'freighter',
-    name: 'Freighter',
-    text: 'Browser extension. Switch it to Testnet before you connect.',
-  },
-  { kind: 'albedo', name: 'Albedo', text: 'Signs in a pop-up window. Nothing to install.' },
-];
-
-function ConnectPanel() {
-  const { config, mock, setWallet } = useApp();
-  const [pending, setPending] = useState<WalletKind | null>(null);
-  const connect = useAction(async (kind: WalletKind) => {
-    setPending(kind);
-    try {
-      let w: Wallet;
-      if (kind === 'mock') w = mockWallet(MOCK_WALLET);
-      else if (kind === 'freighter') w = await connectFreighter(config.networkPassphrase);
-      else w = await connectAlbedo();
-      rememberWallet(w);
-      setWallet(w);
-    } finally {
-      setPending(null);
-    }
-  });
-  const choices = mock
-    ? [
-        {
-          kind: 'mock' as const,
-          name: 'Demo wallet',
-          text: 'Mock mode only. Nothing is signed or sent.',
-        },
-        ...WALLET_CHOICES,
-      ]
-    : WALLET_CHOICES;
+function Welcome() {
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="hero-copy">
-        <p className="label">UJIRA Console</p>
-        <h1 id="hero-title">Let an agent pay people, inside rules you set.</h1>
+        <p className="label">UJIRA dashboard</p>
+        <h2 id="hero-title">Pay the people who do the work.</h2>
         <p className="lead">
           Create a spending mandate on Stellar with your own wallet, fund it with test USDC, and
           watch an AI agent ask it for payouts. The contract decides, you approve the big ones, and
@@ -154,31 +135,12 @@ function ConnectPanel() {
         </p>
       </div>
       <div className="connect">
-        <h2 className="card-title">Connect a wallet to start</h2>
+        <h3 className="card-title">Connect a wallet to start</h3>
         <p className="muted">
           Your keys stay in your wallet. You approve each step there, and nothing moves without your
           signature.
         </p>
-        <div className="wallet-options">
-          {choices.map((c, i) => (
-            <button
-              key={c.kind}
-              type="button"
-              className={`wallet-option${i === 0 ? ' wallet-option-primary' : ''}`}
-              onClick={() => void connect.run(c.kind)}
-              disabled={connect.busy}
-            >
-              <span>
-                <strong>
-                  {pending === c.kind ? `Waiting for ${c.name}` : `Connect ${c.name}`}
-                </strong>
-                <span className="muted">{c.text}</span>
-              </span>
-              {pending === c.kind ? <Spinner /> : <span aria-hidden="true">&rarr;</span>}
-            </button>
-          ))}
-        </div>
-        {connect.error === null ? null : <ErrorNotice error={connect.error} />}
+        <WalletChoices />
       </div>
     </section>
   );
@@ -249,9 +211,10 @@ function setupStates(a: Account | undefined): {
   };
 }
 
-export function SetupChecklist({ wallet }: { wallet: Wallet }) {
+const xlmText = (xlm: string) => xlm.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+
+function SetupChecklist({ wallet, account }: { wallet: Wallet; account: Resource<Account> }) {
   const { api, config, notify } = useApp();
-  const account = useResource(`account:${wallet.address}`, () => api.account(wallet.address));
   const topUp = useTopUp(wallet, account.reload);
   const xlm = useAction(async () => {
     await api.onboardXlm(wallet.address);
@@ -293,7 +256,7 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
             detail={
               a?.xlm === null || a?.xlm === undefined
                 ? undefined
-                : `${a.xlm.replace(/\.?0+$/, '')} XLM in your wallet`
+                : `${xlmText(a.xlm)} XLM in your wallet`
             }
             action={{ label: 'Get test XLM', busy: xlm.busy, onClick: () => void xlm.run() }}
           />
@@ -333,9 +296,9 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
       {error === null ? null : <ErrorNotice error={error} />}
       <TopUpResult t={topUp} />
       <div className="actions">
-        <a href="#/new" className={s.ready ? 'btn btn-primary' : 'btn'}>
+        <Link to="/mandates/new" className={s.ready ? 'btn btn-primary' : 'btn'}>
           Create a mandate
-        </a>
+        </Link>
         {!s.ready && !account.loading ? (
           <span className="muted small">
             Finish the steps above first, or create one anyway if you already hold test USDC.
@@ -346,74 +309,174 @@ export function SetupChecklist({ wallet }: { wallet: Wallet }) {
   );
 }
 
-export function MyMandates({ wallet }: { wallet: Wallet }) {
-  const { api } = useApp();
-  const list = useResource(`mandates:${wallet.address}`, () => api.mandates(wallet.address));
+function WalletCard({ wallet, account }: { wallet: Wallet; account: Resource<Account> }) {
   return (
-    <section className="card" aria-labelledby="mine-title">
-      <h2 id="mine-title" className="card-title">
-        Your mandates
+    <section className="card" aria-labelledby="wallet-title">
+      <h2 id="wallet-title" className="card-title">
+        Your wallet
       </h2>
-      {list.loading ? (
-        <Skeleton lines={2} label="Loading your mandates" />
-      ) : list.error !== null && list.data === undefined ? (
-        <ErrorNotice error={list.error} onRetry={list.reload} />
-      ) : list.data === undefined || list.data.length === 0 ? (
-        <p className="muted">
-          None yet. A mandate is where your rules and your test USDC live; create one to watch an
-          agent pay inside it.
-        </p>
-      ) : (
-        <ul className="mandate-list">
-          {list.data.map((m) => (
-            <li key={m.id}>
-              <a href={`#/m/${m.id}`} className="mandate-link">
-                <BrandIcon name="mandate" />
-                <span className="mono">{shortAddress(m.id, 6)}</span>
-                <span className="muted small">
-                  {m.createdAt === null || m.createdAt === undefined
-                    ? ''
-                    : `Created ${new Date(m.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`}
-                </span>
-                <span aria-hidden="true">&rarr;</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
+      <p className="muted">
+        Fees are paid in test XLM. Mandates are funded from the test USDC here.
+      </p>
+      <TopUpPanel
+        wallet={wallet}
+        intro="Running low? The faucet tops your wallet up with test USDC, then add funds to a mandate from its page."
+        onDone={account.reload}
+      />
     </section>
   );
 }
 
-export function Home() {
-  const { wallet } = useApp();
+function Figures({
+  account,
+  bundles,
+}: {
+  account: Resource<Account>;
+  bundles: readonly MandateBundle[] | undefined;
+}) {
+  const a = account.data;
+  const waiting = bundles === undefined ? undefined : waitingPayouts(bundles).length;
+  const pending = <span className="muted">Checking</span>;
+  return (
+    <div className="kpis">
+      <Kpi
+        label="Test XLM"
+        value={
+          a === undefined ? (
+            pending
+          ) : a.xlm === null ? (
+            'Not funded'
+          ) : (
+            <span className="amount">{xlmText(a.xlm)}</span>
+          )
+        }
+        note="Pays the network fees"
+      />
+      <Kpi
+        label="USDC in your wallet"
+        value={
+          a === undefined ? pending : a.usdc === null ? 'Not added' : <Amount minor={a.usdc} />
+        }
+        note="Moves into a mandate when you fund it"
+      />
+      <Kpi
+        label="Held in your mandates"
+        value={bundles === undefined ? pending : <Amount minor={heldTotal(bundles)} />}
+        note={
+          bundles === undefined
+            ? ' '
+            : bundles.length === 1
+              ? 'Across 1 mandate'
+              : `Across ${String(bundles.length)} mandates`
+        }
+      />
+      <Kpi
+        label="Waiting for you"
+        value={waiting === undefined ? pending : <span className="amount">{waiting}</span>}
+        note={waiting === 1 ? 'Payout to approve or pay' : 'Payouts to approve or pay'}
+        action={
+          waiting !== undefined && waiting > 0 ? (
+            <Link to="/approvals" className="kpi-link">
+              Review approvals
+            </Link>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+}
+
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
+}
+
+export function Overview() {
+  const { api, config, wallet } = useApp();
+  const address = wallet?.address ?? null;
+  const account = useResource(address === null ? null : `account:${address}`, () =>
+    api.account(address ?? ''),
+  );
+  const portfolio = usePortfolio();
+
   if (wallet === null) {
     return (
       <div className="stack">
-        <ConnectPanel />
+        <Welcome />
         <HowItWorks />
         <ComingNext />
       </div>
     );
   }
+
+  const bundles = portfolio?.data;
+  const hasMandates = bundles !== undefined && bundles.length > 0;
+  const receipts = bundles === undefined ? undefined : allReceipts(bundles).slice(0, 5);
+
   return (
     <div className="stack">
-      <div className="page-head">
-        <h1>Welcome. Here is your testnet desk.</h1>
-        <p className="muted">
-          Wallet <span className="mono">{shortAddress(wallet.address, 6)}</span> on Stellar testnet.
-        </p>
-      </div>
+      <section className="greet" aria-labelledby="greet-title">
+        <div>
+          <h2 id="greet-title">
+            {greeting()} <span className="greet-accent">Ready to pay.</span>
+          </h2>
+          <p className="muted">
+            Wallet <span className="mono">{shortAddress(wallet.address, 6)}</span> on Stellar
+            testnet.{' '}
+            <a href={explorerAccount(config, wallet.address)} target="_blank" rel="noreferrer">
+              See it on Stellar Expert<span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          </p>
+        </div>
+        {hasMandates ? (
+          <div className="actions">
+            <Link to="/payouts" className="btn">
+              Ask for a payout
+            </Link>
+            <Link to="/mandates/new" className="btn btn-primary">
+              Create a mandate
+            </Link>
+          </div>
+        ) : null}
+      </section>
+      <Figures account={account} bundles={bundles} />
       <div className="grid-2">
-        <SetupChecklist wallet={wallet} />
-        <MyMandates wallet={wallet} />
+        {hasMandates ? (
+          <WalletCard wallet={wallet} account={account} />
+        ) : (
+          <SetupChecklist wallet={wallet} account={account} />
+        )}
+        <section className="card" aria-labelledby="mine-title">
+          <div className="card-head">
+            <h2 id="mine-title" className="card-title">
+              Your mandates
+            </h2>
+            {hasMandates ? (
+              <Link to="/mandates" className="btn btn-ghost btn-small">
+                See all
+              </Link>
+            ) : null}
+          </div>
+          <MandateList portfolio={portfolio} limit={4} compact />
+        </section>
       </div>
-      <HowItWorks />
+      {hasMandates ? (
+        <ReceiptsTable
+          title="Latest receipts"
+          rows={receipts}
+          loading={portfolio?.loading ?? false}
+          error={portfolio?.error ?? null}
+          onRetry={portfolio?.reload ?? (() => undefined)}
+          showMandate
+        />
+      ) : (
+        <HowItWorks />
+      )}
       <ComingNext />
       <Notice tone="info">
         <p>
-          Prefer to drive it from an AI client? Every mandate has its own MCP address; open a
-          mandate and look for Connect Claude.
+          Prefer to drive it from an AI client? Every mandate has its own MCP address.{' '}
+          <Link to="/developers">Connect Claude</Link> from the Developers page.
         </p>
       </Notice>
     </div>

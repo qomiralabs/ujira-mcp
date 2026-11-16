@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
+import { ConnectPrompt } from '../components/Connect';
+import { Link } from '../components/Link';
 import { SigningSteps, type SigningStep } from '../components/SigningSteps';
 import { TopUpPanel } from '../components/TopUp';
 import { ErrorNotice, Field, Notice, Spinner } from '../components/ui';
@@ -12,6 +14,7 @@ import {
   DEFAULT_DRAFT,
   MAX_LABEL,
   maxRecipients,
+  nextName,
   validateDraft,
   type DraftErrors,
   type MandateDraft,
@@ -31,13 +34,6 @@ function endDate(days: string): string | null {
     month: 'long',
     year: 'numeric',
   });
-}
-
-const NAMES = ['Ada', 'Kofi', 'Wanjiru', 'Tunde', 'Amara', 'Zawadi', 'Chidi', 'Nia'];
-
-function nextName(taken: readonly string[]): string {
-  const lower = new Set(taken.map((t) => t.toLowerCase()));
-  return NAMES.find((n) => !lower.has(n.toLowerCase())) ?? `Recipient ${taken.length + 1}`;
 }
 
 function RecipientsEditor({
@@ -328,9 +324,9 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
         <button type="submit" className="btn btn-primary">
           Review and sign
         </button>
-        <a href="#/" className="btn btn-ghost">
+        <Link to="/mandates" className="btn btn-ghost">
           Cancel
-        </a>
+        </Link>
       </div>
       <p className="muted small">
         Next you sign three transactions in your wallet: create, allow recipients, fund. We show
@@ -346,23 +342,17 @@ export function CreateMandate() {
   if (wallet === null) {
     return (
       <div className="stack narrow">
-        <h1>Create a mandate</h1>
-        <Notice tone="info">
-          <p>
-            Connect a wallet first. <a href="#/">Go to the start</a>
-          </p>
-        </Notice>
+        <ConnectPrompt what="your mandates and create one" />
       </div>
     );
   }
   return (
     <div className="stack narrow">
       <div className="page-head">
-        <a href="#/" className="back">
-          &larr; Back
-        </a>
-        <h1>Create a mandate</h1>
-        <p className="muted">
+        <Link to="/mandates" className="back">
+          &larr; Your mandates
+        </Link>
+        <p className="lead">
           Write the rules once. After that the agent can only pay inside them, and the contract on
           Stellar enforces every one.
         </p>

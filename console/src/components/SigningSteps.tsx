@@ -4,10 +4,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useApp } from '../app/context';
+import { usePortfolio } from '../app/portfolio';
 import { errorMessage } from '../lib/api';
 import type { UnsignedTx } from '../lib/schemas';
 import { TxFailedError, signAndSubmit } from '../lib/sign';
 import { WALLET_NAMES } from '../lib/wallet';
+import { Link } from './Link';
 import { ErrorNotice, Notice, Spinner, TxLink } from './ui';
 
 export interface SigningStep {
@@ -33,6 +35,7 @@ export function SigningSteps({
   onBack: () => void;
 }) {
   const { api, config, wallet, notify } = useApp();
+  const reloadPortfolio = usePortfolio()?.reload;
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>('building');
   const [tx, setTx] = useState<UnsignedTx | null>(null);
@@ -90,6 +93,8 @@ export function SigningSteps({
       setTx(null);
       setPhase('building');
       setIndex((i) => i + 1);
+      // A new mandate, recipient or deposit shows up on every page at once.
+      reloadPortfolio?.();
     } catch (e) {
       if (e instanceof TxFailedError) setFailedHash(e.hash);
       setError(errorMessage(e));
@@ -188,13 +193,13 @@ export function SigningSteps({
           </Notice>
           <div className="actions">
             {ctx.mandate === undefined ? (
-              <a className="btn btn-primary" href="#/">
+              <Link className="btn btn-primary" to="/mandates">
                 See your mandates
-              </a>
+              </Link>
             ) : (
-              <a className="btn btn-primary" href={`#/m/${ctx.mandate}`}>
+              <Link className="btn btn-primary" to={`/mandates/${ctx.mandate}`}>
                 Open your mandate
-              </a>
+              </Link>
             )}
           </div>
         </div>

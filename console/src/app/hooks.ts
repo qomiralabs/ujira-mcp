@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { errorMessage } from '../lib/api';
+import { hrefFor, parsePath, type Route } from './routes';
 
 export interface Resource<T> {
   readonly data: T | undefined;
@@ -109,32 +110,27 @@ export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>
   return { busy, error, run, clear };
 }
 
-function subscribeHash(onChange: () => void): () => void {
-  window.addEventListener('hashchange', onChange);
+const NAVIGATED = 'ujira:navigated';
+
+function subscribeLocation(onChange: () => void): () => void {
+  window.addEventListener('popstate', onChange);
+  window.addEventListener(NAVIGATED, onChange);
   return () => {
-    window.removeEventListener('hashchange', onChange);
+    window.removeEventListener('popstate', onChange);
+    window.removeEventListener(NAVIGATED, onChange);
   };
 }
 
-export type Route =
-  | { readonly name: 'home' }
-  | { readonly name: 'new' }
-  | { readonly name: 'mandate'; readonly id: string };
-
-export function parseRoute(hash: string): Route {
-  const path = hash.replace(/^#/, '');
-  const m = /^\/m\/([A-Z0-9]{56})\/?$/.exec(path);
-  if (m?.[1] !== undefined) return { name: 'mandate', id: m[1] };
-  if (path === '/new') return { name: 'new' };
-  return { name: 'home' };
-}
-
+/** The current page, read from the address bar and kept in step with it. */
 export function useRoute(): Route {
-  const hash = useSyncExternalStore(subscribeHash, () => location.hash);
-  return parseRoute(hash);
+  const path = useSyncExternalStore(subscribeLocation, () => location.pathname);
+  return useMemo(() => parsePath(path), [path]);
 }
 
+/** Moves to a dashboard path such as "/mandates" without reloading the page. */
 export function go(path: string): void {
-  location.hash = path;
+  const href = hrefFor(path);
+  if (`${location.pathname}${location.search}` !== href) history.pushState(null, '', href);
+  window.dispatchEvent(new Event(NAVIGATED));
   window.scrollTo({ top: 0 });
 }

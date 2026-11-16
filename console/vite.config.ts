@@ -25,9 +25,12 @@ function brandTokens(): Plugin {
   };
 }
 
+// Served by the UJIRA server at /app; the marketing site owns the root.
+const BASE = '/app/';
+
 export default defineConfig({
   plugins: [brandTokens(), react()],
-  base: '/',
+  base: BASE,
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -52,5 +55,7 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test/setup.ts'],
     restoreMocks: true,
+    // Tests see the same base as the build, so links are checked as shipped.
+    env: { BASE_URL: BASE },
   },
 });

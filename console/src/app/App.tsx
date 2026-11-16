@@ -6,12 +6,69 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Shell } from '../components/Shell';
 import { ErrorNotice, Skeleton } from '../components/ui';
 import type { ConsoleApi } from '../lib/api';
+import { shortAddress } from '../lib/strkey';
 import { rememberWallet, rememberedWallet, restoreWallet, type Wallet } from '../lib/wallet';
+import { ActivityPage, LocalCurrencyPage, NotFoundPage, TeamPage } from '../screens/Coming';
 import { CreateMandate } from '../screens/CreateMandate';
-import { Home } from '../screens/Home';
+import { DevelopersPage } from '../screens/Developers';
 import { MandatePage } from '../screens/MandatePage';
+import { Overview } from '../screens/Overview';
+import { ApprovalsPage, MandatesPage, PayoutsPage, ReceiptsPage } from '../screens/Pages';
+import { RecipientsPage } from '../screens/Recipients';
 import { AppContext, type AppState } from './context';
 import { useResource, useRoute } from './hooks';
+import { PORTFOLIO_POLL_MS, PortfolioContext, loadPortfolio } from './portfolio';
+import type { Route } from './routes';
+
+const TITLES: Record<Exclude<Route['name'], 'mandate'>, string> = {
+  overview: 'Overview',
+  mandates: 'Mandates',
+  new: 'Create a mandate',
+  approvals: 'Approvals',
+  payouts: 'Payouts',
+  receipts: 'Receipts',
+  recipients: 'Recipients',
+  developers: 'Developers',
+  'local-currency': 'Local currency',
+  team: 'Team and keys',
+  activity: 'Wallet activity',
+  'not-found': 'Page not found',
+};
+
+function titleOf(route: Route): string {
+  return route.name === 'mandate' ? `Mandate ${shortAddress(route.id, 6)}` : TITLES[route.name];
+}
+
+function Page({ route }: { route: Route }) {
+  switch (route.name) {
+    case 'overview':
+      return <Overview />;
+    case 'mandates':
+      return <MandatesPage />;
+    case 'new':
+      return <CreateMandate />;
+    case 'mandate':
+      return <MandatePage key={route.id} id={route.id} />;
+    case 'approvals':
+      return <ApprovalsPage />;
+    case 'payouts':
+      return <PayoutsPage />;
+    case 'receipts':
+      return <ReceiptsPage />;
+    case 'recipients':
+      return <RecipientsPage />;
+    case 'developers':
+      return <DevelopersPage />;
+    case 'local-currency':
+      return <LocalCurrencyPage />;
+    case 'team':
+      return <TeamPage />;
+    case 'activity':
+      return <ActivityPage />;
+    case 'not-found':
+      return <NotFoundPage />;
+  }
+}
 
 function Toast({ message }: { message: string | null }) {
   return (
@@ -27,6 +84,13 @@ export function App({ api, mock }: { api: ConsoleApi; mock: boolean }) {
   const [toast, setToast] = useState<{ message: string; n: number } | null>(null);
   const route = useRoute();
   const passphrase = config.data?.networkPassphrase;
+  const address = wallet?.address ?? null;
+  // Shared by every page, so moving between them shows data at once.
+  const portfolio = useResource(
+    address === null ? null : `portfolio:${address}`,
+    () => loadPortfolio(api, address ?? ''),
+    PORTFOLIO_POLL_MS,
+  );
 
   useEffect(() => {
     if (passphrase === undefined) return;
@@ -75,7 +139,7 @@ export function App({ api, mock }: { api: ConsoleApi; mock: boolean }) {
     return (
       <main className="main boot">
         {config.error === null ? (
-          <Skeleton lines={4} label="Loading the UJIRA Console" />
+          <Skeleton lines={4} label="Loading the UJIRA dashboard" />
         ) : (
           <ErrorNotice error={config.error} onRetry={config.reload} />
         )}
@@ -85,16 +149,12 @@ export function App({ api, mock }: { api: ConsoleApi; mock: boolean }) {
 
   return (
     <AppContext.Provider value={state}>
-      <Shell>
-        {route.name === 'mandate' ? (
-          <MandatePage key={route.id} id={route.id} />
-        ) : route.name === 'new' ? (
-          <CreateMandate />
-        ) : (
-          <Home />
-        )}
-      </Shell>
-      <Toast message={toast?.message ?? null} />
+      <PortfolioContext.Provider value={address === null ? null : portfolio}>
+        <Shell page={route.name} title={titleOf(route)}>
+          <Page route={route} />
+        </Shell>
+        <Toast message={toast?.message ?? null} />
+      </PortfolioContext.Provider>
     </AppContext.Provider>
   );
 }

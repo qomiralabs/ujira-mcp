@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction } from '../app/hooks';
 import { formatUsdc } from '../lib/money';
 import type { Mandate, Payout, Receipt } from '../lib/schemas';
 import { buildSignSubmit } from '../lib/sign';
-import { shortAddress } from '../lib/strkey';
 import { statusWord } from '../lib/words';
 import { RequestNotice, SdpWait } from './AgentPanel';
+import { payoutLabel } from './ReceiptsTable';
 import {
   Amount,
   BrandIcon,
@@ -21,11 +21,6 @@ import {
   StatusPill,
   TxLink,
 } from './ui';
-
-function labelFor(m: Mandate, p: Payout): string {
-  if (typeof p.recipientLabel === 'string' && p.recipientLabel !== '') return p.recipientLabel;
-  return m.recipients.find((r) => r.address === p.recipient)?.label ?? shortAddress(p.recipient);
-}
 
 function ApprovalItem({
   m,
@@ -42,7 +37,7 @@ function ApprovalItem({
   const [confirmReject, setConfirmReject] = useState(false);
   const [signed, setSigned] = useState<string | null>(null);
   const owner = wallet !== null && wallet.address === m.principal;
-  const label = labelFor(m, p);
+  const label = payoutLabel(m, p);
   const amount = formatUsdc(p.amount);
 
   const decide = useAction(async (action: 'approve' | 'reject') => {
@@ -163,6 +158,8 @@ export function Approvals({
   error,
   onRetry,
   onDone,
+  title,
+  onPaid,
 }: {
   m: Mandate;
   payouts: readonly Payout[] | undefined;
@@ -170,17 +167,22 @@ export function Approvals({
   error: string | null;
   onRetry: () => void;
   onDone: () => void;
+  /** Replaces the plain "Approvals" heading, for pages that list several mandates. */
+  title?: ReactNode;
+  /** When set, the page shows the paid notice itself, since this card may go away. */
+  onPaid?: (result: Receipt, label: string) => void;
 }) {
+  const titleId = useId();
   const [lastPaid, setLastPaid] = useState<{ result: Receipt; label: string } | null>(null);
   const waiting = (payouts ?? []).filter(
     (p) => p.status === 'pending_approval' || p.status === 'approved',
   );
   return (
-    <section className="card" aria-labelledby="approvals-title">
+    <section className="card" aria-labelledby={titleId}>
       <div className="card-head">
-        <h2 id="approvals-title" className="card-title">
+        <h2 id={titleId} className="card-title">
           <BrandIcon name="approval" />
-          Approvals
+          {title ?? 'Approvals'}
         </h2>
         {waiting.length > 0 ? <span className="count">{waiting.length} waiting</span> : null}
       </div>
@@ -202,7 +204,8 @@ export function Approvals({
               p={p}
               onDone={onDone}
               onPaid={(result, label) => {
-                setLastPaid({ result, label });
+                if (onPaid === undefined) setLastPaid({ result, label });
+                else onPaid(result, label);
               }}
             />
           ))}

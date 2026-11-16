@@ -57,7 +57,8 @@ describe('the console in mock mode', () => {
     expect(screen.getByText('Stellar testnet. Test money only.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Connect Freighter/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Connect Albedo/ })).toBeTruthy();
-    expect(screen.getAllByText('Soon')).toHaveLength(2);
+    const soon = within(screen.getByRole('region', { name: 'Coming next' }));
+    expect(soon.getAllByText('Soon')).toHaveLength(3);
   });
 
   it('runs the whole story from setup to receipts', { timeout: 30_000 }, async () => {

@@ -103,10 +103,21 @@ export function consoleSettings(
   mkdirSync(join(consoleDir, 'assets'), { recursive: true });
   writeFileSync(join(consoleDir, 'index.html'), '<!doctype html><title>UJIRA Console</title>');
   writeFileSync(join(consoleDir, 'assets', 'app.js'), 'console.log(1)');
+  writeFileSync(join(consoleDir, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   writeFileSync(join(dataDir, 'secret.txt'), 'outside the console');
+  const siteDir = join(dataDir, 'site');
+  mkdirSync(join(siteDir, 'assets'), { recursive: true });
+  mkdirSync(join(siteDir, 'data'), { recursive: true });
+  writeFileSync(join(siteDir, 'index.html'), '<!doctype html><title>UJIRA website</title>');
+  writeFileSync(join(siteDir, 'instaward.html'), '<!doctype html><title>UJIRA proof</title>');
+  writeFileSync(join(siteDir, '404.html'), '<!doctype html><title>Page not found</title>');
+  writeFileSync(join(siteDir, '.env'), 'hidden');
+  writeFileSync(join(siteDir, 'assets', 'sky.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+  writeFileSync(join(siteDir, 'data', 'page.json'), '{"mcp_url":"https://ujira.co/mcp"}');
   const settings: ConsoleSettings = {
     dataDir,
     consoleDir,
+    siteDir,
     horizonUrl: 'https://horizon-testnet.stellar.org',
     friendbotUrl: 'https://friendbot.stellar.org',
     publicRpcUrl: 'https://soroban-testnet.stellar.org',

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// Serves the built console UI. Any GET that is not a file and does not look
-// like one gets index.html, so the app's own routes survive a reload. Paths
-// are resolved inside the console directory and nothing outside it is ever
-// read.
+// Reads files for the web pages. A URL path is decoded exactly once and
+// checked before it is joined to a folder, and the joined path is checked
+// again, so nothing outside the folder is ever read.
 
 import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -20,22 +19,38 @@ const TYPES: Readonly<Record<string, string>> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
   '.ico': 'image/x-icon',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml',
   '.map': 'application/json',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
   '.webmanifest': 'application/manifest+json',
 };
 
-const SECURITY_HEADERS = {
+export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'strict-origin-when-cross-origin',
 };
 
-async function isFile(path: string): Promise<boolean> {
+/** Hashed build output: the name changes whenever the content does. */
+export const CACHE_IMMUTABLE = 'public, max-age=31536000, immutable';
+/** Pages and data: always ask the server whether they changed. */
+export const CACHE_REVALIDATE = 'no-cache';
+/** Unhashed images and scripts: fresh within the hour after a deploy. */
+export const CACHE_SHORT = 'public, max-age=3600';
+
+export function contentType(file: string): string {
+  return TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
+}
+
+export async function isFile(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isFile();
   } catch {
@@ -43,41 +58,45 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-/** The file a URL path names inside `root`, or undefined when it would leave it. */
-export function resolveInside(root: string, urlPath: string): string | undefined {
+/**
+ * The decoded form of a URL path, or undefined when it is not one a page may
+ * have: bad escapes, a NUL, a backslash, or any segment starting with a dot
+ * (so `..`, `.` and hidden files such as `.env` are all refused).
+ */
+export function cleanPath(urlPath: string): string | undefined {
   let decoded: string;
   try {
     decoded = decodeURIComponent(urlPath);
   } catch {
     return undefined;
   }
-  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
-  const target = normalize(join(root, decoded));
-  const base = root.endsWith(sep) ? root : `${root}${sep}`;
-  return target === root || target.startsWith(base) ? target : undefined;
+  if (!decoded.startsWith('/') || decoded.includes('\0') || decoded.includes('\\')) {
+    return undefined;
+  }
+  return decoded.split('/').some((s) => s.startsWith('.')) ? undefined : decoded;
 }
 
-export function createStatic(root: string) {
-  return async (req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
-    const index = join(root, 'index.html');
-    let file = path === '/' ? index : resolveInside(root, path);
-    if (file === undefined) return false;
-    if (!(await isFile(file))) {
-      // A missing asset is a 404; a missing page is the app's to route.
-      if (extname(path) !== '') return false;
-      file = index;
-      if (!(await isFile(file))) return false;
-    }
-    const body = await readFile(file);
-    const immutable = path.startsWith('/assets/') && file !== index;
-    res.writeHead(200, {
-      'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
-      'content-length': String(body.length),
-      'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
-      ...SECURITY_HEADERS,
-    });
-    res.end(req.method === 'HEAD' ? undefined : body);
-    return true;
-  };
+/** `decoded` joined to `root`, or undefined when that would leave it. Never decodes. */
+export function fileIn(root: string, decoded: string): string | undefined {
+  const target = normalize(join(root, decoded));
+  const base = root.endsWith(sep) ? root : `${root}${sep}`;
+  return target.startsWith(base) && target !== base ? target : undefined;
+}
+
+/** Writes one file, or a HEAD's headers for it, with the status and cache policy given. */
+export async function sendFile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  file: string,
+  cache: string,
+  status = 200,
+): Promise<void> {
+  const body = await readFile(file);
+  res.writeHead(status, {
+    'content-type': contentType(file),
+    'content-length': String(body.length),
+    'cache-control': cache,
+    ...SECURITY_HEADERS,
+  });
+  res.end(req.method === 'HEAD' ? undefined : body);
 }

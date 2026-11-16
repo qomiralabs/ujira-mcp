@@ -200,7 +200,7 @@ Without `UJIRA_SDP_URL` and its companions the SDP rail is off, and a call that 
 
 ### Console
 
-The same server hosts the UJIRA Console: a web app where anyone with a testnet wallet creates and runs their own mandate. It serves the built UI (`console/dist`) at `/`, a JSON API under `/api`, and an MCP URL per console mandate at `/m/<mandate>/mcp`. The server never sees a wallet's key: it builds unsigned transactions, the wallet signs, and the server relays only the transactions it would have built (the factory's `create` with this server's agent and executor, owner calls on a mandate it created, a USDC transfer into one, or a USDC trustline). Console mandates use the same engine, rails and receipt log as `/mcp`.
+The same server hosts the UJIRA dashboard (the console): a web app where anyone with a testnet wallet creates and runs their own mandate. It serves the built UI (`console/dist`) at `/app`, a JSON API under `/api`, and an MCP URL per console mandate at `/m/<mandate>/mcp`. The server never sees a wallet's key: it builds unsigned transactions, the wallet signs, and the server relays only the transactions it would have built (the factory's `create` with this server's agent and executor, owner calls on a mandate it created, a USDC transfer into one, or a USDC trustline). Console mandates use the same engine, rails and receipt log as `/mcp`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -216,9 +216,24 @@ The same server hosts the UJIRA Console: a web app where anyone with a testnet w
 | `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
 | `UJIRA_MANDATE_PAYOUTS_PER_HOUR` | `30` | Payout requests an hour on one console mandate, from the console and its MCP URL together. |
 | `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira-mcp-production.up.railway.app`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
-| `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built UI. |
+| `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built dashboard, served under `/app`. |
+| `UJIRA_SITE_DIR` | `site` in the repository | The marketing site and the testnet proof page, served at the root. |
+| `UJIRA_CANONICAL_HOST` | none | A host name such as `ujira.co`. When set, a page asked for on any other host (the platform URL, `www`) gets a 301 to `https://<host>` with the same path and query. `/api`, `/mcp`, `/m/<mandate>/mcp` and `/healthz` keep answering on every host, so connectors already pointed at an old URL keep working. Set it only once that host serves HTTPS. |
+| `UJIRA_SDP_PROOF_URL` | `/instaward` | Where the dashboard links for proof of the SDP rail: a path on this server or an http or https URL. |
 | `UJIRA_HORIZON_URL`, `UJIRA_FRIENDBOT_URL`, `UJIRA_PUBLIC_RPC_URL` | the public testnet ones | Network endpoints; the public RPC URL is the one browsers are told about. |
 | `UJIRA_FACTORY`, `UJIRA_USDC_ISSUER`, `UJIRA_USDC_CONTRACT` | the testnet deployment | The mandate factory and the USDC the console uses. |
+
+Every page of the product is served from this one server:
+
+| Path | Serves |
+| --- | --- |
+| `/` | The marketing site (`site/index.html`). |
+| `/instaward` | The testnet proof page (`site/instaward.html`). |
+| `/assets/*`, `/data/*` | The site's images, scripts and evidence files. |
+| `/app`, `/app/*` | The dashboard. Hashed files under `/app/assets/` are cached for a year; any other path under `/app` that is not a file gets the dashboard's `index.html`, so its own routes survive a reload. |
+| `/api/*`, `/mcp`, `/m/<mandate>/mcp`, `/healthz` | The API and MCP routes above. |
+
+Old links get a 301: `/instaward.html` to `/instaward`, `/index.html` to `/`, `/app.html` to `/app`, `/?mock=1` to `/app?mock=1`, `/new` to `/app/mandates/new`, and dashboard sections at the root (`/mandates/...`, `/approvals`, `/payouts`, `/receipts`, `/recipients`, `/developers`) to the same path under `/app`. The console once kept its page in the hash (`/#/m/<mandate>`), which a server never sees, so the marketing page forwards those links to `/app` itself. Any other path is the site's 404 page. Pages are read only from inside their folder: a path with a `..` or hidden segment, a backslash or a NUL is a 404, and folders are never listed.
 
 The faucet tops a wallet up rather than paying once, so a reviewer who spent their test USDC can always get more, and the test money flows back: a test recipient made by "Add a test recipient" is a throwaway wallet the server created, and the recycler returns whatever it is paid to the treasury. Its key is kept only in `test-wallets.json`, never logged and never returned by any route; the reviewer's own wallet key never reaches the server at all.
 

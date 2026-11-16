@@ -28,7 +28,7 @@ import { ApiError, toApiError } from '../src/console/errors.js';
 import { mapLimit, payoutStatus } from '../src/console/mandates.js';
 import { ConsoleRegistry, MAX_RECIPIENTS, defaultLabel } from '../src/console/registry.js';
 import { loadConsoleSettings } from '../src/console/settings.js';
-import { resolveInside } from '../src/console/static.js';
+import { cleanPath, fileIn } from '../src/console/static.js';
 import {
   checkCreateParams,
   createArgs,
@@ -38,6 +38,7 @@ import {
   tenantTagFor,
   trustlineTx,
 } from '../src/console/txbuild.js';
+import { isCanonicalHost, movedTo } from '../src/console/web.js';
 import { ContractRefusedError, EngineError } from '../src/errors.js';
 import { defaultRecipientRef } from '../src/ids.js';
 import { address, encodeAllowEntries, i128 } from '../src/mandate/codec.js';
@@ -395,12 +396,79 @@ describe('console helpers', () => {
     expect(peak).toBe(2);
   });
 
-  it('resolves static paths only inside the console folder', () => {
-    expect(resolveInside('/srv/ui', '/assets/a.js')).toBe('/srv/ui/assets/a.js');
-    expect(resolveInside('/srv/ui', '/../etc/passwd')).toBeUndefined();
-    expect(resolveInside('/srv/ui', '/%2e%2e/etc')).toBeUndefined();
-    expect(resolveInside('/srv/ui', '/%E0%A4%A')).toBeUndefined();
-    expect(resolveInside('/srv/ui', '/a%00b')).toBeUndefined();
+  it('decodes a page path once and refuses anything that could leave its folder', () => {
+    expect(cleanPath('/assets/a%20b.js')).toBe('/assets/a b.js');
+    expect(cleanPath('/../etc/passwd')).toBeUndefined();
+    expect(cleanPath('/%2e%2e/etc')).toBeUndefined();
+    expect(cleanPath('/assets/%2E%2E%2F%2E%2E%2Fetc')).toBeUndefined();
+    expect(cleanPath('/a/./b')).toBeUndefined();
+    expect(cleanPath('/.env')).toBeUndefined();
+    expect(cleanPath('/%E0%A4%A')).toBeUndefined();
+    expect(cleanPath('/a%00b')).toBeUndefined();
+    expect(cleanPath('/a%5cb')).toBeUndefined();
+    expect(cleanPath('relative')).toBeUndefined();
+    // Decoded once only: a doubly encoded dot pair stays a harmless name.
+    expect(cleanPath('/%252e%252e/x')).toBe('/%2e%2e/x');
+    expect(fileIn('/srv/ui', '/assets/a.js')).toBe('/srv/ui/assets/a.js');
+    expect(fileIn('/srv/ui', '/../etc/passwd')).toBeUndefined();
+    expect(fileIn('/srv/ui', '/')).toBeUndefined();
+    expect(fileIn('/srv/ui/', '/a')).toBe('/srv/ui/a');
+  });
+
+  it('knows where every old link moved', () => {
+    const none = new URLSearchParams();
+    expect(movedTo('/index.html', none)).toBe('/');
+    expect(movedTo('/instaward.html', none)).toBe('/instaward');
+    expect(movedTo('/instaward/', none)).toBe('/instaward');
+    expect(movedTo('/app.html', none)).toBe('/app');
+    expect(movedTo('/new', none)).toBe('/app/mandates/new');
+    expect(movedTo('/', new URLSearchParams('mock=1'))).toBe('/app');
+    expect(movedTo('/', none)).toBeUndefined();
+    expect(movedTo(`/mandates/${MANDATE}`, none)).toBe(`/app/mandates/${MANDATE}`);
+    for (const s of ['approvals', 'payouts', 'receipts', 'recipients', 'developers']) {
+      expect(movedTo(`/${s}`, none)).toBe(`/app/${s}`);
+    }
+    for (const current of ['/app', '/app/mandates', '/instaward', '/assets/x.png', '/mandatesx']) {
+      expect(movedTo(current, none), current).toBeUndefined();
+    }
+  });
+
+  it('matches the canonical host with or without a port', () => {
+    expect(isCanonicalHost('ujira.co', 'ujira.co')).toBe(true);
+    expect(isCanonicalHost('ujira.co:443', 'ujira.co')).toBe(true);
+    expect(isCanonicalHost('www.ujira.co', 'ujira.co')).toBe(false);
+    expect(isCanonicalHost('ujira.co.evil.example', 'ujira.co')).toBe(false);
+    expect(isCanonicalHost('', 'ujira.co')).toBe(false);
+    expect(isCanonicalHost('localhost:8080', 'localhost:8080')).toBe(true);
+    expect(isCanonicalHost('localhost:9090', 'localhost:8080')).toBe(false);
+  });
+
+  it('reads the site folder, the canonical host and the proof link from the environment', () => {
+    const plain = loadConsoleSettings({});
+    expect(plain.canonicalHost).toBeUndefined();
+    expect(plain.siteDir.endsWith('/site')).toBe(true);
+    expect(plain.sdpProofUrl).toBe('/instaward');
+    const set = loadConsoleSettings({
+      UJIRA_CANONICAL_HOST: ' UJIRA.co ',
+      UJIRA_SITE_DIR: '/srv/site',
+      UJIRA_SDP_PROOF_URL: 'https://proof.example/page',
+    });
+    expect(set.canonicalHost).toBe('ujira.co');
+    expect(set.siteDir).toBe('/srv/site');
+    expect(set.sdpProofUrl).toBe('https://proof.example/page');
+    expect(loadConsoleSettings({ UJIRA_CANONICAL_HOST: 'localhost:8080' }).canonicalHost).toBe(
+      'localhost:8080',
+    );
+    for (const bad of ['https://ujira.co', 'ujira.co/app', 'ujira..co', '-ujira.co', 'a b']) {
+      expect(() => loadConsoleSettings({ UJIRA_CANONICAL_HOST: bad }), bad).toThrow(
+        'UJIRA_CANONICAL_HOST',
+      );
+    }
+    for (const bad of ['//evil.example', '/a\\b', '/a b', 'ftp://x']) {
+      expect(() => loadConsoleSettings({ UJIRA_SDP_PROOF_URL: bad }), bad).toThrow(
+        'UJIRA_SDP_PROOF_URL',
+      );
+    }
   });
 
   it('reads console settings from the environment', () => {

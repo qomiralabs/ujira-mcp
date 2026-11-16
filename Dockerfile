@@ -33,6 +33,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=console /console/dist ./console/dist
+COPY site ./site
 COPY docker/entrypoint.sh /usr/local/bin/ujira-entrypoint
 # setpriv is how the entrypoint drops to the node user; fail the build if the
 # base image ever stops shipping it rather than run the server as root.

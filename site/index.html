@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UJIRA | Non-custodial payouts on Stellar</title>
+<script>
+/* The console used to live here and kept its page in the hash (/#/m/<id>,
+   /#/new). The server never sees a hash, so old links are forwarded here. */
+(function () {
+  var h = location.hash;
+  if (h.indexOf("#/") !== 0) return;
+  var m = /^#\/m\/(C[A-Z2-7]{55})$/.exec(h);
+  var to = m ? "/app/mandates/" + m[1] : h === "#/new" ? "/app/mandates/new" : "/app";
+  location.replace(to + location.search);
+})();
+</script>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --page: #EDF5F6; --white: #FFFFFF; --ink: #0A1F26; --ink-2: #3F5258; --ink-3: #6D7E83;
+  --teal: #0F4C5C; --teal-2: #155C6E; --teal-mid: #4F9DAD; --teal-soft: #A9D3DB; --mist: #D7EBEE;
+  --saffron: #F4A300; --saffron-2: #F7B955; --peach: #F3CFA0; --saffron-deep: #8F5A00;
+  --paid: #15803D; --paid-bg: #DCFCE7; --wait: #B45309; --wait-bg: #FEF3C7; --block: #DC2626; --block-bg: #FEE2E2;
+  --grad-text: linear-gradient(92deg, #F4A300 0%, #E9813A 38%, #C9675C 58%, #1F7A8C 100%);
+  --grad-sky: radial-gradient(120% 90% at 50% 112%, #F4A300 0%, #F7B955 14%, #F1CB98 27%, #B9D9DA 45%, #8FC5D0 60%, #C9E4E9 78%, #EDF5F6 100%);
+  --grad-card: linear-gradient(180deg, #F6C47E 0%, #F2B38F 45%, #9CCBD5 100%);
+  --sans: "Urbanist", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.16,1,.3,1);
+  --shadow: 0 2px 6px rgba(10,31,38,.06), 0 24px 60px -18px rgba(10,31,38,.28);
+}
+* { box-sizing: border-box }
+html { -webkit-font-smoothing: antialiased }
+html.lenis, html.lenis body { height: auto }
+.lenis.lenis-smooth { scroll-behavior: auto !important }
+body { margin: 0; background: var(--page); color: var(--ink); font: 400 17px/1.5 var(--sans); overflow-x: hidden }
+a { color: inherit; text-decoration: none }
+img { display: block; max-width: 100% }
+:focus-visible { outline: 2px solid var(--saffron); outline-offset: 3px; border-radius: 10px }
+h1, h2, h3, h4, p { margin: 0 }
+h1, h2, h3 { font-weight: 500; letter-spacing: -0.045em; text-wrap: balance }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.grad { background: var(--grad-text); -webkit-background-clip: text; background-clip: text; color: transparent }
+.wrap { width: 100%; max-width: 1344px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)) }
+.eyebrow { font-size: 17px; color: var(--ink-2); font-weight: 400 }
+.lede { font-size: 19px; line-height: 1.45; color: var(--ink-2) }
+.sw .w { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .1em; margin-bottom: -.1em }
+.sw .w > span { display: inline-block; will-change: transform }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; border-radius: 10px; font: 500 18px/1 var(--sans); letter-spacing: -0.01em; border: 0; cursor: pointer; transition: transform .35s var(--ease), background .3s }
+.btn svg { width: 16px; height: 16px; transition: transform .35s var(--ease) }
+.btn:hover svg { transform: translateX(3px) }
+.btn.dark { background: #000; color: #fff }
+.btn.dark:hover { background: var(--teal) }
+.btn.light { background: rgba(255,255,255,.7); color: var(--ink); backdrop-filter: blur(6px) }
+.btn.big { height: 46px; padding: 0 20px; font-size: 20px }
+.btn.sm { height: 32px; padding: 0 14px; font-size: 15px; border-radius: 8px }
+.btn[disabled] { opacity: .45; cursor: not-allowed }
+
+/* nav */
+.nav { position: fixed; z-index: 50; top: 12px; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none }
+.nav-inner { pointer-events: auto; position: relative; display: flex; align-items: center; justify-content: space-between; width: calc(100% - 24px); max-width: 1440px; height: 52px; padding: 0 14px; border-radius: 16px; transition: max-width .7s var(--ease), background .5s, box-shadow .5s, backdrop-filter .5s }
+.nav.scrolled .nav-inner { max-width: 896px; background: rgba(255,255,255,.55); backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 8px 30px -12px rgba(10,31,38,.18) }
+.nav-links { display: flex; gap: 22px; font-size: 16px; color: var(--ink-2) }
+.nav-links a:hover { color: var(--ink) }
+.nav-logo { position: absolute; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 12px; height: 36px; padding: 0 14px; display: flex; align-items: center; box-shadow: 0 1px 2px rgba(10,31,38,.06) }
+.nav-logo svg { height: 22px; width: auto; display: block }
+.nav-right { display: flex; align-items: center; gap: 22px; font-size: 16px; color: var(--ink-2) }
+.gb { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 10px; color: var(--ink); background: #fff; font-weight: 500; isolation: isolate }
+.gb::before { content: ""; position: absolute; inset: -1.5px; border-radius: 11.5px; background: var(--grad-text); z-index: -1 }
+.gb::after { content: ""; position: absolute; inset: 0; border-radius: 10px; background: #fff; z-index: -1 }
+.gb svg { width: 14px; height: 14px }
+
+/* hero */
+.hero { position: relative; overflow: hidden; isolation: isolate }
+.hero-sky { position: absolute; inset: 0; z-index: -2; background:
+  radial-gradient(85% 34% at 50% 100%, #F4A300 0%, rgba(247,185,85,.92) 26%, rgba(241,203,152,.75) 48%, rgba(241,203,152,0) 75%),
+  linear-gradient(180deg, #EDF5F6 0%, #EDF5F6 34%, #CFE6EB 48%, #9FCFD8 62%, #7DBDCB 74%, #9CCBD2 86%, #E9C493 100%) }
+.hero-copy { padding-top: 150px; text-align: center; display: grid; justify-items: center; gap: 22px; position: relative; z-index: 2 }
+.hero h1 { font-size: clamp(46px, 6.6vw, 88px); line-height: 1.02 }
+.hero .lede { max-width: 620px }
+.hero-ctas { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px }
+.bowl { position: relative; height: clamp(380px, 36vw, 520px); margin-top: 18px; clip-path: inset(-200vh -100vw 0 -100vw) }
+.bowl canvas { position: absolute; inset: 0; width: 100%; height: 100%; -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%); mask-image: linear-gradient(180deg, #000 70%, transparent 100%) }
+.profile { position: absolute; left: 50%; bottom: -200px; width: min(450px, calc(100% - 32px)); transform: translateX(-50%); background: #fff; border-radius: 22px 22px 0 0; box-shadow: var(--shadow); padding: 16px 18px 24px; z-index: 3 }
+.profile .top { display: flex; align-items: center; justify-content: space-between; gap: 12px }
+.profile .who { display: flex; align-items: center; gap: 12px }
+.profile img { width: 54px; height: 54px; border-radius: 12px; object-fit: cover }
+.profile b { font-weight: 500; font-size: 20px; letter-spacing: -0.02em }
+.profile .bell { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--page); position: relative }
+.profile .bell::after { content: ""; position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--paid); border: 2px solid #fff }
+.profile .rows { display: grid; gap: 10px; margin-top: 16px }
+.profile .row { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: var(--ink-2); padding: 10px 12px; background: var(--page); border-radius: 12px }
+.profile .row b { font: 500 16px var(--mono); color: var(--ink) }
+
+/* marquee */
+.marquee { position: relative; padding: 96px 0 92px; overflow: hidden }
+.marquee p { position: relative; text-align: center; font-size: 16px; color: var(--ink-2); margin-bottom: 26px }
+.track { position: relative; display: flex; width: max-content; animation: marquee 38s linear infinite }
+.track span { display: inline-flex; align-items: center; gap: 12px; padding: 0 56px; font: 600 30px/1 var(--sans); letter-spacing: -0.03em; color: rgba(10,31,38,.82); white-space: nowrap }
+.track span img { width: 40px; height: 40px; border-radius: 11px; object-fit: cover; box-shadow: 0 2px 8px rgba(10,31,38,.12) }
+@keyframes marquee { to { transform: translateX(-50%) } }
+
+/* sections */
+.white { background: #fff }
+.sec { padding: 140px 0 }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; align-items: center }
+.split .copy { display: grid; gap: 22px; max-width: 520px }
+.split h2 { font-size: clamp(42px, 4.6vw, 64px); line-height: 1.03 }
+.items { display: grid; gap: 22px; margin-top: 18px }
+.item { display: grid; grid-template-columns: 42px 1fr; gap: 20px; align-items: start }
+.item .ic { width: 42px; height: 42px; border-radius: 10px; border: 1px solid #D4E3E6; display: grid; place-items: center; background: #fff }
+.item .ic svg { width: 22px; height: 22px; stroke: var(--ink); fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round }
+.item p { font-size: 17px; color: var(--ink-2) }
+.item h4 { font-size: 26px; font-weight: 500; letter-spacing: -0.03em; line-height: 1.15 }
+.gcard { position: relative; border-radius: 24px; background: var(--grad-card); min-height: 640px; display: grid; place-items: center; padding: 84px 40px; overflow: hidden }
+.chat { width: min(400px, 100%); background: #fff; border-radius: 24px; padding: 24px; display: grid; gap: 14px; box-shadow: 0 30px 60px -30px rgba(10,31,38,.35); min-height: 470px; align-content: space-between }
+.chat .head { display: flex; align-items: center; gap: 10px }
+.chat .head svg { width: 24px; height: 24px }
+.msgs { display: grid; gap: 10px; align-content: start }
+.bub { max-width: 86%; padding: 11px 14px; border-radius: 16px 16px 16px 4px; background: var(--page); font-size: 15px; line-height: 1.4 }
+.bub.me { justify-self: end; border-radius: 16px 16px 4px 16px; background: var(--ink); color: #fff }
+.bub .pill { margin-top: 6px }
+.ask { display: flex; align-items: center; gap: 10px }
+.ask .p { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--saffron); color: var(--ink); font-weight: 600 }
+.ask .in { flex: 1; height: 48px; border-radius: 24px; background: #F0F2F2; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 16px; color: var(--ink-3); font-size: 15px }
+.ask .in i { width: 30px; height: 30px; border-radius: 50%; background: #DCE2E3; display: grid; place-items: center; font-style: normal; color: var(--ink-2) }
+.typing { display: inline-flex; gap: 4px; padding: 14px 16px; background: var(--page); border-radius: 16px 16px 16px 4px; width: max-content }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); animation: blink 1.2s infinite }
+.typing i:nth-child(2) { animation-delay: .2s } .typing i:nth-child(3) { animation-delay: .4s }
+@keyframes blink { 0%, 60%, 100% { opacity: .25 } 30% { opacity: 1 } }
+
+.center { text-align: center; display: grid; justify-items: center; gap: 22px }
+.center h2 { font-size: clamp(44px, 5.2vw, 72px); line-height: 1.03 }
+.center .lede { max-width: 500px }
+
+/* big expanding panel */
+.panel-wrap { padding: 120px 0 0 }
+.panel { position: relative; margin: 0 auto; width: calc(100% - 24px); border-radius: 40px; overflow: hidden; background:
+  radial-gradient(70% 22% at 50% 100%, #F4A300 0%, rgba(246,184,96,.9) 30%, rgba(239,201,160,0) 75%),
+  linear-gradient(180deg, #E4F1F3 0%, #BFE0E6 18%, #8CC6D1 36%, #6FB3C1 50%, #86C0CB 64%, #B9D7D6 80%, #EBC48F 100%); }
+.panel-in { padding: 110px 0 130px }
+.panel h3 { font-size: 24px; letter-spacing: -0.02em; font-weight: 500; text-align: center; line-height: 1.3 }
+.panel .sub { text-align: center; font-size: 17px; color: var(--ink); max-width: 460px; margin: 14px auto 0; line-height: 1.45 }
+.carousel { margin-top: 70px; display: flex; gap: 22px; width: max-content; padding: 30px 0 }
+.pcard { position: relative; width: 232px; height: 305px; background: #fff; border-radius: 22px; padding: 18px 16px 16px; display: flex; flex-direction: column; flex: none; box-shadow: 0 1px 2px rgba(10,31,38,.06) }
+.pcard .tp { display: flex; justify-content: space-between; align-items: flex-start; height: 34px }
+.pcard .tp img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover }
+.pcard small { font-size: 14px; color: var(--ink-2); margin-top: 22px }
+.pcard b { font-weight: 600; font-size: 19px; letter-spacing: -0.02em }
+.pcard .meta { font-size: 13px; color: var(--ink-2); margin-top: 10px; display: flex; gap: 6px; align-items: center }
+.pcard .sk { height: 13px; border-radius: 4px; background: #F0F2F2; margin-top: 8px; width: 70% }
+.pcard .act { margin-top: auto; height: 44px; border-radius: 22px; background: #000; color: #fff; display: grid; place-items: center; font-weight: 500; font-size: 16px }
+.pcard.ref { background: #F6EDF0 }
+.pcard.ref .act { background: rgba(255,255,255,.75); color: var(--ink) }
+.pcard.hero-card { z-index: 2; transform-origin: 50% 60% }
+.pcard.hero-card .act { background: #6B7175 }
+.pill { display: inline-flex; align-items: center; gap: 6px; font: 600 13px/1 var(--sans); padding: 7px 10px; border-radius: 8px; white-space: nowrap }
+.pill.paid { color: var(--paid); background: var(--paid-bg) } .pill.wait { color: var(--wait); background: var(--wait-bg) } .pill.block { color: var(--block); background: var(--block-bg) } .pill.peach { color: #A04E00; background: #FFE6C7 }
+.pill.big { font-size: 16px; padding: 9px 12px }
+.panel-b { padding: 90px 0 150px; display: grid; justify-items: center }
+.call { margin-top: 60px; background: #fff; border-radius: 60px; padding: 14px 14px 14px 14px; display: flex; align-items: center; gap: 14px; box-shadow: 0 20px 50px -24px rgba(10,31,38,.35); flex-wrap: wrap; justify-content: center; max-width: calc(100% - 32px) }
+.officer { position: relative; display: grid; justify-items: center; cursor: pointer }
+.officer input { position: absolute; opacity: 0; inset: 0; cursor: pointer }
+.officer img { width: 76px; height: 76px; border-radius: 50%; object-fit: cover; filter: grayscale(1) opacity(.55); transition: filter .35s, transform .35s var(--ease); box-shadow: 0 0 0 3px #fff, 0 0 0 4px transparent }
+.officer input:checked + img { filter: none; transform: scale(1.04); box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--saffron) }
+.officer input:focus-visible + img { outline: 2px solid var(--saffron); outline-offset: 4px }
+.officer span { position: absolute; bottom: -8px; font-size: 11px; font-weight: 600; background: #fff; padding: 2px 7px; border-radius: 6px; box-shadow: 0 1px 3px rgba(10,31,38,.15) }
+.wave { display: flex; align-items: center; gap: 4px; height: 56px; padding: 0 6px }
+.wave i { width: 7px; border-radius: 4px; background: #CBD3D5; transition: height .3s var(--ease), background .3s }
+.wave.on i { background: var(--saffron) }
+.ring { width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center; position: relative; flex: none }
+.ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; padding: 2px; background: var(--grad-text); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude }
+.ring b { font: 600 18px var(--mono) }
+.verdict { margin-top: 26px; text-align: center; font-size: 16px; color: var(--ink); max-width: 520px; min-height: 48px; line-height: 1.45 }
+.verdict a { text-decoration: underline; color: var(--saffron-deep) }
+
+/* photo section */
+.photo { position: relative; border-radius: 24px; overflow: hidden; aspect-ratio: 612 / 712; background: var(--teal-soft) }
+.photo img { width: 100%; height: 100%; object-fit: cover; transform-origin: 50% 40% }
+.tags { position: absolute; left: 20px; right: 20px; bottom: 20px; display: flex; flex-wrap: wrap; gap: 8px }
+.tag { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 12px; background: rgba(255,255,255,.82); backdrop-filter: blur(10px); font-size: 15px; font-weight: 500 }
+.tag svg { width: 18px; height: 18px; stroke: var(--teal); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round }
+.wdg-sec { padding-top: 0 }
+.wdg-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; align-items: center }
+.widget { width: min(100%, 420px); background: #fff; border-radius: 24px; box-shadow: var(--shadow); padding: 22px; display: grid; gap: 16px; justify-self: center }
+.w-steps { display: flex; gap: 6px } .w-steps i { height: 4px; flex: 1; border-radius: 999px; background: #DCE5E7 } .w-steps i.on { background: var(--saffron) }
+.method { display: grid; gap: 4px; text-align: left; border: 2px solid var(--saffron); border-radius: 16px; padding: 14px 16px; background: transparent; color: var(--ink); font: inherit; cursor: pointer }
+.method small { color: var(--ink-2); font-size: 14px }
+.method.off { border: 1px dashed #CBD7DA; color: var(--ink-3); cursor: not-allowed }
+label.f { display: grid; gap: 6px; font-size: 15px; font-weight: 500 }
+input[type="text"] { font: 14px var(--mono); padding: 13px 14px; border: 1px solid #CBD7DA; border-radius: 12px; background: var(--page); color: var(--ink); width: 100% }
+.hint { font-size: 14px; color: var(--ink-2) } .hint.err { color: var(--block) } .hint.good { color: var(--paid) }
+.w-foot { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 13px; color: var(--ink-3); border-top: 1px solid #E8EEEF; padding-top: 14px }
+.w-foot svg { width: 16px; height: 16px }
+.widget h4 { font-size: 22px; font-weight: 500; letter-spacing: -0.03em }
+
+/* business panel */
+.biz { margin: 0 12px; border-radius: 24px; background: radial-gradient(60% 50% at 50% 100%, rgba(244,163,0,.28) 0%, rgba(244,163,0,0) 70%), var(--mist); padding: 120px 0 0; overflow: hidden }
+.stage { position: relative; margin: 64px auto 0; width: min(1100px, calc(100% - 48px)); height: 600px }
+.phone { position: absolute; left: 50%; bottom: 0; margin-left: -165px; width: 330px; height: 590px; border-radius: 50px 50px 0 0; background: #0A1F26; padding: 12px 12px 0; box-shadow: 0 -20px 70px -24px rgba(10,31,38,.55) }
+.phone .scr { position: relative; height: 100%; border-radius: 39px 39px 0 0; background: linear-gradient(180deg, #FFFFFF 0%, #F3F8F9 100%); padding: 52px 16px 0; overflow: hidden }
+.phone .notch { position: absolute; top: 12px; left: 50%; width: 100px; height: 28px; margin-left: -50px; border-radius: 20px; background: #0A1F26 }
+.ph-top { display: flex; align-items: center; gap: 10px }
+.ph-top img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover }
+.ph-top b { display: block; font-weight: 600; font-size: 16px; line-height: 1.1 }
+.ph-top small { color: var(--ink-3); font-size: 12px }
+.ph-top .usdc { margin-left: auto; font: 600 11px var(--sans); padding: 5px 9px; border-radius: 99px; background: var(--mist); color: var(--teal) }
+.ph-bal { margin: 26px 0 20px; display: grid; gap: 2px }
+.ph-bal small { color: var(--ink-3); font-size: 13px }
+.ph-bal b { font: 500 44px/1 var(--sans); letter-spacing: -0.04em; font-variant-numeric: tabular-nums }
+.ph-bal span { color: var(--ink-3); font-size: 13px }
+.feed { display: grid; gap: 10px }
+.pay { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #E6EFF1; border-radius: 18px; padding: 11px 12px; box-shadow: 0 6px 18px -10px rgba(10,31,38,.25); animation: land .7s var(--ease) both }
+.pay .lg { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: var(--mist); flex: none }
+.pay .lg svg { width: 22px; height: 22px }
+.pay b { display: block; font-weight: 600; font-size: 14px; line-height: 1.2 }
+.pay small { display: block; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.pay > span:nth-child(2) { min-width: 0; flex: 1 }
+.pay .amt { margin-left: auto; font: 600 14px var(--sans); color: var(--paid); white-space: nowrap }
+@keyframes land { from { opacity: 0; transform: translateY(-18px) scale(.96) } }
+.float { position: absolute; z-index: 2; display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 20px; padding: 14px 18px 14px 14px; box-shadow: var(--shadow); animation: bob 6s ease-in-out infinite }
+.float b { display: block; font-weight: 600; font-size: 16px; line-height: 1.2 }
+.float small { color: var(--ink-3); font-size: 13px }
+.float .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--peach); color: var(--saffron-deep); font-weight: 700; font-size: 18px }
+.float .ic.sp { background: var(--paid-bg); color: var(--paid) }
+.float .av { display: flex } .float .av img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 2px solid #fff } .float .av img + img { margin-left: -12px }
+.float .tg { width: 46px; height: 26px; border-radius: 99px; background: var(--paid); position: relative; flex: none; transition: background .3s }
+.float .tg i { position: absolute; top: 3px; left: 23px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .3s var(--ease) }
+.float .tg.off { background: #B9C7CA } .float .tg.off i { left: 3px }
+.f1 { left: 2%; top: 70px } .f2 { left: 8%; top: 330px; animation-delay: -2s } .f3 { right: 3%; top: 110px; animation-delay: -4s } .f4 { right: 0; top: 380px; animation-delay: -1s }
+@keyframes bob { 50% { transform: translateY(-10px) } }
+@media (max-width: 960px) { .float { display: none } }
+.screen { position: relative; margin: 80px auto 0; width: min(1100px, calc(100% - 48px)); background: #0B2A33; border-radius: 22px 22px 0 0; padding: 14px; color: #EAF4F5; box-shadow: 0 -10px 60px -20px rgba(10,31,38,.4) }
+.screen .bar { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 14px }
+.screen .dots { display: flex; gap: 6px } .screen .dots i { width: 11px; height: 11px; border-radius: 50%; background: #2A4A53 }
+.screen .live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #A9C6CC }
+.screen .live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #4ADE80; box-shadow: 0 0 0 4px rgba(74,222,128,.18) }
+.app { background: #0F3A45; border-radius: 14px; overflow: hidden }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: #1C4F5B }
+.kpi { background: #0F3A45; padding: 20px 22px; display: grid; gap: 6px }
+.kpi b { font: 500 34px/1 var(--mono); letter-spacing: -0.03em; color: #fff }
+.kpi b.s { color: var(--saffron) }
+.kpi span { font-size: 14px; color: #A9C6CC }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 18px 6px }
+.fchip { font: 500 14px/1 var(--sans); border: 1px solid #2E5E69; background: transparent; color: #DDEBEE; border-radius: 999px; padding: 9px 14px; cursor: pointer }
+.fchip[aria-pressed="true"] { background: #EAF4F5; color: #0B2A33; border-color: #EAF4F5 }
+.tbox { max-height: 420px; overflow: auto; overscroll-behavior: contain }
+.app table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 640px }
+.app th { position: sticky; top: 0; background: #0F3A45; text-align: left; font: 500 12px var(--sans); text-transform: uppercase; letter-spacing: .06em; color: #86A9B0; padding: 12px 18px; border-bottom: 1px solid #1C4F5B }
+.app td { padding: 11px 18px; border-bottom: 1px solid #16444F; white-space: nowrap }
+.app td.num, .app th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums }
+.app a.hash { font: 500 13px var(--mono); color: var(--saffron) }
+.app a.hash:hover { text-decoration: underline }
+.ok { color: #4ADE80 } .no { color: #F87171 }
+.contracts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: #1C4F5B; border-top: 1px solid #1C4F5B }
+.contract { background: #0F3A45; padding: 14px 18px; display: grid; gap: 4px; min-width: 0 }
+.contract span { font-size: 12px; color: #86A9B0 }
+.contract a { font: 500 12px/1.4 var(--mono); overflow-wrap: anywhere; color: #DDEBEE }
+.contract a:hover { color: var(--saffron) }
+.snap { font-size: 13px; color: #86A9B0; padding: 12px 18px 16px }
+
+/* cta + faq + footer */
+.cta h2 { font-size: clamp(44px, 5.2vw, 72px) }
+.dotline { height: 1px; background-image: radial-gradient(circle, #9FB3B8 1.2px, transparent 1.4px); background-size: 12px 3px; background-repeat: repeat-x; background-position: center; height: 4px }
+.faq-head h2 { font-size: clamp(30px, 3.2vw, 44px); line-height: 1.15; letter-spacing: -0.03em; max-width: 720px }
+.faqs { display: grid; justify-items: center; gap: 12px; margin-top: 50px; width: min(480px, 100%) }
+.faq { display: grid; justify-items: start; width: 100% }
+.faq-q { display: inline-flex; align-items: center; gap: 10px; text-align: left; border: 1px solid #E3EAEC; background: #fff; border-radius: 10px; padding: 11px 14px; font: 500 18px/1.3 var(--sans); letter-spacing: -0.015em; color: var(--ink); cursor: pointer; box-shadow: 0 1px 2px rgba(10,31,38,.05); transition: background .25s }
+.faq-q:hover { background: #F7FAFA }
+.faq-q svg { width: 16px; height: 16px; flex: none; transition: transform .45s var(--ease) }
+.faq.open .faq-q { background: #F4F7F7 }
+.faq.open .faq-q svg { transform: rotate(180deg) }
+.faq-a { height: 0; overflow: hidden; transition: height .55s var(--ease); width: 100% }
+.faq-a p { margin-top: 8px; background: #F4F7F7; border-radius: 10px; padding: 14px 16px; font-size: 18px; line-height: 1.45; letter-spacing: -0.01em }
+footer { background: #fff; padding: 0 0 40px }
+.ft { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 48px; padding-top: 80px; align-items: start }
+.ft-l { display: grid; gap: 22px; justify-items: start }
+.ft-l > svg { width: 46px; height: 46px }
+.ft-l h3 { font-size: 30px; line-height: 1.2; letter-spacing: -0.03em; max-width: 340px }
+.ft-l h3 span { color: var(--ink-3) }
+.cols { display: grid; grid-template-columns: repeat(3, 160px); gap: 26px }
+.cols p { font-size: 18px; font-weight: 500; margin-bottom: 14px }
+.cols a { display: block; font-size: 16px; color: var(--ink-2); padding: 3px 0 }
+.cols a:hover { color: var(--ink) }
+.fb { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 60px; font-size: 14px; color: var(--ink-3) }
+.fb .built { font: 500 12px var(--mono); letter-spacing: .12em }
+
+@media (max-width: 960px) {
+  .nav-links, .nav-right .login { display: none }
+  .split, .wdg-row, .ft { grid-template-columns: minmax(0, 1fr) }
+  .gcard { min-height: 0; padding: 48px 20px }
+  .kpis, .contracts { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .sec { padding: 96px 0 }
+  .cols { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}
+@media (max-width: 560px) {
+  .nav-logo { position: static; transform: none }
+  .nav-inner { justify-content: space-between }
+  .profile { padding: 14px 14px 24px }
+  .contracts, .kpis { grid-template-columns: minmax(0, 1fr) }
+  .call { border-radius: 32px }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="chev" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="down" viewBox="0 0 16 16"><path d="M3.5 6L8 10.5 12.5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-paid" viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3L9.5 3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="bell" viewBox="0 0 20 20"><path d="M10 3a4.5 4.5 0 0 0-4.5 4.5c0 4-1.8 5.5-1.8 5.5h12.6s-1.8-1.5-1.8-5.5A4.5 4.5 0 0 0 10 3zM8.3 15.5a1.8 1.8 0 0 0 3.4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<nav class="nav" id="nav" aria-label="Main">
+  <div class="nav-inner">
+    <div class="nav-links"><a href="#platform">Platform</a><a href="#business">For platforms</a><a href="#faq">About</a><a href="/instaward">Testnet proof</a></div>
+    <a class="nav-logo" href="#top" aria-label="UJIRA home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 12 290 76" role="img" aria-label="UJIRA">
+<path d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46" fill="none" stroke="#0F4C5C" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="50" cy="40" r="11" fill="#F4A300"></circle><g transform="translate(104,32) scale(0.9)"><g fill="none" stroke="#0F4C5C" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3.5V22a14.5 14.5 0 0 0 29 0V3.5"></path><path d="M73 3.5V25a11.5 11.5 0 0 1-23 0"></path><path d="M89 3.5V36.5"></path><path d="M105.5 36.5V3.5H119a9 9 0 0 1 0 18H105.5M118 21.5L130 36.5"></path><path d="M142 36.5L157.5 3.5L173 36.5M148 25H167"></path></g><circle cx="18" cy="17" r="5.5" fill="#F4A300"></circle></g>
+</svg></a>
+    <div class="nav-right"><a class="login" href="#business">See it live</a><a class="gb" href="/app">Get started <svg><use href="#chev"/></svg></a></div>
+  </div>
+</nav>
+
+<main id="top">
+  <section class="hero">
+    <div class="hero-sky" aria-hidden="true"></div>
+    <div class="wrap hero-copy">
+      <p class="eyebrow" data-a="fade">Non-custodial payouts</p>
+      <h1 class="sw" data-a="split-load">The last payout rail <span class="grad">you'll</span><br>ever need.</h1>
+      <p class="lede" data-a="fade">UJIRA pays the people you work with, anywhere, from a mandate you own on Stellar. It follows your rules, and it never holds your money.</p>
+      <div class="hero-ctas" data-a="fade"><a class="btn dark big" href="/app">Start paying <svg><use href="#chev"/></svg></a><a class="btn light big" href="#faq">FAQs <svg><use href="#down"/></svg></a></div>
+    </div>
+    <div class="bowl" aria-hidden="true">
+      <canvas id="bowl"></canvas>
+      <div class="profile" id="profile">
+        <div class="top"><div class="who"><img src="/assets/face-amara.jpg" alt=""><div><b>Amara's payout</b><div class="hint">USDC to her Stellar wallet</div></div></div><span class="bell"><svg width="18" height="18"><use href="#bell"/></svg></span></div>
+        <div class="rows"><div class="row"><span>Amount</span><b>250.00 USDC</b></div><div class="row"><span>Status</span><span class="pill paid"><svg width="12" height="12"><use href="#i-paid"/></svg>Paid in 5 s</span></div><div class="row"><span>Approved by</span><b>2 of 3 officers</b></div><div class="row"><span>Network fee</span><b>Sponsored</b></div><div class="row"><span>Held by UJIRA</span><b>0.00 USDC</b></div></div>
+      </div>
+    </div>
+  <div class="marquee" aria-label="Recipients are paid to any Stellar wallet">
+    <p>Recipients are paid to any Stellar wallet</p>
+    <div class="track" aria-hidden="true">
+      <span><img src="/assets/wallets/lobstr.png" alt="">LOBSTR</span><span><img src="/assets/wallets/varial.png" alt="">Varial</span><span><img src="/assets/wallets/xbull.png" alt="">xBull</span><span><img src="/assets/wallets/albedo.png" alt="">Albedo</span><span><img src="/assets/wallets/rabet.png" alt="">Rabet</span><span><img src="/assets/wallets/hana.png" alt="">Hana</span><span><img src="/assets/wallets/klever.png" alt="">Klever</span>
+      <span><img src="/assets/wallets/lobstr.png" alt="">LOBSTR</span><span><img src="/assets/wallets/varial.png" alt="">Varial</span><span><img src="/assets/wallets/xbull.png" alt="">xBull</span><span><img src="/assets/wallets/albedo.png" alt="">Albedo</span><span><img src="/assets/wallets/rabet.png" alt="">Rabet</span><span><img src="/assets/wallets/hana.png" alt="">Hana</span><span><img src="/assets/wallets/klever.png" alt="">Klever</span>
+    </div>
+  </div>
+  </section>
+
+  <section class="white sec" id="platform">
+    <div class="wrap split">
+      <div class="copy">
+        <p class="eyebrow" data-a="fade">Non-custodial by design</p>
+        <h2 class="sw" data-a="split">Pay like you hold the keys. Because you do.</h2>
+        <p class="lede" data-a="fade">Your funds sit in a mandate contract you own. UJIRA asks it to pay people, and the money goes straight from your mandate to the recipient. No UJIRA account ever holds it.</p>
+        <div class="items">
+          <div class="item" data-a="fade"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><div><p>For principals</p><h4>Withdraw anything uncommitted, any time.</h4></div></div>
+          <div class="item" data-a="fade"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/></svg></span><div><p>For recipients</p><h4>Paid in USDC, in about five seconds.</h4></div></div>
+        </div>
+      </div>
+      <div class="gcard" data-a="reveal">
+        <div class="chat" id="chat">
+          <div class="head"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="UJIRA mark">
+<path d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46" fill="none" stroke="#0F4C5C" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="50" cy="40" r="11" fill="#F4A300"></circle>
+</svg><span class="hint">Your UJIRA agent</span></div>
+          <div class="msgs" id="msgs"></div>
+          <div class="ask"><span class="p">A</span><span class="in">Ask anything...<i>&#8593;</i></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="white" style="padding-top:20px">
+    <div class="wrap center">
+      <p class="eyebrow" data-a="fade">Rules on chain</p>
+      <h2 class="sw" data-a="split">With you all the way,<br>from request to receipt.</h2>
+      <p class="lede" data-a="fade">Most payout tools trust their own database. UJIRA doesn't. Caps, approvers and budgets live in your mandate, so a payout outside your rules is refused, whoever sends it.</p>
+    </div>
+    <div class="panel-wrap">
+      <div class="panel" id="panel">
+        <div class="panel-in">
+          <h3 data-a="fade">Always checking.<br>Always within your rules.</h3>
+          <div style="overflow:hidden"><div class="carousel" id="carousel"></div></div>
+        </div>
+        <div class="panel-b">
+          <h3 data-a="fade">Two of three officers,<br>no single master key.</h3>
+          <p class="sub" data-a="fade">A company can pay from a Stellar account that needs two of its three officers to sign. We set one up on testnet and tried every combination. Tap the officers who sign.</p>
+          <div class="call" data-a="fade">
+            <label class="officer"><input type="checkbox" value="a" aria-label="Finance lead signs"><img src="/assets/face-kwame.jpg" alt=""><span>Finance</span></label>
+            <div class="wave" id="wave" aria-hidden="true"></div>
+            <label class="officer"><input type="checkbox" value="b" aria-label="Operations lead signs"><img src="/assets/face-zara.jpg" alt=""><span>Operations</span></label>
+            <label class="officer"><input type="checkbox" value="c" aria-label="Chief executive signs"><img src="/assets/face-tunde.jpg" alt=""><span>CEO</span></label>
+            <span class="ring"><b id="weight">0/2</b></span>
+          </div>
+          <p class="verdict" id="verdict" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="white sec">
+    <div class="wrap split">
+      <div class="copy">
+        <p class="eyebrow" data-a="fade">Recipient onboarding</p>
+        <h2 class="sw" data-a="split">Every recipient, a little easier.</h2>
+        <p class="lede" data-a="fade">The more you pay, the smoother it gets. Recipients add their own wallet inside your app, in their own language, and UJIRA checks every address before a single unit moves.</p>
+        <div data-a="fade"><a class="btn dark" href="#widget">Try the recipient flow <svg><use href="#chev"/></svg></a></div>
+      </div>
+      <div class="photo" data-a="reveal">
+        <img src="/assets/feature-sky.jpg" alt="A woman in a blue dress smiling under an open sky">
+        <div class="tags"><span class="tag" data-a="tag"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5h3.6a1.6 1.6 0 0 1 0 3.2h-2.2a1.6 1.6 0 0 0 0 3.2h3.6"/></svg>USDC to her wallet</span><span class="tag" data-a="tag"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg>No XLM needed</span><span class="tag" data-a="tag"><svg viewBox="0 0 24 24"><path d="M4 6h10M9 4v2M6 6c1 4 4 7 8 8M13 6c-1 3-4 6-8 8M14 20l4-9 4 9M15.5 17h5"/></svg>Kiswahili</span><span class="tag" data-a="tag"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6"/></svg>Signed receipt</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="white sec wdg-sec" id="widget">
+    <div class="wrap wdg-row">
+      <div class="widget" id="w" data-a="fade" aria-live="polite"></div>
+      <div class="copy" style="display:grid;gap:18px;max-width:480px">
+        <p class="eyebrow" data-a="fade">Try it</p>
+        <h3 class="sw" data-a="split" style="font-size:clamp(32px,3.4vw,46px);line-height:1.08">The address check is the real one.</h3>
+        <p class="lede" data-a="fade">Same rules as the server: the right length and checksum, never a contract or issuer address, never an address that can't receive money. Load the testnet address, then change one character.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="white" id="business" style="padding-bottom:12px">
+    <div class="biz">
+      <div class="wrap center">
+        <p class="eyebrow" data-a="fade">Made for platforms</p>
+        <h2 class="sw" data-a="split">Works for you.<br>Works for your platform.</h2>
+        <p class="lede" data-a="fade">Send payouts from your own systems, set the rules once, and pause a mandate in a click. Your recipients just see the money land.</p>
+        <div data-a="fade" style="margin-top:28px"><a class="btn dark" href="/app">Open the dashboard <svg><use href="#chev"/></svg></a></div>
+      </div>
+      <div class="stage" aria-hidden="true">
+        <div class="float f1"><span class="av"><img src="/assets/face-tunde.jpg" alt=""><img src="/assets/face-kwame.jpg" alt=""></span><span><b>Approved</b><small>Finance and CEO, 2 of 3</small></span></div>
+        <div class="float f2"><span class="tg on"><i></i></span><span><b>Mandate active</b><small>Pause it in one click</small></span></div>
+        <div class="float f3"><span class="ic">0</span><span><b>Held by UJIRA</b><small>0.00 USDC, always</small></span></div>
+        <div class="float f4"><span class="ic sp">✓</span><span><b>Network fees</b><small>Sponsored, recipients pay nothing</small></span></div>
+        <div class="phone" id="screen">
+          <div class="scr">
+            <span class="notch"></span>
+            <div class="ph-top"><img src="/assets/face-amara.jpg" alt=""><span><b>Amara</b><small>Stellar wallet</small></span><span class="usdc">USDC</span></div>
+            <div class="ph-bal"><small>Balance</small><b id="pbal">1,925.00</b><span>USDC</span></div>
+            <div class="feed" id="feed"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="white sec cta" id="start">
+    <div class="wrap center">
+      <p class="eyebrow" data-a="fade">Start paying</p>
+      <h2 class="sw" data-a="split">Got people to pay?<br>Get it sorted with <span class="grad">UJIRA.</span></h2>
+      <p class="lede" data-a="fade" style="max-width:420px">No subscription, no seats, no minimum. Open a mandate, fund it with USDC, and pay from 0.90% only when someone is paid.</p>
+      <div data-a="fade"><a class="btn dark" href="/app">See it on testnet <svg><use href="#chev"/></svg></a></div>
+    </div>
+  </section>
+
+  <div class="white"><div class="wrap"><div class="dotline"></div></div></div>
+
+  <section class="white sec" id="faq">
+    <div class="wrap center faq-head">
+      <p class="eyebrow" data-a="fade">FAQs</p>
+      <h2 data-a="fade">Got a question we haven't covered? Here's what platforms and finance teams usually ask.</h2>
+      <div class="faqs" id="faqs">
+        <div class="faq open"><button class="faq-q" type="button" aria-expanded="true">What is UJIRA? <svg><use href="#down"/></svg></button><div class="faq-a"><p>A payout platform where your money stays in a mandate contract you own on Stellar. UJIRA requests payouts within the rules you set, and the contract enforces them, so we never take custody of your funds.</p></div></div>
+        <div class="faq"><button class="faq-q" type="button" aria-expanded="false">Who is UJIRA for? <svg><use href="#down"/></svg></button><div class="faq-a"><p>Platforms and companies that pay many people across borders: marketplaces paying sellers, studios paying contractors, insurers paying claims, and AI agents acting for a business.</p></div></div>
+        <div class="faq"><button class="faq-q" type="button" aria-expanded="false">Does UJIRA ever hold our money? <svg><use href="#down"/></svg></button><div class="faq-a"><p>No. Funds move from your mandate straight to the recipient's wallet. No UJIRA account holds principal funds at any point.</p></div></div>
+        <div class="faq"><button class="faq-q" type="button" aria-expanded="false">What stops a stolen key from paying the wrong person? <svg><use href="#down"/></svg></button><div class="faq-a"><p>The contract. The key UJIRA holds can only request payouts inside your caps and budget. It can't approve, withdraw or change a rule, and larger payouts wait for your approvers.</p></div></div>
+        <div class="faq"><button class="faq-q" type="button" aria-expanded="false">How much does UJIRA cost? <svg><use href="#down"/></svg></button><div class="faq-a"><p>Signing up and building on UJIRA is free. A take rate applies only to completed payouts: 0.90% up to $100K a month, falling to 0.25% above $50M. Network fees and account reserves are on us.</p></div></div>
+        <div class="faq"><button class="faq-q" type="button" aria-expanded="false">How do recipients get paid? <svg><use href="#down"/></svg></button><div class="faq-a"><p>At launch, in USDC to their own Stellar wallet, in about five seconds. Bank, mobile money and cash payouts through Stellar anchors come next.</p></div></div>
+        <div class="faq"><button class="faq-q" type="button" aria-expanded="false">Is it live? <svg><use href="#down"/></svg></button><div class="faq-a"><p>The contracts are deployed on Stellar testnet, and every transaction shown on this page ran against them. The payout engine and public API are merging now, then the first end-to-end testnet payout. Mainnet follows an external audit.</p></div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="dotline"></div>
+    <div class="ft">
+      <div class="ft-l"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="UJIRA mark">
+<path d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46" fill="none" stroke="#0F4C5C" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="50" cy="40" r="11" fill="#F4A300"></circle>
+</svg><h3>Be there <span>for the people who do the work.</span></h3><a class="btn dark" href="/app">Get started <svg><use href="#chev"/></svg></a></div>
+      <div class="cols">
+        <div><p>Explore</p><a href="#platform">Platform</a><a href="#business">For platforms</a><a href="#widget">Recipients</a></div>
+        <div><p>Proof</p><a href="/instaward">Check it on testnet</a><a href="/app">Testnet activity</a><a href="https://stellar.expert/explorer/testnet/contract/CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7" target="_blank" rel="noopener">Mandate factory</a></div>
+        <div><p>Learn</p><a href="#faq">FAQs</a><a href="#start">Pricing</a></div>
+      </div>
+    </div>
+    <div class="fb"><span>Testnet preview. No real money moves on this page; sample figures are marked. Photos from Unsplash by Dwayne joe, K Studios, Kolapo Oladapo, Vitaly Gariev, Elizeu Dias, melvin Ankrah and FOTOGRAFÍA EDITORIAL.</span><span class="built">BUILT AT QOMIRA LABS</span></div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+const SNAP = {"takenAt": "2026-11-08T13:03Z", "latestLedger": 5623707, "txs": [{"hash": "526246181010dab6db69f3813fddd47b22de1455c8d15aa9054762f50c1d150c", "ledger": 5579623, "created_at": "2026-11-05T23:35:56Z", "successful": true, "source": "GBM2UM2TYRI3VYPL3IHIVLJVWL7MZCIJ5JTRTKMOZDTLQORXPG7FFRGP", "ops": 3, "fee": "300", "label": "channel-1", "run": "Executor and fee sponsor setup"}, {"hash": "236e26c274959289eb66517e2b7d8beb7af6920900565e0433ffb5cfd700435a", "ledger": 5579631, "created_at": "2026-11-05T23:36:36Z", "successful": true, "source": "GDFVXZXT2ZVBVV3LIKODHFRKCP4QFKIQZ256BVLJ73Q2ZQYYPHY2QMBX", "ops": 3, "fee": "300", "label": "channel-2", "run": "Executor and fee sponsor setup"}, {"hash": "0b10708f5ce4f6d45400804aa4f3748d0e0d5b73f636b3e23ec9b97e15655f1f", "ledger": 5579638, "created_at": "2026-11-05T23:37:11Z", "successful": true, "source": "GDCXUVACOJI36X5VCJ6TWGLDZF22O22Y52AJTJCZSUUGSK2DROZXRNII", "ops": 3, "fee": "300", "label": "fee-sponsor", "run": "Executor and fee sponsor setup"}, {"hash": "8371e558d4c9f6e6f69a63f095c675fcd03d740e6aa97293d0357503481d6bae", "ledger": 5579857, "created_at": "2026-11-05T23:55:26Z", "successful": true, "source": "GBM2UM2TYRI3VYPL3IHIVLJVWL7MZCIJ5JTRTKMOZDTLQORXPG7FFRGP", "ops": 3, "fee": "300", "label": "recovery rotates the managed signer", "run": "Executor and fee sponsor setup"}, {"hash": "0e115ee639e5c2cad6d001c3904aba570416baaaffabcf3ef7acf71a6f4cfe9d", "ledger": 5579860, "created_at": "2026-11-05T23:55:41Z", "successful": true, "source": "GBM2UM2TYRI3VYPL3IHIVLJVWL7MZCIJ5JTRTKMOZDTLQORXPG7FFRGP", "ops": 3, "fee": "300", "label": "and back", "run": "Executor and fee sponsor setup"}, {"hash": "dbf4b12d99a996bd65c40930b8db6624ac110ac6fb26f081fe6cc55f64003f7d", "ledger": 5571969, "created_at": "2026-11-05T12:58:05Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "7931670", "label": "create", "run": "Mandate lifecycle"}, {"hash": "2a64fc09500f45fd8c4244fee37700f051a1144e3bd976a18d3e5611029edf8e", "ledger": 5571978, "created_at": "2026-11-05T12:58:50Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "4710", "label": "pause", "run": "Mandate lifecycle"}, {"hash": "6bf97443bb37acdf9c5f5b3fab2f026473fb197d756ed3f4e9fecea14a51620c", "ledger": 5571988, "created_at": "2026-11-05T12:59:40Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "4509", "label": "resume", "run": "Mandate lifecycle"}, {"hash": "a7ceb6c8012ee95928a9f857e4b1af45b2358ee558a2afa3b8da25204ba09196", "ledger": 5571994, "created_at": "2026-11-05T13:00:10Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "24270", "label": "add role recovery", "run": "Mandate lifecycle"}, {"hash": "9a03766d6f172efe907c1a7576564036d8371b94fca4c8cb392e5fe226d57efe", "ledger": 5571999, "created_at": "2026-11-05T13:00:35Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "5310", "label": "remove role recovery", "run": "Mandate lifecycle"}, {"hash": "eeaabcd639d88f911b1268daea3d8aa1e91dbcf977dc5d2d5efe89d2fec5dc34", "ledger": 5572004, "created_at": "2026-11-05T13:01:00Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "24270", "label": "add role recovery again", "run": "Mandate lifecycle"}, {"hash": "2450df3898f4a1e9372026b406dae4655c081083d2a05b2409bdd719cac8ff1a", "ledger": 5572012, "created_at": "2026-11-05T13:01:40Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "4680", "label": "set recovery threshold", "run": "Mandate lifecycle"}, {"hash": "70d0ede911de53303617c0db88c52b5fb348e98067eee331d8ac5d23baf9592c", "ledger": 5572018, "created_at": "2026-11-05T13:02:10Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "4555", "label": "lower fee cap", "run": "Mandate lifecycle"}, {"hash": "8c344ea43f2f2ebe508eb80f4ede61b1f10d848cba9b947e84d7adb28f80f73f", "ledger": 5572022, "created_at": "2026-11-05T13:02:30Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "41173", "label": "propose principal", "run": "Mandate lifecycle"}, {"hash": "220bbf7eab1d575a3b6e24f90e3924d1413db663e29f135356a8c21e9b2cb4fc", "ledger": 5572030, "created_at": "2026-11-05T13:03:10Z", "successful": true, "source": "GDG25NP5BMPMQMARBHUYGRCNMB34DKZGTLQCR7MLNKZMIZ35DLR5UAOH", "ops": 1, "fee": "4820", "label": "cancel principal proposal", "run": "Mandate lifecycle"}, {"hash": "51ea2cdad8f9c68f9fa0b4b19d5c0f986cc8b7ee0d4861aa15001e535ae4907d", "ledger": 5572035, "created_at": "2026-11-05T13:03:35Z", "successful": true, "source": "GCWQMY5VJY2A5DNHAFDEEEMPW3KLGDWKIAL3Q2EGLBBOFUKQ5VBUXUQ5", "ops": 1, "fee": "9148", "label": "recovery rotate agent", "run": "Mandate lifecycle"}, {"hash": "a128d8fc15b41f322c0e028278ba8e0e3c945d1d1d2161294dcdec4637547591", "ledger": 5572042, "created_at": "2026-11-05T13:04:10Z", "successful": true, "source": "GCWQMY5VJY2A5DNHAFDEEEMPW3KLGDWKIAL3Q2EGLBBOFUKQ5VBUXUQ5", "ops": 1, "fee": "7859", "label": "recovery revoke", "run": "Mandate lifecycle"}, {"hash": "28d037d7f41b69d3f4205f3051387518b4ac38835abc5acec86980d9415aa0f9", "ledger": 5572048, "created_at": "2026-11-05T13:04:40Z", "successful": true, "source": "GAJTP2DHOIZLPL7BAU4UDGPWKKWNR7EYZL6YQIOBBEUM23YWNTX6UGJA", "ops": 1, "fee": "807757", "label": "create", "run": "Mandate lifecycle"}, {"hash": "9b26a93ad5f2d6c0d4b965bc6527b6479e87427a0ee61324194c6944c37273f7", "ledger": 5572055, "created_at": "2026-11-05T13:05:15Z", "successful": true, "source": "GAJTP2DHOIZLPL7BAU4UDGPWKKWNR7EYZL6YQIOBBEUM23YWNTX6UGJA", "ops": 1, "fee": "8058", "label": "pause", "run": "Mandate lifecycle"}, {"hash": "080f733fc4f581df34707a6e893fd7ac9d9df5612a1db28b1b92d332177a78be", "ledger": 5572063, "created_at": "2026-11-05T13:05:55Z", "successful": true, "source": "GAJTP2DHOIZLPL7BAU4UDGPWKKWNR7EYZL6YQIOBBEUM23YWNTX6UGJA", "ops": 1, "fee": "7874", "label": "resume", "run": "Mandate lifecycle"}, {"hash": "fc6312fc149a38ef3875c7edca4c046d4e07d1501ae3c185c3ca51448f35669c", "ledger": 5572070, "created_at": "2026-11-05T13:06:30Z", "successful": true, "source": "GAJTP2DHOIZLPL7BAU4UDGPWKKWNR7EYZL6YQIOBBEUM23YWNTX6UGJA", "ops": 1, "fee": "7910", "label": "lower fee cap", "run": "Mandate lifecycle"}, {"hash": "f3c67462b30589e3de640ed099c10e494fe3a5e4c6403ba4d3c9fb658dbdc459", "ledger": 5572078, "created_at": "2026-11-05T13:07:10Z", "successful": true, "source": "GAJTP2DHOIZLPL7BAU4UDGPWKKWNR7EYZL6YQIOBBEUM23YWNTX6UGJA", "ops": 1, "fee": "8397", "label": "revoke", "run": "Mandate lifecycle"}, {"hash": "2aa7244e7b8c628168f7b9560287882d7cbdd8b7af5e36a9970575c53af23b1e", "ledger": 5588134, "created_at": "2026-11-06T11:25:11Z", "successful": true, "source": "GDB5HEX3MYNNRNRIABPGDYOZFXUZOMLYG33R2DNQI6DY2IM5XZH32DWZ", "ops": 4, "fee": "400", "label": "layout", "run": "Multisig principal"}, {"hash": "55e5515ce8f6df98c2fc68fffa6a8613e300e1fc48f4b34d7aeb704ef0cc16f9", "ledger": 5588140, "created_at": "2026-11-06T11:25:41Z", "successful": true, "source": "GDB5HEX3MYNNRNRIABPGDYOZFXUZOMLYG33R2DNQI6DY2IM5XZH32DWZ", "ops": 1, "fee": "806263", "label": "create, signed by a and b", "run": "Multisig principal"}, {"hash": "a553b59c775ac07098cc5db8b0b0100fac2941b88db3e9b0a74375e0ca86b657", "ledger": 5588145, "created_at": "2026-11-06T11:26:06Z", "successful": true, "source": "GDB5HEX3MYNNRNRIABPGDYOZFXUZOMLYG33R2DNQI6DY2IM5XZH32DWZ", "ops": 1, "fee": "4866", "label": "pause, signed by a and c", "run": "Multisig principal"}, {"hash": "2813017ab0f2ec08e28b67e71e8c3009f489ff323a65e17040a91e9c0afef14c", "ledger": 5588150, "created_at": "2026-11-06T11:26:31Z", "successful": true, "source": "GDB5HEX3MYNNRNRIABPGDYOZFXUZOMLYG33R2DNQI6DY2IM5XZH32DWZ", "ops": 1, "fee": "4667", "label": "resume, signed by b and c", "run": "Multisig principal"}, {"hash": "d10a9331567ba3881332edfcd184563c9fa97ef376422146f6907d96836929f8", "ledger": 5587046, "created_at": "2026-11-06T09:54:31Z", "successful": true, "source": "GDZ7PZLSKPXYVAEHOZSCMQZ7N5ZMFXIYZXV35CMAZT5XMRU3W24N4FGG", "ops": 3, "fee": "300", "label": "Layout", "run": "Threshold measurement"}, {"hash": "ebd583f12472d03e0880dfb668f26539d94009c3c8d4a8cbda8a4a0bc6829c77", "ledger": 5587051, "created_at": "2026-11-06T09:54:56Z", "successful": true, "source": "GDZ7PZLSKPXYVAEHOZSCMQZ7N5ZMFXIYZXV35CMAZT5XMRU3W24N4FGG", "ops": 1, "fee": "806263", "label": "create, own tx (2)", "run": "Threshold measurement"}, {"hash": "b8a5b1acef5d8d9b602cf4a8482327e8333167c87cd764bb95db145e19dfc6af", "ledger": 5587055, "created_at": "2026-11-06T09:55:16Z", "successful": false, "source": "GD65P23QJ4AHPO7ZQFU7HIIRK7BULG53EOCXQYB7WPNDEQ7IE2ARVMPU", "ops": 1, "fee": "8035", "label": "pause, entry (1)", "run": "Threshold measurement"}, {"hash": "249bb6cad6db6a8f1e442c20c05988a9de0fbfd2d57218a3763e94b45092107b", "ledger": 5587058, "created_at": "2026-11-06T09:55:31Z", "successful": true, "source": "GD65P23QJ4AHPO7ZQFU7HIIRK7BULG53EOCXQYB7WPNDEQ7IE2ARVMPU", "ops": 1, "fee": "10125", "label": "pause, entry (2)", "run": "Threshold measurement"}, {"hash": "057cf5378054c0a1e1a8a803d3ea411e5bf378875fb08f671d82a8f565830fce", "ledger": 5587061, "created_at": "2026-11-06T09:55:46Z", "successful": true, "source": "GDZ7PZLSKPXYVAEHOZSCMQZ7N5ZMFXIYZXV35CMAZT5XMRU3W24N4FGG", "ops": 3, "fee": "300", "label": "Layout", "run": "Threshold measurement"}, {"hash": "9fe69a62bbae87179377473768feace15acdd3ef9d7092263f86ef5b7c2587cb", "ledger": 5587069, "created_at": "2026-11-06T09:56:26Z", "successful": true, "source": "GDZ7PZLSKPXYVAEHOZSCMQZ7N5ZMFXIYZXV35CMAZT5XMRU3W24N4FGG", "ops": 1, "fee": "4824", "label": "resume, own tx (3)", "run": "Threshold measurement"}, {"hash": "aced47a10774013d444a26c0b6bc84e72a8081fdcd449de61fd9f8b311e72057", "ledger": 5587074, "created_at": "2026-11-06T09:56:51Z", "successful": false, "source": "GD65P23QJ4AHPO7ZQFU7HIIRK7BULG53EOCXQYB7WPNDEQ7IE2ARVMPU", "ops": 1, "fee": "8392", "label": "pause, entry (2)", "run": "Threshold measurement"}, {"hash": "0115183dcee562cebbe43cb51b8562cf15d931c5bf722417cc004a0e64e7c324", "ledger": 5587080, "created_at": "2026-11-06T09:57:21Z", "successful": true, "source": "GD65P23QJ4AHPO7ZQFU7HIIRK7BULG53EOCXQYB7WPNDEQ7IE2ARVMPU", "ops": 1, "fee": "10483", "label": "pause, entry (3)", "run": "Threshold measurement"}, {"hash": "7a807b7bd6e58c71b2ceccfc1940567c21784e5bba01e512f76a6d68dcd1a633", "ledger": 5587082, "created_at": "2026-11-06T09:57:31Z", "successful": true, "source": "GDZ7PZLSKPXYVAEHOZSCMQZ7N5ZMFXIYZXV35CMAZT5XMRU3W24N4FGG", "ops": 3, "fee": "300", "label": "Back to 1/2/3", "run": "Threshold measurement"}]};
+const MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="UJIRA mark">
+<path d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46" fill="none" stroke="#0F4C5C" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="50" cy="40" r="11" fill="#F4A300"></circle>
+</svg>`;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const short = (h) => h.slice(0, 8) + "…" + h.slice(-6);
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const hasGsap = !!(window.gsap && window.ScrollTrigger) && !reduce;
+
+/* nav pill */
+const nav = $("#nav");
+const onScroll = () => nav.classList.toggle("scrolled", scrollY > 60);
+addEventListener("scroll", onScroll, { passive: true }); onScroll();
+
+/* ---------- the bowl: the UJIRA mark's hands and coin, drawn as dots ---------- */
+(function bowl() {
+  const cv = $("#bowl"), ctx = cv.getContext("2d");
+  // the mark's own hands and coin, scaled from its 100 unit box by 8
+  const HANDS = new Path2D("M272 368C240 304 176 256 112 256C112 448 240 544 400 544C560 544 688 448 688 256C624 256 560 304 528 368");
+  const CX = 400, CY = 320, CR = 88, LW = 60;
+  let W = 0, H = 0, dpr = 1, dots = [], wires = null, s = 1, ox = 0, oy = 0, rise = hasGsap ? 0 : 1, visible = true, raf = 0;
+  function build() {
+    dpr = Math.min(2, devicePixelRatio || 1);
+    W = cv.clientWidth; H = cv.clientHeight;
+    if (!W || !H) return;
+    cv.width = W * dpr; cv.height = H * dpr;
+    // sit the coin just above the payout card, as Serko's globe sits above its profile card
+    const card = document.getElementById("profile");
+    const cardTop = card && card.offsetTop > 60 ? card.offsetTop : H - 200;
+    // the whole cup shows above the card; only the bottom of its curve tucks behind it
+    const tuck = 34, top = 226, bottom = 544 + LW / 2;
+    s = Math.max(0.3, Math.min(W * 0.92 / 636, (cardTop + tuck - 16) / (bottom - top)));
+    ox = W / 2 - CX * s; oy = cardTop + tuck - bottom * s;
+    const probe = document.createElement("canvas").getContext("2d");
+    probe.setTransform(s, 0, 0, s, ox, oy); probe.lineWidth = LW; probe.lineCap = "round"; probe.lineJoin = "round";
+    dots = [];
+    const step = W < 700 ? 7 : 9;
+    for (let y = step / 2; y < H; y += step) {
+      for (let x = step / 2; x < W; x += step) {
+        const px = (x - ox) / s, py = (y - oy) / s;
+        const coin = (px - CX) ** 2 + (py - CY) ** 2 < CR * CR;
+        const hand = !coin && probe.isPointInStroke(HANDS, x, y);
+        if (coin || hand) dots.push({ x, y, coin, seed: Math.random() * 6.283, d: Math.hypot(px - CX, py - CY - 80) });
+      }
+    }
+    // wireframe: contour lines along the hands and rings on the coin, drawn once
+    wires = document.createElement("canvas"); wires.width = W * dpr; wires.height = H * dpr;
+    const w = wires.getContext("2d");
+    w.setTransform(s * dpr, 0, 0, s * dpr, ox * dpr, oy * dpr); w.lineCap = "round"; w.lineJoin = "round";
+    [LW, 40, 20].forEach((lw) => { w.globalCompositeOperation = "source-over"; w.strokeStyle = "rgba(15,76,92,.32)"; w.lineWidth = lw + 1.4 / s; w.stroke(HANDS); w.globalCompositeOperation = "destination-out"; w.lineWidth = lw; w.stroke(HANDS); });
+    w.globalCompositeOperation = "source-over";
+    w.strokeStyle = "rgba(15,76,92,.22)"; w.lineWidth = 1 / s; w.stroke(HANDS);
+    [CR, 64, 40].forEach((r) => { w.beginPath(); w.arc(CX, CY, r, 0, Math.PI * 2); w.strokeStyle = "rgba(143,90,0,.35)"; w.lineWidth = 1.2 / s; w.stroke(); });
+    w.beginPath(); w.ellipse(CX, CY, CR, 30, 0, 0, Math.PI * 2); w.strokeStyle = "rgba(143,90,0,.22)"; w.stroke();
+    draw(performance.now());
+  }
+  function draw(t) {
+    if (!W) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const reveal = rise * (H + 120);
+    // warm glow behind the coin
+    const cx = ox + CX * s, cy = oy + CY * s, gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, 150 * s);
+    gr.addColorStop(0, `rgba(244,163,0,${0.32 * rise})`); gr.addColorStop(1, "rgba(244,163,0,0)");
+    ctx.fillStyle = gr; ctx.fillRect(cx - 160 * s, cy - 160 * s, 320 * s, 320 * s);
+    ctx.save(); ctx.globalAlpha = Math.min(1, rise * 1.4);
+    ctx.beginPath(); ctx.rect(0, H - reveal, W, reveal); ctx.clip();
+    ctx.drawImage(wires, 0, 0, W, H);
+    ctx.restore();
+    const tt = t / 1000;
+    for (const p of dots) {
+      const edge = (p.y - (H - reveal)) / 80;
+      if (edge < 0) continue;
+      const fade = Math.min(1, edge);
+      if (p.coin) {
+        const tw = 0.55 + 0.45 * Math.sin(tt * 1.4 + p.seed);
+        ctx.fillStyle = `rgba(232,140,0,${(0.6 + 0.4 * tw) * fade})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.7 + tw * 0.9, 0, 6.283); ctx.fill();
+      } else {
+        const depth = 0.45 + 0.55 * (p.y / H);
+        const ripple = 0.75 + 0.25 * Math.sin(tt * 1.1 - p.d * 0.03);
+        ctx.fillStyle = `rgba(15,76,92,${depth * ripple * fade * 0.9})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.2 * depth + 0.4, 0, 6.283); ctx.fill();
+      }
+    }
+  }
+  function loop(t) { draw(t); if (visible && !reduce) raf = requestAnimationFrame(loop); }
+  new ResizeObserver(() => { build(); }).observe(cv);
+  new IntersectionObserver(([e]) => { visible = e.isIntersecting; cancelAnimationFrame(raf); if (visible && !reduce) raf = requestAnimationFrame(loop); }).observe(cv);
+  window.__bowlRise = (v) => { rise = v; };
+  build();
+  if (hasGsap) gsap.to({ v: 0 }, { v: 1, duration: 2.2, ease: "power3.out", delay: 0.5, onUpdate() { rise = this.targets()[0].v; } });
+})();
+
+/* ---------- chat in the gradient card ---------- */
+const CHAT = [
+  { me: true, t: "Pay Amara 250 USDC for the March illustrations." },
+  { me: false, t: "Within your rules: under your 1,000 USDC cap and this month's budget. Paying her wallet now." },
+  { me: false, t: "Paid in 5 seconds. Receipt R-7Q2C9XK8M4LP is signed.", pill: true },
+  { me: true, t: "And the 25,000 USDC one to the new wallet?" },
+  { me: false, t: "Refused by your mandate: it's over your monthly budget. Nothing moved.", block: true },
+];
+function playChat() {
+  const box = $("#msgs"); box.innerHTML = "";
+  let i = 0;
+  const next = () => {
+    if (i >= CHAT.length) return;
+    const m = CHAT[i++];
+    if (!m.me) { const ty = document.createElement("div"); ty.className = "typing"; ty.innerHTML = "<i></i><i></i><i></i>"; box.appendChild(ty); setTimeout(() => { ty.remove(); add(m); setTimeout(next, 900); }, 900); }
+    else { add(m); setTimeout(next, 700); }
+  };
+  const add = (m) => {
+    const b = document.createElement("div"); b.className = "bub" + (m.me ? " me" : "");
+    b.innerHTML = esc(m.t) + (m.pill ? '<div><span class="pill paid"><svg width="12" height="12"><use href="#i-paid"/></svg>Paid</span></div>' : "") + (m.block ? '<div><span class="pill block">Refused</span></div>' : "");
+    box.appendChild(b);
+    if (hasGsap) gsap.from(b, { y: 14, autoAlpha: 0, duration: .6, ease: "power3.out" });
+  };
+  next();
+}
+if (hasGsap) ScrollTrigger.create({ trigger: "#chat", start: "top 75%", once: true, onEnter: playChat }); else playChat();
+
+/* ---------- carousel of payout requests ---------- */
+const FACES = ["face-kwame.jpg", "face-wanjiru.jpg", "face-femi.jpg", "face-zara.jpg", "face-tunde.jpg", "face-amara.jpg"];
+const NAMES = ["Kwame Mensah", "Wanjiru Kamau", "Femi Adeyemi", "Zara Okeke", "Tunde Bello", "Amara Okafor"];
+const AMTS = ["1,200.00", "640.00", "310.00", "2,050.00", "880.00", "250.00", "475.00"];
+const car = $("#carousel");
+let cards = "";
+for (let i = 0; i < 13; i++) {
+  const k = i % 6, hero = i === 6, ref = i === 4;
+  cards += `<div class="pcard${hero ? " hero-card" : ""}${ref ? " ref" : ""}">
+    <div class="tp"><img src="/assets/${FACES[k]}" alt="">${hero ? '<span class="pill peach" id="heroPill">Needs approval</span>' : ref ? '<span class="pill block">Refused</span>' : ""}</div>
+    <small>Payout to</small><b>${NAMES[k]}</b>
+    <div class="meta mono">${ref ? "25,000.00" : AMTS[i % 7]} USDC</div>
+    <div class="sk"></div><div class="sk" style="width:52%"></div>
+    <div class="act" id="${hero ? "heroAct" : ""}">${hero ? "Approve" : ref ? "Over budget" : "Approve"}</div>
+  </div>`;
+}
+car.innerHTML = cards;
+
+/* ---------- recipient's phone: payouts landing ---------- */
+(function phone() {
+  const feed = $("#feed"), bal = $("#pbal"), tg = $(".float .tg");
+  // amounts in cents, never floats
+  const PAYS = [["Acme Studio", "March illustrations", 25000], ["Lagos Insure", "Claim 2291 settled", 47500], ["Kora Market", "Week 44 sales", 120000], ["Acme Studio", "Logo revisions", 18000], ["Bloom Agency", "Campaign shoot", 65000]];
+  let cents = 192500, i = 0, timer = 0;
+  const fmt = (c) => (Math.floor(c / 100)).toLocaleString("en-US") + "." + String(c % 100).padStart(2, "0");
+  const card = ([who, what, c], when) => `<div class="pay"><span class="lg">${MARK}</span><span><b>${esc(who)}</b><small>${esc(what)} · ${when}</small></span><span class="amt">+${fmt(c)}</span></div>`;
+  feed.innerHTML = [PAYS[3], PAYS[4]].map((p, k) => card(p, k ? "Yesterday" : "2 h ago")).join("");
+  function land() {
+    const p = PAYS[i++ % 3];
+    feed.insertAdjacentHTML("afterbegin", card(p, "Just now"));
+    while (feed.children.length > 4) feed.lastElementChild.remove();
+    const from = cents; cents += p[2];
+    if (hasGsap) { const o = { v: from }; gsap.to(o, { v: cents, duration: .9, ease: "power2.out", onUpdate: () => (bal.textContent = fmt(Math.round(o.v))) }); } else bal.textContent = fmt(cents);
+  }
+  let flip = 0;
+  new IntersectionObserver(([e]) => {
+    clearInterval(timer); clearInterval(flip);
+    if (e.isIntersecting && !reduce) {
+      land(); timer = setInterval(land, 2800);
+      flip = setInterval(() => { tg.classList.toggle("off"); tg.closest(".float").querySelector("b").textContent = tg.classList.contains("off") ? "Mandate paused" : "Mandate active"; }, 3600);
+    }
+  }, { threshold: .35 }).observe($("#screen"));
+})();
+
+/* ---------- two of three officers ---------- */
+const PROOF = {
+  a: { hash: "b2794d708db146e8a17dc39dad09aa0e23f532bd84087dbdc8884a43c2256c1f" },
+  ab: { hash: "55e5515ce8f6df98c2fc68fffa6a8613e300e1fc48f4b34d7aeb704ef0cc16f9", what: "Finance and operations signed. On testnet that created a mandate." },
+  ac: { hash: "a553b59c775ac07098cc5db8b0b0100fac2941b88db3e9b0a74375e0ca86b657", what: "Finance and the CEO signed. On testnet that paused a mandate." },
+  bc: { hash: "2813017ab0f2ec08e28b67e71e8c3009f489ff323a65e17040a91e9c0afef14c", what: "Operations and the CEO signed. On testnet that resumed a mandate." },
+};
+const wave = $("#wave");
+wave.innerHTML = Array.from({ length: 22 }, () => "<i></i>").join("");
+const bars = $$("i", wave);
+const picked = new Set();
+function drawSig() {
+  const key = [...picked].sort().join(""), w = picked.size, p = PROOF[key];
+  $("#weight").textContent = `${Math.min(w, 3)}/2`;
+  wave.classList.toggle("on", w >= 2);
+  bars.forEach((b, i) => { const base = w === 0 ? 8 : 10 + Math.abs(Math.sin(i * 1.7 + w)) * (w >= 2 ? 42 : 22); b.style.height = base + "px"; });
+  let h;
+  if (w === 0) h = "Nobody has signed yet. Tap an officer.";
+  else if (w < 2) h = `One signature short, so UJIRA refuses it before it reaches the network and no fee is spent.${p ? ` The network refused the same request on testnet (<span class="mono">${short(p.hash)}</span>).` : ""}`;
+  else if (p) h = `${esc(p.what)} <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${p.hash}">See it on testnet</a>`;
+  else h = "All three meet the threshold too. Any two are enough.";
+  $("#verdict").innerHTML = h;
+}
+$$(".officer input").forEach((inp) => inp.addEventListener("change", () => { inp.checked ? picked.add(inp.value) : picked.delete(inp.value); drawSig(); }));
+drawSig();
+
+/* ---------- recipient widget, same address rules as the server ---------- */
+const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function decode32(s) { let bits = 0, val = 0; const out = []; for (const ch of s) { const i = ALPHA.indexOf(ch); if (i < 0) return null; val = (val << 5) | i; bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; } } return out; }
+function crc16(b) { let c = 0; for (const x of b) { c ^= x << 8; for (let i = 0; i < 8; i++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xffff : (c << 1) & 0xffff; } return c; }
+const ISSUER = "GAJTP2DHOIZLPL7BAU4UDGPWKKWNR7EYZL6YQIOBBEUM23YWNTX6UGJA";
+function checkAddress(raw) {
+  const a = raw.trim().toUpperCase();
+  if (!a) return { state: "empty" };
+  if (a.startsWith("M")) return { state: "err", msg: "Muxed addresses need the wallet's base account. Enter the address that starts with G." };
+  if (a.startsWith("C")) return { state: "err", msg: "That's a contract address. Enter your wallet's account address, starting with G." };
+  if (!a.startsWith("G")) return { state: "err", msg: "Stellar wallet addresses start with G." };
+  if (a.length !== 56) return { state: "err", msg: `Wallet addresses are 56 characters. This one has ${a.length}.` };
+  const b = decode32(a);
+  if (!b || b.length !== 35 || b[0] !== 48) return { state: "err", msg: "That isn't a valid Stellar wallet address." };
+  if ((b[33] | (b[34] << 8)) !== crc16(b.slice(0, 33))) return { state: "err", msg: "The checksum doesn't match. A character may be mistyped." };
+  if (b.slice(1, 33).every((x) => x === 0)) return { state: "err", msg: "This address can never receive money." };
+  if (a === ISSUER) return { state: "err", msg: "This is the test USDC issuer. Money sent there is destroyed, so it can't be used." };
+  return { state: "ok", addr: a };
+}
+const SAMPLE = "GDB5HEX3MYNNRNRIABPGDYOZFXUZOMLYG33R2DNQI6DY2IM5XZH32DWZ";
+let step = 0, addr = "";
+function drawWidget() {
+  const steps = `<div class="w-steps" aria-hidden="true">${[0, 1, 2].map((i) => `<i class="${i <= step ? "on" : ""}"></i>`).join("")}</div>`;
+  const foot = `<div class="w-foot">${MARK}<span>Payouts by UJIRA</span></div>`;
+  let body = "";
+  if (step === 0) body = `<div style="display:grid;gap:6px"><span class="hint">Acme Studio pays you with UJIRA</span><h4>How do you want to be paid?</h4></div>
+    <button class="method" type="button" id="pickWallet"><b style="font-weight:600">USDC to your Stellar wallet</b><small>Free, and arrives in about five seconds. You keep it in dollars.</small></button>
+    <div class="method off" aria-disabled="true"><b style="font-weight:600">Mobile money, bank or cash</b><small>Coming after the testnet launch</small></div>`;
+  if (step === 1) body = `<h4>Your Stellar wallet address</h4>
+    <label class="f" for="addr">Address<input type="text" id="addr" autocomplete="off" spellcheck="false" placeholder="G..." value="${esc(addr)}"></label>
+    <p class="hint" id="addrHint">Find it in your wallet app, under Receive.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn dark" type="button" id="toConfirm" disabled>Continue</button><button class="btn light" style="border:1px solid #CBD7DA" type="button" id="useSample">Use a testnet address</button></div>`;
+  if (step === 2) body = `<span><span class="pill paid"><svg width="12" height="12"><use href="#i-paid"/></svg>Saved</span></span><h4>You'll be paid to this wallet</h4>
+    <p class="mono" style="overflow-wrap:anywhere;font-size:13px">${esc(addr)}</p>
+    <p class="hint">Next, your wallet signs a short message to prove the address is yours. Acme Studio never sees your keys.</p>
+    <button class="btn light" style="border:1px solid #CBD7DA" type="button" id="restart">Start again</button>`;
+  $("#w").innerHTML = steps + body + foot;
+  if (step === 0) $("#pickWallet").onclick = () => { step = 1; drawWidget(); $("#addr").focus({ preventScroll: true }); };
+  if (step === 1) {
+    const input = $("#addr"), hint = $("#addrHint"), next = $("#toConfirm");
+    const run = () => { addr = input.value; const r = checkAddress(addr);
+      if (r.state === "empty") { hint.className = "hint"; hint.textContent = "Find it in your wallet app, under Receive."; next.disabled = true; }
+      else if (r.state === "err") { hint.className = "hint err"; hint.textContent = r.msg; next.disabled = true; }
+      else { hint.className = "hint good"; hint.textContent = "Valid Stellar wallet address."; next.disabled = false; } };
+    input.addEventListener("input", run); run();
+    $("#useSample").onclick = () => { input.value = SAMPLE; run(); };
+    next.onclick = () => { addr = checkAddress(addr).addr; step = 2; drawWidget(); };
+  }
+  if (step === 2) $("#restart").onclick = () => { step = 0; addr = ""; drawWidget(); };
+}
+drawWidget();
+
+/* ---------- FAQ ---------- */
+$$("#faqs .faq").forEach((f) => {
+  const q = $(".faq-q", f), a = $(".faq-a", f);
+  if (f.classList.contains("open")) a.style.height = "auto";
+  q.addEventListener("click", () => {
+    const open = !f.classList.contains("open");
+    a.style.height = a.scrollHeight + "px";
+    if (!open) { requestAnimationFrame(() => { a.style.height = "0px"; }); }
+    f.classList.toggle("open", open); q.setAttribute("aria-expanded", String(open));
+    setTimeout(() => { if (open) a.style.height = "auto"; if (window.ScrollTrigger) ScrollTrigger.refresh(); }, 560);
+  });
+});
+
+/* ---------- motion ---------- */
+function splitWords(el) {
+  const walk = (node) => [...node.childNodes].forEach((n) => {
+    if (n.nodeType === 3) {
+      const frag = document.createDocumentFragment();
+      n.textContent.split(/(\s+)/).forEach((part) => {
+        if (!part) return;
+        if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); return; }
+        const w = document.createElement("span"); w.className = "w";
+        const i = document.createElement("span"); i.textContent = part; w.appendChild(i); frag.appendChild(w);
+      });
+      n.replaceWith(frag);
+    } else if (n.nodeType === 1 && n.tagName !== "BR") {
+      if (n.classList.contains("grad")) { n.classList.add("w"); const i = document.createElement("span"); i.className = "grad"; i.textContent = n.textContent; n.classList.remove("grad"); n.textContent = ""; n.appendChild(i); }
+      else walk(n);
+    }
+  });
+  walk(el);
+}
+
+if (hasGsap) {
+  gsap.registerPlugin(ScrollTrigger);
+  const lenis = window.Lenis ? new Lenis({ duration: 1.2, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)) }) : null;
+  if (lenis) {
+    lenis.on("scroll", ScrollTrigger.update);
+    gsap.ticker.add((t) => lenis.raf(t * 1000)); gsap.ticker.lagSmoothing(0);
+    $$('a[href^="#"]').forEach((a) => a.addEventListener("click", (e) => { const id = a.getAttribute("href"); if (id.length > 1 && $(id)) { e.preventDefault(); lenis.scrollTo($(id), { offset: -90 }); } }));
+  }
+
+  $$('[data-a="split-load"]').forEach((el) => { splitWords(el); gsap.from($$(".w > span", el), { yPercent: 115, duration: 1.15, ease: "power4.out", stagger: 0.07, delay: 0.1 }); });
+  $$('[data-a="split"]').forEach((el) => { splitWords(el); gsap.from($$(".w > span", el), { yPercent: 115, duration: 1.05, ease: "power4.out", stagger: 0.05, scrollTrigger: { trigger: el, start: "top 86%" } }); });
+  gsap.from(".hero-copy [data-a='fade']", { y: 24, autoAlpha: 0, duration: 1, ease: "power3.out", stagger: 0.12, delay: 0.35 });
+  $$('[data-a="fade"]').filter((el) => !el.closest(".hero-copy")).forEach((el) => gsap.from(el, { y: 30, autoAlpha: 0, duration: 1, ease: "power3.out", scrollTrigger: { trigger: el, start: "top 90%" } }));
+
+  // hero: card emerges from the bowl on load, then everything lifts with scroll
+  gsap.from("#profile", { yPercent: 70, autoAlpha: 0, duration: 1.4, ease: "power4.out", delay: 1.1 });
+  gsap.to(".bowl canvas", { yPercent: -18, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: true } });
+  gsap.to("#profile", { y: -120, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: true } });
+
+  // gradient card and photo reveal
+  $$('[data-a="reveal"]').forEach((el) => {
+    gsap.fromTo(el, { clipPath: "inset(10% 8% 10% 8% round 40px)" }, { clipPath: "inset(0% 0% 0% 0% round 24px)", ease: "none", scrollTrigger: { trigger: el, start: "top 92%", end: "top 30%", scrub: true } });
+    const img = el.querySelector("img"); if (img && el.classList.contains("photo")) gsap.fromTo(img, { scale: 1.18 }, { scale: 1, ease: "none", scrollTrigger: { trigger: el, start: "top bottom", end: "bottom top", scrub: true } });
+  });
+  gsap.from('[data-a="tag"]', { y: 18, autoAlpha: 0, scale: .9, duration: .7, ease: "back.out(1.6)", stagger: 0.12, scrollTrigger: { trigger: ".photo", start: "top 55%" } });
+
+  // the panel widens to the edges as it arrives, like Serko's
+  gsap.fromTo("#panel", { width: "min(874px, calc(100% - 48px))", borderRadius: 40 }, { width: "calc(100% - 24px)", borderRadius: 32, ease: "none", scrollTrigger: { trigger: "#panel", start: "top 85%", end: "top 15%", scrub: true } });
+  // payout cards drift across, and the one in the middle is approved
+  gsap.fromTo("#carousel", { x: () => innerWidth * 0.15 }, { x: () => -(car.scrollWidth - innerWidth) * 0.7, ease: "none", scrollTrigger: { trigger: "#carousel", start: "top 90%", end: "bottom 10%", scrub: true, invalidateOnRefresh: true } });
+  const heroCard = $(".pcard.hero-card");
+  ScrollTrigger.create({ trigger: "#carousel", start: "top 45%", onEnter: () => {
+    gsap.to(heroCard, { rotate: -4, scale: 1.12, y: -26, duration: .7, ease: "back.out(1.7)" });
+    const pill = $("#heroPill"); pill.className = "pill paid big"; pill.innerHTML = '<svg width="13" height="13"><use href="#i-paid"/></svg>Paid';
+    $("#heroAct").textContent = "Receipt signed";
+  }, onLeaveBack: () => {
+    gsap.to(heroCard, { rotate: 0, scale: 1, y: 0, duration: .5, ease: "power3.out" });
+    const pill = $("#heroPill"); pill.className = "pill peach"; pill.textContent = "Needs approval";
+    $("#heroAct").textContent = "Approve";
+  } });
+
+  // the recipient's phone rises out of its panel, the cards pop in around it
+  gsap.fromTo("#screen", { y: 220 }, { y: 0, ease: "none", scrollTrigger: { trigger: ".stage", start: "top bottom", end: "top 30%", scrub: true } });
+  gsap.from(".float", { scale: .7, autoAlpha: 0, duration: .8, ease: "back.out(1.6)", stagger: .12, scrollTrigger: { trigger: ".stage", start: "top 70%" } });
+  addEventListener("load", () => ScrollTrigger.refresh());
+}
+</script>
+</body>
+</html>

@@ -837,7 +837,7 @@ describe('console API: mandate, agent, payouts and receipts', () => {
   });
 });
 
-describe('console MCP route and static pages', () => {
+describe('console MCP route', () => {
   async function connect(base: string, id: string) {
     const client = new Client({ name: 'test', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(`${base}/m/${id}/mcp`));
@@ -903,24 +903,5 @@ describe('console MCP route and static pages', () => {
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)) as Transport);
     expect((await client.listTools()).tools).toHaveLength(4);
     await client.close();
-  });
-
-  it('serves the UI with an SPA fallback and never outside its folder', async () => {
-    const { base } = await start();
-    const root = await fetch(`${base}/`);
-    expect(root.status).toBe(200);
-    expect(root.headers.get('content-type')).toContain('text/html');
-    expect(await root.text()).toContain('UJIRA Console');
-    const deep = await fetch(`${base}/mandates/${MANDATE}`);
-    expect(await deep.text()).toContain('UJIRA Console');
-    const asset = await fetch(`${base}/assets/app.js`);
-    expect(asset.headers.get('content-type')).toContain('javascript');
-    expect(asset.headers.get('cache-control')).toContain('immutable');
-    expect((await fetch(`${base}/assets/missing.js`)).status).toBe(404);
-    for (const path of ['/..%2fsecret.txt', '/%2e%2e/secret.txt', '/..%5csecret.txt']) {
-      const res = await fetch(`${base}${path}`);
-      expect(await res.text(), path).not.toContain('outside the console');
-    }
-    expect((await fetch(`${base}/`, { method: 'POST' })).status).toBe(404);
   });
 });

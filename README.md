@@ -11,7 +11,7 @@ There are two ways to use it: add the hosted public demo to Claude or Cursor by 
 A public demo of the server runs on Stellar testnet at:
 
 ```
-https://ujira-mcp-production.up.railway.app/mcp
+https://ujira.co/mcp
 ```
 
 It needs no account, key or install. It is a **shared public testnet demo**: everyone who connects pays from the same demo mandate, signed by the same demo agent key, and `list_receipts` shows everyone's receipts, not only yours. Testnet tokens are not real money. Because task IDs and receipts are public, never put personal data in them.
@@ -26,7 +26,7 @@ The demo keeps strangers inside small limits, on top of the mandate's own rules:
 ### Claude (claude.ai and Claude Desktop)
 
 1. Open **Settings**, then **Connectors**, and choose **Add custom connector**. Custom connectors need a Claude plan that allows them.
-2. Name it `UJIRA demo` and paste `https://ujira-mcp-production.up.railway.app/mcp` as the URL. Leave the OAuth fields empty; the demo has no sign in.
+2. Name it `UJIRA demo` and paste `https://ujira.co/mcp` as the URL. Leave the OAuth fields empty; the demo has no sign in.
 3. Choose **Add**. In a chat, turn the connector on from the tools menu, then ask, for example, "quote a 2 USDC payout to the first demo recipient, then pay it as task demo-1".
 
 A connector added on claude.ai shows up in Claude Desktop under the same account, and the other way round.
@@ -38,7 +38,7 @@ Open **Settings**, then **MCP**, and add a server, or put this in `~/.cursor/mcp
 ```json
 {
   "mcpServers": {
-    "ujira-demo": { "url": "https://ujira-mcp-production.up.railway.app/mcp" }
+    "ujira-demo": { "url": "https://ujira.co/mcp" }
   }
 }
 ```
@@ -47,7 +47,7 @@ Open **Settings**, then **MCP**, and add a server, or put this in `~/.cursor/mcp
 
 ```sh
 curl -s https://<your-app>.up.railway.app/healthz
-curl -s https://ujira-mcp-production.up.railway.app/mcp   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream'   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -s https://ujira.co/mcp   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream'   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ## How a payout runs
@@ -215,7 +215,7 @@ The same server hosts the UJIRA dashboard (the console): a web app where anyone 
 | `UJIRA_FRIENDBOT_PER_HOUR` | `10` | Test XLM requests an hour from one caller address. |
 | `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
 | `UJIRA_MANDATE_PAYOUTS_PER_HOUR` | `30` | Payout requests an hour on one console mandate, from the console and its MCP URL together. |
-| `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira-mcp-production.up.railway.app`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
+| `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira.co`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
 | `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built dashboard, served under `/app`. |
 | `UJIRA_SITE_DIR` | `site` in the repository | The marketing site and the testnet proof page, served at the root. |
 | `UJIRA_CANONICAL_HOST` | none | A host name such as `ujira.co`. When set, a page asked for on any other host (the platform URL, `www`) gets a 301 to `https://<host>` with the same path and query. `/api`, `/mcp`, `/m/<mandate>/mcp` and `/healthz` keep answering on every host, so connectors already pointed at an old URL keep working. Set it only once that host serves HTTPS. |

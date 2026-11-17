@@ -7,11 +7,11 @@ import { useApp } from '../app/context';
 import { useAction } from '../app/hooks';
 import type { AgentCall, Rail } from '../lib/api';
 import { TASK_ID, newTaskId } from '../lib/mandateForm';
-import { formatUsdc, parseAmount } from '../lib/money';
+import { formatAmount, formatUsdc, parseAmount } from '../lib/money';
 import type { Mandate, QuoteResult, Receipt } from '../lib/schemas';
 import { accountAddressProblem, shortAddress } from '../lib/strkey';
 import { reasonText } from '../lib/words';
-import { BrandIcon, ErrorNotice, Field, Notice, Spinner, TxLink } from './ui';
+import { BrandIcon, ErrorNotice, Field, Notice, Spinner, Tip, TxLink } from './ui';
 
 const OTHER = 'other';
 
@@ -25,10 +25,10 @@ export function QuoteNotice({ result }: { result: QuoteResult }) {
   const room =
     left === undefined || daily === undefined
       ? null
-      : `Left in the budget: ${formatUsdc(left)}. Left today for this recipient: ${formatUsdc(daily)}.`;
+      : `Budget left ${formatUsdc(left)}. Today for this person ${formatUsdc(daily)}.`;
   if (result.decision === 'allowed') {
     return (
-      <Notice tone="paid" title="Allowed: this would be paid right away">
+      <Notice tone="paid" title="Allowed: it would pay right away">
         {room === null ? null : <p className="small">{room}</p>}
       </Notice>
     );
@@ -36,7 +36,6 @@ export function QuoteNotice({ result }: { result: QuoteResult }) {
   if (result.decision === 'approval_required') {
     return (
       <Notice tone="waiting" title="Allowed after your approval">
-        <p>It is at or above the approval amount, so a request would wait in the inbox.</p>
         {room === null ? null : <p className="small">{room}</p>}
       </Notice>
     );
@@ -55,32 +54,32 @@ export function RequestNotice({ result, label }: { result: Receipt; label: strin
     case 'approved_then_paid':
       return (
         <Notice tone="paid" title={`Paid ${amount} to ${label}`}>
-          <p className="small">
-            Task <span className="mono">{result.task_id}</span>.{' '}
-            {typeof result.tx_hash === 'string' ? (
-              <>
-                Payment: <TxLink hash={result.tx_hash} />
-              </>
-            ) : null}
-            {typeof result.sdp_tx_hash === 'string' ? (
-              <>
-                {' '}
-                SDP payout: <TxLink hash={result.sdp_tx_hash} />
-              </>
-            ) : null}
-          </p>
+          {typeof result.tx_hash === 'string' || typeof result.sdp_tx_hash === 'string' ? (
+            <p className="small">
+              {typeof result.tx_hash === 'string' ? (
+                <>
+                  Payment <TxLink hash={result.tx_hash} />
+                </>
+              ) : null}
+              {typeof result.sdp_tx_hash === 'string' ? (
+                <>
+                  {' '}
+                  SDP <TxLink hash={result.sdp_tx_hash} />
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </Notice>
       );
     case 'approval_required':
       return (
         <Notice tone="waiting" title="Waiting for your approval">
-          <p>
-            {amount} to {label} is at or above the approval amount. Approve it in the inbox, then
-            press Pay now.
+          <p className="small">
+            {amount} to {label}. Approve it, then press Pay now.
           </p>
           {typeof result.request_tx_hash === 'string' ? (
             <p className="small">
-              Request recorded on chain: <TxLink hash={result.request_tx_hash} />
+              Request <TxLink hash={result.request_tx_hash} />
             </p>
           ) : null}
         </Notice>
@@ -88,18 +87,13 @@ export function RequestNotice({ result, label }: { result: Receipt; label: strin
     case 'settling':
       return (
         <Notice tone="waiting" title="Paying">
-          <p>
-            The mandate paid out and the payout rail is finishing. Check the receipts in a moment.
-          </p>
+          <p className="small">The payout rail is finishing. Check receipts in a moment.</p>
         </Notice>
       );
     default:
       return (
         <Notice tone="blocked" title="Blocked. Nothing was paid.">
           <p>{reasonText(result.reason)}</p>
-          <p className="small">
-            The attempt is kept as a receipt, so blocked requests are visible too.
-          </p>
         </Notice>
       );
   }
@@ -107,11 +101,9 @@ export function RequestNotice({ result, label }: { result: Receipt; label: strin
 
 export function SdpWait() {
   return (
-    <Notice tone="waiting" title="Paying through SDP, this can take a few minutes">
+    <Notice tone="waiting" title="Paying through SDP, this takes a few minutes">
       <p className="small">
-        The mandate pays the disbursement platform, which then pays the recipient. Keep this page
-        open. If it times out, press Pay now again: it picks up where it stopped and never pays
-        twice.
+        Keep this page open. If it times out, press Pay now again: it never pays twice.
       </p>
     </Notice>
   );
@@ -177,11 +169,11 @@ export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
           <BrandIcon name="agent" />
           Act as the AI agent
         </h2>
+        <Tip
+          label="What this does"
+          text="These buttons do what an agent does over MCP: the server's agent key asks this mandate to pay. You sign nothing here; the contract decides. Quote only asks what would happen."
+        />
       </div>
-      <p className="muted">
-        These buttons do exactly what an agent does over MCP: the server&apos;s agent key asks this
-        mandate to pay. You do not sign anything here; the contract decides.
-      </p>
       <form
         className="form"
         noValidate
@@ -190,25 +182,36 @@ export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
           void request.run();
         }}
       >
-        <div className="field">
-          <label htmlFor="agent-recipient">Pay</label>
-          <select
-            id="agent-recipient"
-            value={choice}
-            onChange={(e) => {
-              setChoice(e.target.value);
-            }}
-          >
-            {m.recipients.map((r) => (
-              <option key={r.address} value={r.address}>
-                {r.label} ({shortAddress(r.address)})
-              </option>
-            ))}
-            <option value={OTHER}>Someone not on the list</option>
-          </select>
-          {choice === OTHER ? (
-            <p className="help">Try it: the mandate blocks any wallet that is not on its list.</p>
-          ) : null}
+        <div className="form-grid">
+          <div className="field">
+            <div className="field-top">
+              <label htmlFor="agent-recipient">Pay</label>
+            </div>
+            <select
+              id="agent-recipient"
+              value={choice}
+              onChange={(e) => {
+                setChoice(e.target.value);
+              }}
+            >
+              {m.recipients.map((r) => (
+                <option key={r.address} value={r.address}>
+                  {r.label} ({shortAddress(r.address)})
+                </option>
+              ))}
+              <option value={OTHER}>Someone not on the list</option>
+            </select>
+            {choice === OTHER ? <p className="help">Not on the list, so it is blocked.</p> : null}
+          </div>
+          <Field
+            label="Amount"
+            suffix="USDC"
+            inputMode="decimal"
+            value={amount}
+            onChange={setAmount}
+            error={errors.amount}
+            help={`Max ${formatAmount(m.rules.perPaymentCap)}, approval from ${formatAmount(m.rules.approvalThreshold)}`}
+          />
         </div>
         {choice === OTHER ? (
           <Field
@@ -220,63 +223,45 @@ export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
             error={errors.other}
           />
         ) : null}
-        <Field
-          label="Amount"
-          suffix="USDC"
-          inputMode="decimal"
-          value={amount}
-          onChange={setAmount}
-          error={errors.amount}
-          help={`Max per payment ${formatUsdc(m.rules.perPaymentCap)}. Needs approval from ${formatUsdc(m.rules.approvalThreshold)}.`}
-        />
-        <fieldset className="rails">
+        <fieldset className="seg-field">
           <legend>Pay through</legend>
-          <label className="rail-option">
-            <input
-              type="radio"
-              name={railName}
-              value="usdc"
-              checked={rail === 'usdc'}
-              onChange={() => {
-                setRail('usdc');
-              }}
-            />
-            <span>
-              <strong>USDC, direct</strong>
-              <span className="muted small">
-                Paid straight to the recipient&apos;s Stellar wallet.
-              </span>
-            </span>
-          </label>
-          <label className={`rail-option${sdp ? '' : ' rail-disabled'}`}>
-            <input
-              type="radio"
-              name={railName}
-              value="sdp"
-              checked={rail === 'sdp'}
-              disabled={!sdp}
-              onChange={() => {
-                setRail('sdp');
-              }}
-            />
-            <span>
-              <strong>Stellar Disbursement Platform</strong>
-              <span className="muted small">
-                {sdp ? (
-                  'Paid out through SDP, the platform organisations use for bulk payouts.'
-                ) : (
-                  <>
-                    Live in our operator demo.{' '}
-                    {config.sdpProofUrl === undefined ? null : (
-                      <a href={config.sdpProofUrl} target="_blank" rel="noreferrer">
-                        See it working<span className="sr-only"> (opens in a new tab)</span>
-                      </a>
-                    )}
-                  </>
-                )}
-              </span>
-            </span>
-          </label>
+          <div className="seg">
+            <label className="seg-option">
+              <input
+                type="radio"
+                name={railName}
+                value="usdc"
+                checked={rail === 'usdc'}
+                onChange={() => {
+                  setRail('usdc');
+                }}
+              />
+              <span>USDC direct</span>
+            </label>
+            <label className={`seg-option${sdp ? '' : ' seg-off'}`}>
+              <input
+                type="radio"
+                name={railName}
+                value="sdp"
+                checked={rail === 'sdp'}
+                disabled={!sdp}
+                onChange={() => {
+                  setRail('sdp');
+                }}
+              />
+              <span>SDP</span>
+            </label>
+          </div>
+          {sdp ? null : (
+            <p className="help">
+              SDP runs in our operator demo.{' '}
+              {config.sdpProofUrl === undefined ? null : (
+                <a href={config.sdpProofUrl} target="_blank" rel="noreferrer">
+                  See it working<span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              )}
+            </p>
+          )}
         </fieldset>
         <div className="task-row">
           <Field
@@ -285,7 +270,7 @@ export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
             value={taskId}
             onChange={setTaskId}
             error={errors.taskId}
-            help="The work this payout is for. One task is paid at most once."
+            tip="The work this payout is for. One task is paid at most once."
           />
           <button
             type="button"
@@ -298,20 +283,17 @@ export function AgentPanel({ m, onDone }: { m: Mandate; onDone: () => void }) {
           </button>
         </div>
         <div className="actions">
-          <button type="button" className="btn" disabled={busy} onClick={() => void quote.run()}>
-            {quote.busy ? <Spinner /> : null}
-            Quote
-          </button>
           <button type="submit" className="btn btn-primary" disabled={busy}>
             {request.busy ? <Spinner /> : null}
             {request.busy ? 'Asking the mandate' : 'Request payout'}
           </button>
+          <button type="button" className="btn" disabled={busy} onClick={() => void quote.run()}>
+            {quote.busy ? <Spinner /> : null}
+            Quote
+          </button>
         </div>
-        <p className="muted small">
-          Quote only asks what would happen. Request payout really asks the mandate to pay.
-        </p>
       </form>
-      <div aria-live="polite">
+      <div aria-live="polite" className="stack-sm">
         {request.busy && rail === 'sdp' ? <SdpWait /> : null}
         {error === null ? null : <ErrorNotice error={error} />}
         {outcome === null ? null : outcome.kind === 'quote' ? (

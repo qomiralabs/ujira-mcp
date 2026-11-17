@@ -3,8 +3,6 @@
 
 /// <reference types="vite/client" />
 
-declare module 'virtual:ujira-tokens.css';
-
 interface ImportMetaEnv {
   readonly VITE_MOCK?: string;
 }

@@ -19,11 +19,13 @@ import {
   CopyButton,
   ErrorNotice,
   Field,
+  Icon,
   Notice,
   Skeleton,
   SoonTag,
   Spinner,
   StatusPill,
+  Tip,
   TxLink,
 } from '../components/ui';
 import type { TxAction } from '../lib/api';
@@ -37,10 +39,10 @@ const POLL_MS = 15_000;
 
 function dateOf(seconds: number | string): string {
   const n = Number(seconds);
-  if (!Number.isFinite(n) || n <= 0) return 'not set';
+  if (!Number.isFinite(n) || n <= 0) return 'Not set';
   return new Date(n * 1000).toLocaleDateString(undefined, {
     day: 'numeric',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
   });
 }
@@ -49,20 +51,24 @@ function BudgetMeter({ m }: { m: Mandate }) {
   const used = percentOf(m.state.spent, m.rules.budget);
   return (
     <div className="meter-block">
-      <div className="meter-figures">
+      <p className="balance-label">Held now</p>
+      <p className="balance-value">
+        <Amount minor={m.state.balance} size="xl" />
+      </p>
+      <dl className="balance-split">
         <div>
-          <p className="label">Held now</p>
-          <Amount minor={m.state.balance} size="xl" />
+          <dt>Paid</dt>
+          <dd>
+            <Amount minor={m.state.spent} />
+          </dd>
         </div>
-        <div className="meter-side">
-          <p className="small">
-            <span className="muted">Paid so far</span> <Amount minor={m.state.spent} />
-          </p>
-          <p className="small">
-            <span className="muted">Left in the budget</span> <Amount minor={m.state.remaining} />
-          </p>
+        <div>
+          <dt>Left in budget</dt>
+          <dd>
+            <Amount minor={m.state.remaining} />
+          </dd>
         </div>
-      </div>
+      </dl>
       <div
         className="meter"
         role="img"
@@ -71,7 +77,7 @@ function BudgetMeter({ m }: { m: Mandate }) {
         <span className="meter-used" style={{ width: `${String(used)}%` }} />
       </div>
       <p className="muted small">
-        {used} percent of the {formatUsdc(m.rules.budget)} budget used.
+        {used}% of {formatUsdc(m.rules.budget)} used
       </p>
     </div>
   );
@@ -79,16 +85,12 @@ function BudgetMeter({ m }: { m: Mandate }) {
 
 function Rules({ m }: { m: Mandate }) {
   const { config } = useApp();
-  const rows: [string, string, string][] = [
-    ['Total budget', formatUsdc(m.rules.budget), 'The most it can ever pay, all payouts together.'],
-    ['Max per payment', formatUsdc(m.rules.perPaymentCap), 'Bigger payouts are blocked.'],
-    ['Max per recipient per day', formatUsdc(m.rules.dailyCap), 'Per person, reset each day.'],
-    [
-      'Needs approval from',
-      formatUsdc(m.rules.approvalThreshold),
-      'These wait for the owner to approve.',
-    ],
-    ['Ends', dateOf(m.rules.expiresAt), 'After this it pays nothing.'],
+  const rows: [string, string][] = [
+    ['Total budget', formatUsdc(m.rules.budget)],
+    ['Max per payment', formatUsdc(m.rules.perPaymentCap)],
+    ['Daily cap per person', formatUsdc(m.rules.dailyCap)],
+    ['Approval from', formatUsdc(m.rules.approvalThreshold)],
+    ['Ends', dateOf(m.rules.expiresAt)],
   ];
   return (
     <section className="card" aria-labelledby="rules-title">
@@ -96,26 +98,28 @@ function Rules({ m }: { m: Mandate }) {
         <h2 id="rules-title" className="card-title">
           The rules
         </h2>
+        <span className="soon-inline">
+          Edit <SoonTag label="In progress" />
+        </span>
       </div>
       <dl className="rules">
-        {rows.map(([k, v, help]) => (
+        {rows.map(([k, v]) => (
           <div key={k}>
-            <dt>
-              {k}
-              <span className="muted small">{help}</span>
-            </dt>
-            <dd className="mono">{v}</dd>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
           </div>
         ))}
       </dl>
       <h3 className="sub-title">Who can be paid</h3>
       {m.recipients.length === 0 ? (
-        <p className="muted">Nobody yet, so every payout is blocked.</p>
+        <p className="muted small">Nobody yet, so every payout is blocked.</p>
       ) : (
         <ul className="recipient-list">
           {m.recipients.map((r) => (
             <li key={r.address}>
-              <BrandIcon name="recipient" />
+              <span className="avatar" aria-hidden="true">
+                {r.label.slice(0, 1).toUpperCase()}
+              </span>
               <strong>{r.label}</strong>
               <a
                 className="mono-link"
@@ -131,12 +135,6 @@ function Rules({ m }: { m: Mandate }) {
           ))}
         </ul>
       )}
-      <p className="soon-line small">
-        <span className="muted">
-          Change these rules or add approvers from the dashboard. Today a new mandate sets them.
-        </span>
-        <SoonTag label="In progress" />
-      </p>
     </section>
   );
 }
@@ -189,9 +187,9 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
         <h2 id="owner-title" className="card-title">
           Owner controls
         </h2>
-        <p className="muted">
-          Only the owner wallet ({shortAddress(m.principal)}) can pause, resume, revoke or approve.
-          {wallet === null ? ' Connect it to act.' : ' You are connected with a different wallet.'}
+        <p className="muted small">
+          Only the owner wallet ({shortAddress(m.principal)}) can change this mandate.
+          {wallet === null ? ' Connect it to act.' : ' You are connected with another wallet.'}
         </p>
       </section>
     );
@@ -202,31 +200,31 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
 
   return (
     <section className="card" aria-labelledby="owner-title">
-      <h2 id="owner-title" className="card-title">
-        Owner controls
-      </h2>
-      <p className="muted">Each change is a transaction you sign in your wallet.</p>
+      <div className="card-head">
+        <h2 id="owner-title" className="card-title">
+          Owner controls
+        </h2>
+        <span className="assure">
+          <Icon name="lock" size={15} />
+          Your wallet signs
+        </span>
+      </div>
       {status === 'revoked' || status === 'expired' ? (
         <>
-          <p>{MANDATE_STATUS[status].help}</p>
+          <p className="small">{MANDATE_STATUS[status].help}</p>
           {held ? (
-            <div className="stack-sm">
-              <p className="small">
-                It still holds {formatUsdc(m.state.balance)}. Sign once to move it back to your
-                wallet.
-              </p>
-              <div className="actions">
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy}
-                  onClick={() =>
-                    void act.run('sweep', 'The funds are back in your wallet.', { mandate: m.id })
-                  }
-                >
-                  Return the funds
-                </button>
-              </div>
+            <div className="actions">
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() =>
+                  void act.run('sweep', 'The funds are back in your wallet.', { mandate: m.id })
+                }
+              >
+                Return the funds
+              </button>
+              <span className="muted small">{formatUsdc(m.state.balance)} still held</span>
             </div>
           ) : null}
         </>
@@ -268,11 +266,11 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
             >
               Revoke
             </button>
+            <Tip
+              label="Pause and revoke"
+              text="Pause blocks every payout until you resume. Revoke closes the mandate for good and returns what it holds to your wallet."
+            />
           </div>
-          <p className="muted small">
-            Pause blocks every payout until you resume. Revoke closes the mandate for good and
-            returns what it holds to your wallet.
-          </p>
           <form
             className="inline-form"
             onSubmit={(e) => {
@@ -307,17 +305,10 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
           </form>
         </>
       )}
-      <TopUpPanel
-        wallet={wallet}
-        intro={
-          status === 'revoked' || status === 'expired'
-            ? 'Want to try again with a new mandate? The faucet tops your wallet up with test USDC.'
-            : 'Wallet running low? The faucet tops it up with test USDC, then add funds above.'
-        }
-      />
+      <TopUpPanel wallet={wallet} />
       {act.busy ? (
         <p className="muted small" role="status">
-          <Spinner /> Waiting for your wallet, then for Stellar.
+          <Spinner /> Waiting for your wallet, then Stellar.
         </p>
       ) : null}
       {error === null ? null : <ErrorNotice error={error} />}
@@ -366,6 +357,15 @@ function OwnerControls({ m, onChanged }: { m: Mandate; onChanged: () => void }) 
   );
 }
 
+function BackLink() {
+  return (
+    <Link to="/mandates" className="back">
+      <Icon name="back" size={16} />
+      Mandates
+    </Link>
+  );
+}
+
 export function MandatePage({ id }: { id: string }) {
   const { api, config } = useApp();
   const portfolio = usePortfolio();
@@ -404,9 +404,7 @@ export function MandatePage({ id }: { id: string }) {
   if (m === undefined) {
     return (
       <div className="stack">
-        <Link to="/mandates" className="back">
-          &larr; Your mandates
-        </Link>
+        <BackLink />
         {mandate.error === null ? (
           <Skeleton lines={5} label="Loading the mandate" />
         ) : (
@@ -424,45 +422,38 @@ export function MandatePage({ id }: { id: string }) {
   return (
     <div className="stack">
       <div className="page-head">
-        <Link to="/mandates" className="back">
-          &larr; Your mandates
-        </Link>
+        <BackLink />
         <div className="title-row">
-          <p className="mono title-id" title={m.id}>
-            {m.id}
-          </p>
+          <span className="mono title-id" title={m.id}>
+            {shortAddress(m.id, 8)}
+          </span>
+          <CopyButton text={m.id} label="Copy mandate ID" icon />
           <StatusPill tone={word.tone}>{word.label}</StatusPill>
-        </div>
-        <p className="muted">
-          {word.help}{' '}
           <a
+            className="card-link"
             href={m.explorerContractUrl ?? explorerContract(config, m.id)}
             target="_blank"
             rel="noreferrer"
           >
-            See the contract on Stellar Expert<span className="sr-only"> (opens in a new tab)</span>
+            Stellar Expert
+            <Icon name="external" size={15} />
+            <span className="sr-only"> (opens the contract in a new tab)</span>
           </a>
-          <span className="id-copy">
-            <CopyButton text={m.id} label="Copy mandate ID" />
-          </span>
-        </p>
+        </div>
       </div>
       {mandate.error === null ? null : (
         <Notice tone="waiting">
-          <p>Could not refresh just now: {mandate.error} Showing the last known state.</p>
+          <p>Could not refresh: {mandate.error} Showing the last known state.</p>
         </Notice>
       )}
       <div className="grid-2">
-        <section className="card" aria-labelledby="money-title">
-          <h2 id="money-title" className="card-title">
+        <section className="card balance balance-card" aria-labelledby="money-title">
+          <h2 id="money-title" className="sr-only">
             Money
           </h2>
           <BudgetMeter m={m} />
           {lowBalance ? (
-            <p className="small warn-text">
-              It holds less than one max payment. Add funds below, or larger payouts will be blocked
-              for lack of funds.
-            </p>
+            <p className="small warn-text">Holds less than one max payment. Add funds below.</p>
           ) : null}
         </section>
         <Rules m={m} />

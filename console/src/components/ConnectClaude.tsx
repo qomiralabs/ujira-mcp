@@ -5,7 +5,7 @@ import { useId } from 'react';
 
 import { formatUsdc } from '../lib/money';
 import type { Mandate } from '../lib/schemas';
-import { CopyButton } from './ui';
+import { CopyButton, Tip } from './ui';
 
 /** The mandate's own MCP address and the three steps to hand it to Claude. */
 export function ConnectClaude({ m, title = 'Connect Claude' }: { m: Mandate; title?: string }) {
@@ -14,13 +14,15 @@ export function ConnectClaude({ m, title = 'Connect Claude' }: { m: Mandate; tit
   const first = m.recipients[0]?.label ?? 'a recipient';
   return (
     <section className="card" aria-labelledby={titleId}>
-      <h2 id={titleId} className="card-title">
-        {title}
-      </h2>
-      <p className="muted">
-        Let Claude act as the agent for this mandate. It can quote, request payouts, check their
-        status and list receipts, and nothing more.
-      </p>
+      <div className="card-head">
+        <h2 id={titleId} className="card-title">
+          {title}
+        </h2>
+        <Tip
+          label="What Claude can do"
+          text={`Claude acts as the agent for this mandate: it can quote, request payouts, check their status and list receipts, and nothing more. Payouts at or above ${formatUsdc(m.rules.approvalThreshold)} wait for your approval here.`}
+        />
+      </div>
       <div className="copy-row">
         <label className="sr-only" htmlFor={inputId}>
           MCP address for this mandate
@@ -38,14 +40,8 @@ export function ConnectClaude({ m, title = 'Connect Claude' }: { m: Mandate; tit
       </div>
       <ol className="numbered">
         <li>In Claude, open Settings, then Connectors.</li>
-        <li>
-          Choose Add custom connector, paste the address above and save. No sign in is needed.
-        </li>
-        <li>
-          Ask in a chat, for example: &ldquo;Quote 2 USDC to {first} for task demo-1, then pay
-          it.&rdquo; Payouts at or above {formatUsdc(m.rules.approvalThreshold)} wait for your
-          approval in this dashboard.
-        </li>
+        <li>Add a custom connector, paste the address, save.</li>
+        <li>Ask: &ldquo;Quote 2 USDC to {first} for task demo-1, then pay it.&rdquo;</li>
       </ol>
     </section>
   );

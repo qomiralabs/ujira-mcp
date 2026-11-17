@@ -47,5 +47,6 @@ npm run licenses     # fails on any package license outside the allowlist; --wri
   approvals, receipts, recipients, developers, and the pages for what is coming.
 - `src/components`: the sidebar shell, signing steps, the agent panel, approvals, payout and
   receipt tables, and shared pieces.
-- `src/brand`: colour tokens and marks from the UJIRA brand kit. Colours reach the CSS only through
-  the tokens.
+- `src/brand/tokens.css`: the design tokens. Its first block is the landing page's own `:root`
+  (`site/index.html`), kept identical by a test; colours, fonts, radii and shadows reach the CSS only
+  through it. Urbanist and JetBrains Mono load from Google Fonts, as on the landing page.

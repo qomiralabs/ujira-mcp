@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Shell } from '../components/Shell';
 import { ErrorNotice, Skeleton } from '../components/ui';
 import type { ConsoleApi } from '../lib/api';
-import { shortAddress } from '../lib/strkey';
 import { rememberWallet, rememberedWallet, restoreWallet, type Wallet } from '../lib/wallet';
 import { ActivityPage, LocalCurrencyPage, NotFoundPage, TeamPage } from '../screens/Coming';
 import { CreateMandate } from '../screens/CreateMandate';
@@ -36,7 +35,8 @@ const TITLES: Record<Exclude<Route['name'], 'mandate'>, string> = {
 };
 
 function titleOf(route: Route): string {
-  return route.name === 'mandate' ? `Mandate ${shortAddress(route.id, 6)}` : TITLES[route.name];
+  // The mandate page shows its full ID, with a copy button, under the title.
+  return route.name === 'mandate' ? 'Mandate' : TITLES[route.name];
 }
 
 function Page({ route }: { route: Route }) {

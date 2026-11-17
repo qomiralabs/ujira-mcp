@@ -9,13 +9,12 @@ import { loaded, usePortfolio } from '../app/portfolio';
 import { ConnectPrompt } from '../components/Connect';
 import { Link } from '../components/Link';
 import {
-  BrandIcon,
-  ComingSoon,
   CopyButton,
+  Empty,
   ErrorNotice,
   Field,
-  Notice,
   Skeleton,
+  SoonRow,
   Spinner,
   StatusPill,
   TxLink,
@@ -103,9 +102,6 @@ function AllowRecipient({ m, onDone }: { m: Mandate; onDone: () => void }) {
           {allow.busy ? 'Waiting for your wallet' : 'Allow and sign'}
         </button>
       </div>
-      <p className="muted small allow-note">
-        Adds one wallet to this mandate&apos;s list. Your wallet asks you to sign once.
-      </p>
       {makeTest.error === null ? null : <ErrorNotice error={makeTest.error} />}
       {allow.error === null ? null : <ErrorNotice error={allow.error} />}
       {lastTx === null ? null : (
@@ -132,18 +128,20 @@ function MandateRecipients({ m, onDone }: { m: Mandate; onDone: () => void }) {
         </h2>
         <span className="actions">
           <StatusPill tone={word.tone}>{word.label}</StatusPill>
-          <Link to={`/mandates/${m.id}`} className="btn btn-ghost btn-small">
+          <Link to={`/mandates/${m.id}`} className="card-link">
             Open
           </Link>
         </span>
       </div>
       {m.recipients.length === 0 ? (
-        <p className="muted">Nobody yet, so every payout from this mandate is blocked.</p>
+        <p className="muted small">Nobody yet, so every payout is blocked.</p>
       ) : (
         <ul className="people">
           {m.recipients.map((r) => (
             <li key={r.address}>
-              <BrandIcon name="recipient" />
+              <span className="avatar" aria-hidden="true">
+                {r.label.slice(0, 1).toUpperCase()}
+              </span>
               <span className="people-main">
                 <strong>{r.label}</strong>
                 <a
@@ -156,7 +154,7 @@ function MandateRecipients({ m, onDone }: { m: Mandate; onDone: () => void }) {
                   <span className="sr-only"> (opens Stellar Expert)</span>
                 </a>
               </span>
-              <CopyButton text={r.address} label="Copy" />
+              <CopyButton text={r.address} label={`Copy the address of ${r.label}`} icon />
             </li>
           ))}
         </ul>
@@ -179,34 +177,29 @@ export function RecipientsPage() {
   const bundles = portfolio.data;
   return (
     <div className="stack">
-      <p className="lead">
-        A mandate pays only the wallets on its list. The names are yours; the contract keeps the
-        addresses and refuses everyone else.
-      </p>
       {portfolio.loading ? (
         <Skeleton lines={3} label="Loading your recipients" />
       ) : bundles === undefined ? (
         <ErrorNotice error={portfolio.error ?? 'Not loaded.'} onRetry={portfolio.reload} />
       ) : bundles.length === 0 ? (
-        <Notice tone="info" title="No recipients yet">
-          <p>
-            Recipients belong to a mandate. <Link to="/mandates/new">Create a mandate</Link> and add
-            them there, or make test recipients with one click.
-          </p>
-        </Notice>
+        <section className="card">
+          <Empty
+            text="No recipients yet."
+            action={
+              <Link to="/mandates/new" className="btn btn-primary btn-small">
+                Create a mandate
+              </Link>
+            }
+          />
+        </section>
       ) : (
         loaded(bundles).map(({ mandate }) => (
           <MandateRecipients key={mandate.id} m={mandate} onDone={portfolio.reload} />
         ))
       )}
-      <ComingSoon
+      <SoonRow
         title="Invite people to be paid"
-        lede="Send a link, and the person sets up how they want to be paid. UJIRA checks their wallet before the first payout."
-        items={[
-          { title: 'Invite by link or email', text: 'No address to copy by hand.' },
-          { title: 'They choose how', text: 'A Stellar wallet, a bank or mobile money.' },
-          { title: 'Checked first', text: 'The wallet is tested before any money moves.' },
-        ]}
+        items={['Invite by link', 'They choose how', 'Checked first']}
       />
     </div>
   );

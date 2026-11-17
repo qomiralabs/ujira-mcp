@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import '@fontsource-variable/inter/wght.css';
-import '@fontsource-variable/jetbrains-mono/wght.css';
-import 'virtual:ujira-tokens.css';
+import './brand/tokens.css';
 import './styles.css';
 
 import { StrictMode } from 'react';

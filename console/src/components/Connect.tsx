@@ -14,15 +14,11 @@ import {
   type Wallet,
   type WalletKind,
 } from '../lib/wallet';
-import { ErrorNotice, Spinner } from './ui';
+import { ErrorNotice, Icon, Spinner } from './ui';
 
 const WALLET_CHOICES: readonly { kind: WalletKind; name: string; text: string }[] = [
-  {
-    kind: 'freighter',
-    name: 'Freighter',
-    text: 'Browser extension. Switch it to Testnet before you connect.',
-  },
-  { kind: 'albedo', name: 'Albedo', text: 'Signs in a pop-up window. Nothing to install.' },
+  { kind: 'freighter', name: 'Freighter', text: 'Extension, set to Testnet' },
+  { kind: 'albedo', name: 'Albedo', text: 'Nothing to install' },
 ];
 
 /** One button per wallet a person can bring, plus the demo wallet in mock mode. */
@@ -45,11 +41,7 @@ export function WalletChoices({ onConnected }: { onConnected?: () => void }) {
   });
   const choices = mock
     ? [
-        {
-          kind: 'mock' as const,
-          name: 'Demo wallet',
-          text: 'Mock mode only. Nothing is signed or sent.',
-        },
+        { kind: 'mock' as const, name: 'Demo wallet', text: 'Mock mode, nothing is sent' },
         ...WALLET_CHOICES,
       ]
     : WALLET_CHOICES;
@@ -65,9 +57,9 @@ export function WalletChoices({ onConnected }: { onConnected?: () => void }) {
         >
           <span>
             <strong>{pending === c.kind ? `Waiting for ${c.name}` : `Connect ${c.name}`}</strong>
-            <span className="muted">{c.text}</span>
+            <span className="muted small">{c.text}</span>
           </span>
-          {pending === c.kind ? <Spinner /> : <span aria-hidden="true">&rarr;</span>}
+          {pending === c.kind ? <Spinner /> : <Icon name="arrow" size={18} />}
         </button>
       ))}
       {connect.error === null ? null : <ErrorNotice error={connect.error} />}
@@ -105,9 +97,9 @@ export function ConnectDialog({ open, onClose }: { open: boolean; onClose: () =>
         <>
           <h2 id={titleId}>Connect a wallet</h2>
           <div className="dialog-body">
-            <p className="muted">
-              Your keys stay in your wallet. You approve each step there, and nothing moves without
-              your signature.
+            <p className="assure">
+              <Icon name="lock" size={16} />
+              Your keys stay in your wallet.
             </p>
             <WalletChoices onConnected={onClose} />
           </div>
@@ -130,9 +122,9 @@ export function ConnectPrompt({ what }: { what: string }) {
       <h2 id={id} className="card-title">
         Connect a wallet to see {what}
       </h2>
-      <p className="muted">
-        Everything here belongs to a wallet. Connect yours on Stellar testnet; nothing moves without
-        your signature.
+      <p className="assure">
+        <Icon name="lock" size={16} />
+        Non-custodial. Your wallet signs.
       </p>
       <WalletChoices />
     </section>

@@ -15,10 +15,12 @@ import {
   Amount,
   BrandIcon,
   ConfirmDialog,
+  Empty,
   ErrorNotice,
   Skeleton,
   Spinner,
   StatusPill,
+  Tip,
   TxLink,
 } from './ui';
 
@@ -71,62 +73,68 @@ function ApprovalItem({
 
   return (
     <li className="approval">
-      <div className="approval-head">
-        <Amount minor={p.amount} size="lg" />
-        <StatusPill tone={word.tone}>{word.label}</StatusPill>
+      <div className="approval-row">
+        <div className="approval-main">
+          <div className="approval-head">
+            <Amount minor={p.amount} size="lg" />
+            <StatusPill tone={word.tone}>{word.label}</StatusPill>
+          </div>
+          <p className="approval-to">
+            <span>
+              To <strong>{label}</strong>
+            </span>
+            <span className="cut muted small" title={p.taskId}>
+              {p.taskId}
+            </span>
+          </p>
+        </div>
+        {p.status === 'pending_approval' ? (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!owner || decide.busy}
+              onClick={() => void decide.run('approve')}
+            >
+              {decide.busy ? <Spinner /> : null}
+              Approve
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger-ghost"
+              disabled={!owner || decide.busy}
+              onClick={() => {
+                setConfirmReject(true);
+              }}
+            >
+              Reject
+            </button>
+          </div>
+        ) : (
+          <div className="actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={payNow.busy}
+              onClick={() => void payNow.run()}
+            >
+              {payNow.busy ? <Spinner /> : null}
+              {payNow.busy ? 'Paying' : 'Pay now'}
+            </button>
+            <Tip
+              label="What Pay now does"
+              text="The agent asks again with the same task ID, and the mandate pays."
+            />
+          </div>
+        )}
       </div>
-      <p>
-        To <strong>{label}</strong> for task <span className="mono">{p.taskId}</span>
-      </p>
-      <p className="muted small">
-        Needs approval because it is {formatUsdc(m.rules.approvalThreshold)} or more. Left in the
-        budget: {formatUsdc(m.state.remaining)}.
-      </p>
-      {p.status === 'pending_approval' ? (
-        <div className="actions">
-          <button
-            type="button"
-            className="btn"
-            disabled={!owner || decide.busy}
-            onClick={() => void decide.run('approve')}
-          >
-            {decide.busy ? <Spinner /> : null}
-            Approve
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger-ghost"
-            disabled={!owner || decide.busy}
-            onClick={() => {
-              setConfirmReject(true);
-            }}
-          >
-            Reject
-          </button>
-        </div>
-      ) : (
-        <div className="actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={payNow.busy}
-            onClick={() => void payNow.run()}
-          >
-            {payNow.busy ? <Spinner /> : null}
-            {payNow.busy ? 'Paying' : 'Pay now'}
-          </button>
-          <span className="muted small">
-            Approved. The agent asks again with the same task ID, and the mandate pays.
-          </span>
-        </div>
-      )}
       {payNow.busy && p.rail === 'sdp' ? <SdpWait /> : null}
       {!owner && p.status === 'pending_approval' ? (
-        <p className="muted small">Only the owner wallet can approve or reject.</p>
+        <p className="muted small">Only the owner wallet can decide.</p>
       ) : null}
       {signed === null ? null : (
         <p className="small">
-          Signed and settled: <TxLink hash={signed} />
+          Signed <TxLink hash={signed} />
         </p>
       )}
       {error === null ? null : <ErrorNotice error={error} />}
@@ -191,10 +199,7 @@ export function Approvals({
       ) : error !== null && payouts === undefined ? (
         <ErrorNotice error={error} onRetry={onRetry} />
       ) : waiting.length === 0 ? (
-        <p className="muted">
-          Nothing waiting. Payouts of {formatUsdc(m.rules.approvalThreshold)} or more show up here
-          for you to approve or reject.
-        </p>
+        <Empty text={`Nothing waiting. Approval from ${formatUsdc(m.rules.approvalThreshold)}.`} />
       ) : (
         <ul className="approval-list">
           {waiting.map((p) => (

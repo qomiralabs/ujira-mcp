@@ -10,7 +10,7 @@ import type { UnsignedTx } from '../lib/schemas';
 import { TxFailedError, signAndSubmit } from '../lib/sign';
 import { WALLET_NAMES } from '../lib/wallet';
 import { Link } from './Link';
-import { ErrorNotice, Notice, Spinner, TxLink } from './ui';
+import { ErrorNotice, Icon, Notice, Spinner, TxLink } from './ui';
 
 export interface SigningStep {
   readonly title: string;
@@ -126,13 +126,7 @@ export function SigningSteps({
               aria-current={state === 'current' ? 'step' : undefined}
             >
               <span className="setup-n" aria-hidden="true">
-                {state === 'done' ? (
-                  <svg width="16" height="16" viewBox="0 0 16 16">
-                    <path d="M4 8.5 6.8 11.3 12 5.5" />
-                  </svg>
-                ) : (
-                  i + 1
-                )}
+                {state === 'done' ? <Icon name="check" size={16} /> : i + 1}
               </span>
               <div className="setup-body">
                 <h3>
@@ -141,10 +135,10 @@ export function SigningSteps({
                     {state === 'done' ? ' (done)' : state === 'current' ? ' (now)' : ' (next)'}
                   </span>
                 </h3>
-                {state === 'current' ? <p>{s.why}</p> : null}
+                {state === 'current' ? <p className="muted small">{s.why}</p> : null}
                 {hash === undefined ? null : (
                   <p className="small">
-                    Settled on Stellar: <TxLink hash={hash} />
+                    Settled <TxLink hash={hash} />
                   </p>
                 )}
                 {state === 'current' && phase === 'building' ? (
@@ -164,8 +158,7 @@ export function SigningSteps({
                 ) : null}
                 {state === 'current' && phase === 'signing' ? (
                   <p className="muted small" role="status">
-                    <Spinner /> Waiting for your wallet, then for Stellar to settle it. This takes a
-                    few seconds.
+                    <Spinner /> Waiting for your wallet, then Stellar.
                   </p>
                 ) : null}
               </div>
@@ -178,19 +171,14 @@ export function SigningSteps({
           <ErrorNotice error={error} onRetry={retry} />
           {failedHash === null ? null : (
             <p className="small">
-              The refused transaction: <TxLink hash={failedHash} />
+              Refused <TxLink hash={failedHash} />
             </p>
           )}
         </div>
       ) : null}
       {done ? (
         <div className="stack-sm">
-          <Notice tone="paid" title="Created, allowed and funded">
-            <p>
-              Your rules are now on chain. Next, act as the agent and ask for a payout, or connect
-              Claude to it.
-            </p>
-          </Notice>
+          <Notice tone="paid" title="Created, allowed and funded" />
           <div className="actions">
             {ctx.mandate === undefined ? (
               <Link className="btn btn-primary" to="/mandates">

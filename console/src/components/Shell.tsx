@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { explorerAccount, useApp } from '../app/context';
 import { usePortfolio, waitingPayouts } from '../app/portfolio';
 import type { PageName } from '../app/routes';
-import lockupDefault from '../brand/lockup-default.svg';
-import lockupReverse from '../brand/lockup-reverse.svg';
 import { shortAddress } from '../lib/strkey';
 import { WALLET_NAMES, rememberWallet } from '../lib/wallet';
 import { ConnectDialog } from './Connect';
 import { Link } from './Link';
-import { BrandIcon, SoonTag, type BrandIconName } from './ui';
+import { BrandIcon, Icon, Logo, SoonTag, type BrandIconName, type IconName } from './ui';
 
 type Theme = 'system' | 'light' | 'dark';
 const THEME_KEY = 'ujira.console.theme';
@@ -22,6 +20,7 @@ const THEME_LABEL: Record<Theme, string> = {
   light: 'Theme: light',
   dark: 'Theme: dark',
 };
+const THEME_ICON: Record<Theme, IconName> = { system: 'auto', light: 'sun', dark: 'moon' };
 
 function readTheme(): Theme {
   try {
@@ -48,20 +47,14 @@ function ThemeToggle() {
   return (
     <button
       type="button"
-      className="btn btn-ghost btn-small"
+      className="btn-icon"
       onClick={() => {
         setTheme(NEXT[theme]);
       }}
       title={THEME_LABEL[theme]}
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" />
-      </svg>
+      <Icon name={THEME_ICON[theme]} size={18} />
       <span className="sr-only">{THEME_LABEL[theme]}. Press to change.</span>
-      <span aria-hidden="true" className="theme-word">
-        {theme === 'system' ? 'Auto' : theme === 'light' ? 'Light' : 'Dark'}
-      </span>
     </button>
   );
 }
@@ -74,7 +67,7 @@ function WalletChip() {
       <>
         <button
           type="button"
-          className="btn btn-small btn-connect"
+          className="btn btn-primary btn-small"
           onClick={() => {
             setConnecting(true);
           }}
@@ -92,6 +85,7 @@ function WalletChip() {
   }
   return (
     <div className="wallet-chip">
+      <span className="wallet-dot" aria-hidden="true" />
       <a
         className="mono-link"
         href={explorerAccount(config, wallet.address)}
@@ -107,145 +101,162 @@ function WalletChip() {
       </span>
       <button
         type="button"
-        className="btn btn-ghost btn-small"
+        className="btn-icon btn-icon-sm"
+        title="Disconnect"
         onClick={() => {
           rememberWallet(null);
           setWallet(null);
         }}
       >
-        Disconnect
+        <Icon name="power" size={16} />
+        <span className="sr-only">Disconnect</span>
       </button>
     </div>
   );
 }
 
-type LineIconName = 'home' | 'code' | 'key' | 'activity' | 'proof';
-
-const LINE_ICONS: Record<LineIconName, string> = {
-  home: 'M3.5 9 10 3.5 16.5 9v7a1 1 0 0 1-1 1h-3v-5h-5v5h-3a1 1 0 0 1-1-1z',
-  code: 'M7 6 3 10l4 4M13 6l4 4-4 4',
-  key: 'M9.5 10 16 3.5M13.5 6l2 2M7 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z',
-  activity: 'M2.5 10h3l2-5 4 10 2-5h4',
-  proof: 'M12.2 12.2 16.5 16.5M6.5 8.6l1.5 1.5 2.6-2.8M8.5 13.5a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
-};
-
-/** Simple line icons for the pages the nine brand icons do not cover. */
-function LineIcon({ name }: { name: LineIconName }) {
-  return (
-    <svg
-      className="icon line-icon"
-      width="20"
-      height="20"
-      viewBox="0 0 20 20"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d={LINE_ICONS[name]} />
-    </svg>
-  );
-}
+type NavIcon = { brand: BrandIconName } | { line: IconName };
 
 interface NavItem {
   readonly to: string;
   readonly label: string;
-  readonly icon: { brand: BrandIconName } | { line: LineIconName };
+  readonly icon: NavIcon;
   readonly pages: readonly PageName[];
   readonly soon?: boolean;
 }
 
-const NAV: readonly { readonly group: string; readonly items: readonly NavItem[] }[] = [
-  {
-    group: 'Pay',
-    items: [
-      { to: '/', label: 'Overview', icon: { line: 'home' }, pages: ['overview'] },
-      {
-        to: '/mandates',
-        label: 'Mandates',
-        icon: { brand: 'mandate' },
-        pages: ['mandates', 'new', 'mandate'],
-      },
-      { to: '/payouts', label: 'Payouts', icon: { brand: 'payout' }, pages: ['payouts'] },
-      { to: '/approvals', label: 'Approvals', icon: { brand: 'approval' }, pages: ['approvals'] },
-      { to: '/receipts', label: 'Receipts', icon: { brand: 'receipt' }, pages: ['receipts'] },
-      {
-        to: '/recipients',
-        label: 'Recipients',
-        icon: { brand: 'recipient' },
-        pages: ['recipients'],
-      },
-    ],
-  },
-  {
-    group: 'Build',
-    items: [
-      { to: '/developers', label: 'Developers', icon: { line: 'code' }, pages: ['developers'] },
-    ],
-  },
-  {
-    group: 'Coming in',
-    items: [
-      {
-        to: '/local-currency',
-        label: 'Local currency',
-        icon: { brand: 'local-currency' },
-        pages: ['local-currency'],
-        soon: true,
-      },
-      { to: '/team', label: 'Team and keys', icon: { line: 'key' }, pages: ['team'], soon: true },
-      {
-        to: '/activity',
-        label: 'Wallet activity',
-        icon: { line: 'activity' },
-        pages: ['activity'],
-        soon: true,
-      },
-    ],
-  },
+const NAV: readonly (readonly NavItem[])[] = [
+  [
+    { to: '/', label: 'Overview', icon: { line: 'home' }, pages: ['overview'] },
+    {
+      to: '/mandates',
+      label: 'Mandates',
+      icon: { brand: 'mandate' },
+      pages: ['mandates', 'new', 'mandate'],
+    },
+    { to: '/payouts', label: 'Payouts', icon: { brand: 'payout' }, pages: ['payouts'] },
+    { to: '/approvals', label: 'Approvals', icon: { brand: 'approval' }, pages: ['approvals'] },
+    { to: '/receipts', label: 'Receipts', icon: { brand: 'receipt' }, pages: ['receipts'] },
+    { to: '/recipients', label: 'Recipients', icon: { brand: 'recipient' }, pages: ['recipients'] },
+  ],
+  [{ to: '/developers', label: 'Developers', icon: { line: 'code' }, pages: ['developers'] }],
+  [
+    {
+      to: '/local-currency',
+      label: 'Local currency',
+      icon: { brand: 'local-currency' },
+      pages: ['local-currency'],
+      soon: true,
+    },
+    { to: '/team', label: 'Team and keys', icon: { line: 'key' }, pages: ['team'], soon: true },
+    {
+      to: '/activity',
+      label: 'Wallet activity',
+      icon: { line: 'activity' },
+      pages: ['activity'],
+      soon: true,
+    },
+  ],
 ];
 
-function SideNav({ page }: { page: PageName }) {
+function NavGlyph({ icon }: { icon: NavIcon }) {
+  return 'brand' in icon ? <BrandIcon name={icon.brand} /> : <Icon name={icon.line} />;
+}
+
+function useWaiting(): number {
   const portfolio = usePortfolio();
-  const waiting = portfolio?.data === undefined ? 0 : waitingPayouts(portfolio.data).length;
+  return portfolio?.data === undefined ? 0 : waitingPayouts(portfolio.data).length;
+}
+
+function Count({ n }: { n: number }) {
+  return n > 0 ? (
+    <span className="nav-count">
+      {n}
+      <span className="sr-only"> waiting</span>
+    </span>
+  ) : null;
+}
+
+function SideNav({ page }: { page: PageName }) {
+  const waiting = useWaiting();
   return (
     <nav className="side-nav" aria-label="Dashboard">
-      {NAV.map((g) => (
-        <div key={g.group} className="nav-group">
-          <p className="nav-group-title" aria-hidden="true">
-            {g.group}
-          </p>
-          <ul>
-            {g.items.map((item) => (
-              <li key={item.to}>
-                <Link to={item.to} className="nav-link" current={item.pages.includes(page)}>
-                  {'brand' in item.icon ? (
-                    <BrandIcon name={item.icon.brand} />
-                  ) : (
-                    <LineIcon name={item.icon.line} />
-                  )}
-                  <span className="nav-label">{item.label}</span>
-                  {item.soon === true ? <SoonTag /> : null}
-                  {item.to === '/approvals' && waiting > 0 ? (
-                    <span className="nav-count">
-                      {waiting}
-                      <span className="sr-only"> waiting</span>
-                    </span>
-                  ) : null}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      <div className="nav-group">
-        <ul>
-          <li>
-            <a className="nav-link" href="/instaward">
-              <LineIcon name="proof" />
-              <span className="nav-label">Testnet proof</span>
-            </a>
-          </li>
+      {NAV.map((group, g) => (
+        <ul key={g} className="nav-group">
+          {group.map((item) => (
+            <li key={item.to}>
+              <Link to={item.to} className="nav-link" current={item.pages.includes(page)}>
+                <NavGlyph icon={item.icon} />
+                <span className="nav-label">{item.label}</span>
+                {item.soon === true ? <SoonTag /> : null}
+                {item.to === '/approvals' ? <Count n={waiting} /> : null}
+              </Link>
+            </li>
+          ))}
         </ul>
-      </div>
+      ))}
+      <ul className="nav-group">
+        <li>
+          <a className="nav-link" href="/instaward">
+            <Icon name="proof" />
+            <span className="nav-label">Testnet proof</span>
+          </a>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
+const TABS: readonly NavItem[] = [
+  { to: '/', label: 'Overview', icon: { line: 'home' }, pages: ['overview'] },
+  {
+    to: '/mandates',
+    label: 'Mandates',
+    icon: { brand: 'mandate' },
+    pages: ['mandates', 'new', 'mandate'],
+  },
+  { to: '/approvals', label: 'Approvals', icon: { brand: 'approval' }, pages: ['approvals'] },
+  { to: '/receipts', label: 'Receipts', icon: { brand: 'receipt' }, pages: ['receipts'] },
+];
+
+/** The phone's bottom bar: the four pages used most, and the full menu. */
+function TabBar({
+  page,
+  menuOpen,
+  onMenu,
+  menuButton,
+}: {
+  page: PageName;
+  menuOpen: boolean;
+  onMenu: () => void;
+  menuButton: RefObject<HTMLButtonElement | null>;
+}) {
+  const waiting = useWaiting();
+  const inTabs = TABS.some((t) => t.pages.includes(page));
+  return (
+    <nav className="tabbar" aria-label="Shortcuts">
+      {TABS.map((t) => (
+        <Link key={t.to} to={t.to} className="tab" current={t.pages.includes(page)}>
+          <span className="tab-icon">
+            <NavGlyph icon={t.icon} />
+          </span>
+          <span className="tab-label">{t.label}</span>
+          {t.to === '/approvals' ? <Count n={waiting} /> : null}
+        </Link>
+      ))}
+      <button
+        ref={menuButton}
+        type="button"
+        className={`tab${inTabs ? '' : ' tab-on'}`}
+        aria-expanded={menuOpen}
+        aria-controls="side-menu"
+        onClick={onMenu}
+      >
+        <span className="tab-icon">
+          <Icon name="more" />
+        </span>
+        <span className="tab-label">Menu</span>
+      </button>
     </nav>
   );
 }
@@ -262,10 +273,14 @@ export function Shell({
   const { mock } = useApp();
   const heading = useRef<HTMLHeadingElement>(null);
   const first = useRef(true);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // A new page moves focus to its title, so a screen reader hears where it is.
   useEffect(() => {
     document.title = `${title} | UJIRA`;
+    setMenuOpen(false);
     if (first.current) {
       first.current = false;
       return;
@@ -273,57 +288,95 @@ export function Shell({
     heading.current?.focus();
   }, [page, title]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('menu-open', menuOpen);
+    if (!menuOpen) return;
+    closeButton.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      root.classList.remove('menu-open');
+    };
+  }, [menuOpen]);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    menuButton.current?.focus();
+  };
+
   return (
     <>
       <a className="skip" href="#main">
         Skip to the content
       </a>
-      <div className="banner" role="note">
-        <span className="banner-dot" aria-hidden="true" />
-        Stellar testnet. Test money only.
-        {mock ? <strong> Mock mode: nothing here touches the network.</strong> : null}
-      </div>
       <div className="shell">
-        <aside className="side">
-          <a href="/" className="logo" aria-label="UJIRA home page">
-            <img className="logo-light" src={lockupDefault} alt="" width="116" height="30" />
-            <img className="logo-dark" src={lockupReverse} alt="" width="116" height="30" />
-          </a>
+        <aside id="side-menu" className={`side${menuOpen ? ' side-open' : ''}`}>
+          <div className="side-head">
+            <a href="/" className="logo" aria-label="UJIRA home page">
+              <Logo />
+            </a>
+            <button
+              ref={closeButton}
+              type="button"
+              className="btn-icon side-close"
+              onClick={closeMenu}
+            >
+              <Icon name="close" size={18} />
+              <span className="sr-only">Close the menu</span>
+            </button>
+          </div>
           <SideNav page={page} />
-          <p className="side-foot">
-            <strong>Testnet preview.</strong> No real money moves here. Your wallet signs every
-            change.
-          </p>
         </aside>
+        {menuOpen ? <div className="scrim" aria-hidden="true" onClick={closeMenu} /> : null}
         <div className="frame">
           <header className="top">
             <h1 ref={heading} tabIndex={-1} className="top-title">
               {title}
             </h1>
             <div className="top-right">
-              <span className="net">
-                <span className="banner-dot" aria-hidden="true" />
-                Stellar testnet
+              <span className="top-mark" aria-hidden="true">
+                <Logo height={22} />
               </span>
-              <WalletChip />
-              <ThemeToggle />
+              <span className="top-status">
+                <span className="net" title="Stellar testnet. Test money only.">
+                  <span className="net-dot" aria-hidden="true" />
+                  Testnet
+                </span>
+                {mock ? (
+                  <span
+                    className="net net-mock"
+                    title="Mock mode: nothing here touches the network."
+                  >
+                    Mock
+                  </span>
+                ) : null}
+              </span>
+              <span className="top-user">
+                <WalletChip />
+                <ThemeToggle />
+              </span>
             </div>
           </header>
           <main id="main" className="main" tabIndex={-1}>
             {children}
           </main>
-          <footer className="foot">
-            <div className="foot-inner">
-              <p>
-                Built on Stellar. UJIRA never holds your keys: your wallet signs every change to
-                your mandate.
-              </p>
-              <p className="label">Built at Qomira Labs</p>
-            </div>
-            <div className="weave" aria-hidden="true" />
-          </footer>
         </div>
       </div>
+      <TabBar
+        page={page}
+        menuOpen={menuOpen}
+        menuButton={menuButton}
+        onMenu={() => {
+          setMenuOpen((o) => !o);
+        }}
+      />
     </>
   );
 }

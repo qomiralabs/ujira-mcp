@@ -28,9 +28,90 @@ export function BrandIcon({ name, size = 20 }: { name: BrandIconName; size?: num
   );
 }
 
+const LINE_ICONS = {
+  home: 'M3.5 9 10 3.5 16.5 9v7a1 1 0 0 1-1 1h-3v-5h-5v5h-3a1 1 0 0 1-1-1z',
+  code: 'M7 6 3 10l4 4M13 6l4 4-4 4',
+  key: 'M9.5 10 16 3.5M13.5 6l2 2M7 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z',
+  activity: 'M2.5 10h3l2-5 4 10 2-5h4',
+  proof: 'M12.2 12.2 16.5 16.5M6.5 8.6l1.5 1.5 2.6-2.8M8.5 13.5a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
+  lock: 'M5.5 9h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zM7 9V6.5a3 3 0 0 1 6 0V9',
+  copy: 'M7.5 7.5h8v9h-8zM12.5 7.5v-4h-8v9h3',
+  check: 'M4.5 10.5 8 14l7.5-8',
+  info: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM10 9.2v4.3M10 6.6v.1',
+  external:
+    'M11.5 3.5h5v5M16.5 3.5 9 11M14.5 11.5v4a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h4',
+  plus: 'M10 4v12M4 10h12',
+  arrow: 'M4 10h11.5M11 5.5l4.5 4.5-4.5 4.5',
+  back: 'M16 10H4.5M9 5.5 4.5 10 9 14.5',
+  sun: 'M10 13.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.3 4.3l1.1 1.1M14.6 14.6l1.1 1.1M4.3 15.7l1.1-1.1M14.6 5.4l1.1-1.1',
+  moon: 'M16.5 12.2A6.8 6.8 0 0 1 7.8 3.5a6.8 6.8 0 1 0 8.7 8.7z',
+  auto: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM10 3v14',
+  more: 'M4 6h12M4 10h12M4 14h12',
+  close: 'M5 5l10 10M15 5 5 15',
+  power: 'M10 3v6.5M6 5.6a6 6 0 1 0 8 0',
+} as const;
+
+export type IconName = keyof typeof LINE_ICONS;
+
+/** A simple line icon for what the nine brand icons do not cover. */
+export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+  return (
+    <svg
+      className="icon line-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={LINE_ICONS[name]} />
+    </svg>
+  );
+}
+
+/** The UJIRA lockup, drawn inline so it takes the ink of the current theme. */
+export function Logo({ height = 26 }: { height?: number }) {
+  return (
+    <svg
+      className="logo-svg"
+      viewBox="-2 12 290 76"
+      height={height}
+      width={Math.round((height * 290) / 76)}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        className="logo-ink"
+        d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46"
+        fill="none"
+        strokeWidth="7.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="50" cy="40" r="11" fill="#F4A300" />
+      <g transform="translate(104,32) scale(0.9)">
+        <g
+          className="logo-ink"
+          fill="none"
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M3.5 3.5V22a14.5 14.5 0 0 0 29 0V3.5" />
+          <path d="M73 3.5V25a11.5 11.5 0 0 1-23 0" />
+          <path d="M89 3.5V36.5" />
+          <path d="M105.5 36.5V3.5H119a9 9 0 0 1 0 18H105.5M118 21.5L130 36.5" />
+          <path d="M142 36.5L157.5 3.5L173 36.5M148 25H167" />
+        </g>
+        <circle cx="18" cy="17" r="5.5" fill="#F4A300" />
+      </g>
+    </svg>
+  );
+}
+
 const TONE_PATHS: Record<Tone, string> = {
-  paid: 'M4 8.5 6.8 11.3 12 5.5',
-  waiting: 'M8 4.5V8l2.2 1.6',
+  paid: 'M3.5 8.3 6.6 11.4 12.5 5',
+  waiting: 'M8 4.8V8l2 1.5',
   blocked: 'M5 5l6 6M11 5l-6 6',
   neutral: 'M5 8h6',
 };
@@ -39,8 +120,8 @@ const TONE_PATHS: Record<Tone, string> = {
 export function StatusPill({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <span className={`pill pill-${tone}`}>
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        {tone === 'waiting' ? <circle cx="8" cy="8" r="5.5" /> : null}
+      <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        {tone === 'waiting' ? <circle cx="8" cy="8" r="6" /> : null}
         <path d={TONE_PATHS[tone]} />
       </svg>
       {children}
@@ -60,7 +141,13 @@ export function Amount({ minor, size = 'md' }: { minor: string; size?: 'md' | 'l
 export function TxLink({ hash, label }: { hash: string; label?: string }) {
   const { config } = useApp();
   return (
-    <a className="mono-link" href={explorerTx(config, hash)} target="_blank" rel="noreferrer">
+    <a
+      className="mono-link"
+      href={explorerTx(config, hash)}
+      target="_blank"
+      rel="noreferrer"
+      title={hash}
+    >
       {label ?? shortAddress(hash, 6)}
       <span className="sr-only"> (opens Stellar Expert in a new tab)</span>
     </a>
@@ -111,9 +198,76 @@ export function Skeleton({ lines = 3, label }: { lines?: number; label: string }
   );
 }
 
+/**
+ * A small "i" that shows a line of explanation on hover, focus or tap. The
+ * text stays in the page for screen readers and is placed on screen with
+ * fixed coordinates, so a scrolling table never clips it.
+ */
+export function Tip({ text, label = 'More about this' }: { text: ReactNode; label?: string }) {
+  const id = useId();
+  const ref = useRef<HTMLButtonElement>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r === undefined) return;
+    const left = Math.min(Math.max(r.left + r.width / 2, 150), window.innerWidth - 150);
+    setAt({ top: r.bottom + 8, left });
+  };
+  const hide = () => {
+    setAt(null);
+  };
+  useEffect(() => {
+    if (at === null) return;
+    const close = () => {
+      setAt(null);
+    };
+    window.addEventListener('scroll', close, { passive: true, capture: true });
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, { capture: true });
+      window.removeEventListener('resize', close);
+    };
+  }, [at]);
+  return (
+    <span className="tip">
+      <button
+        ref={ref}
+        type="button"
+        className="tip-btn"
+        aria-describedby={id}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onClick={() => {
+          if (at === null) show();
+          else hide();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') hide();
+        }}
+      >
+        <Icon name="info" size={16} />
+        <span className="sr-only">{label}</span>
+      </button>
+      <span
+        role="tooltip"
+        id={id}
+        className={`tip-pop${at === null ? '' : ' tip-on'}`}
+        style={at === null ? undefined : { top: at.top, left: at.left }}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
 export interface FieldProps {
   readonly label: string;
+  /** One short line under the field, only where it is needed while typing. */
   readonly help?: ReactNode;
+  /** The longer explanation, behind an info button next to the label. */
+  readonly tip?: ReactNode;
   readonly error?: string | undefined;
   readonly suffix?: string;
   readonly value: string;
@@ -134,9 +288,13 @@ export function Field(props: FieldProps) {
   ]
     .filter((x) => x !== null)
     .join(' ');
+  const numeric = props.inputMode === 'decimal' || props.inputMode === 'numeric';
   return (
     <div className={`field${props.error === undefined ? '' : ' field-invalid'}`}>
-      <label htmlFor={id}>{props.label}</label>
+      <div className="field-top">
+        <label htmlFor={id}>{props.label}</label>
+        {props.tip === undefined ? null : <Tip text={props.tip} label={`About ${props.label}`} />}
+      </div>
       <div className="input-wrap">
         <input
           id={id}
@@ -145,7 +303,7 @@ export function Field(props: FieldProps) {
             props.onChange(e.target.value);
           }}
           inputMode={props.inputMode ?? 'text'}
-          className={props.mono === true ? 'mono' : undefined}
+          className={props.mono === true ? 'mono' : numeric ? 'num' : undefined}
           aria-invalid={props.error !== undefined}
           aria-describedby={describedBy === '' ? undefined : describedBy}
           placeholder={props.placeholder}
@@ -168,7 +326,19 @@ export function Field(props: FieldProps) {
   );
 }
 
-export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+/**
+ * Copies a value. With `icon` it is a small square button for table cells and
+ * IDs; the label is still read out.
+ */
+export function CopyButton({
+  text,
+  label = 'Copy',
+  icon = false,
+}: {
+  text: string;
+  label?: string;
+  icon?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -179,26 +349,60 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
       clearTimeout(t);
     };
   }, [copied]);
+  const copy = () => {
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+      },
+      () => {
+        setCopied(false);
+      },
+    );
+  };
+  if (icon) {
+    return (
+      <button
+        type="button"
+        className={`copy-icon${copied ? ' copy-done' : ''}`}
+        onClick={copy}
+        title={copied ? 'Copied' : label}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+        <span className="sr-only">{label}</span>
+        <span className="sr-only" aria-live="polite">
+          {copied ? 'Copied to the clipboard' : ''}
+        </span>
+      </button>
+    );
+  }
   return (
-    <button
-      type="button"
-      className="btn btn-small"
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(
-          () => {
-            setCopied(true);
-          },
-          () => {
-            setCopied(false);
-          },
-        );
-      }}
-    >
+    <button type="button" className="btn btn-small" onClick={copy}>
+      <Icon name={copied ? 'check' : 'copy'} size={16} />
       {copied ? 'Copied' : label}
       <span className="sr-only" aria-live="polite">
         {copied ? 'Copied to the clipboard' : ''}
       </span>
     </button>
+  );
+}
+
+/** A long ID or hash cut to fit one line, with the whole value one click away. */
+export function IdText({
+  value,
+  keep = 6,
+  copyLabel,
+}: {
+  value: string;
+  keep?: number;
+  copyLabel: string;
+}) {
+  return (
+    <span className="id-text">
+      <span className="mono" title={value}>
+        {shortAddress(value, keep)}
+      </span>
+      <CopyButton text={value} label={copyLabel} icon />
+    </span>
   );
 }
 
@@ -271,25 +475,18 @@ export function SoonTag({ label = 'Soon' }: { label?: 'Soon' | 'In progress' }) 
   return <span className="soon">{label}</span>;
 }
 
-/** A row of figures at the top of a page: what it is, the value, one line of context. */
-export function Kpi({
-  label,
-  value,
-  note,
-  action,
-}: {
-  label: string;
-  value: ReactNode;
-  note?: ReactNode;
-  action?: ReactNode;
-}) {
+/** What is planned next to a page, in one quiet row: a tag and the names. */
+export function SoonRow({ title, items }: { title: string; items: readonly string[] }) {
   return (
-    <div className="kpi">
-      <p className="kpi-label">{label}</p>
-      <p className="kpi-value">{value}</p>
-      {note === undefined ? null : <p className="kpi-note">{note}</p>}
-      {action ?? null}
-    </div>
+    <section className="soon-row" aria-label={title}>
+      <SoonTag />
+      <span className="soon-row-title">{title}</span>
+      <ul>
+        {items.map((i) => (
+          <li key={i}>{i}</li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -302,7 +499,7 @@ export function ComingSoon({
 }: {
   title: string;
   lede: string;
-  items: readonly { readonly title: string; readonly text: string }[];
+  items: readonly string[];
   children?: ReactNode;
 }) {
   const id = useId();
@@ -314,24 +511,26 @@ export function ComingSoon({
         </h2>
         <SoonTag label="In progress" />
       </div>
-      <p className="muted coming-lede">{lede}</p>
+      <p className="muted">{lede}</p>
       <ul className="coming-items">
         {items.map((i) => (
-          <li key={i.title}>
-            <span>
-              <strong>{i.title}</strong>
-              <span className="muted small">{i.text}</span>
-            </span>
+          <li key={i}>
+            <span>{i}</span>
             <SoonTag />
           </li>
         ))}
       </ul>
-      <div className="ghost" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
       {children}
     </section>
+  );
+}
+
+/** An empty list: one line and, where there is one, the one thing to do. */
+export function Empty({ text, action }: { text: string; action?: ReactNode }) {
+  return (
+    <div className="empty">
+      <p>{text}</p>
+      {action ?? null}
+    </div>
   );
 }

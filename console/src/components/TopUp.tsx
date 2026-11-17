@@ -23,8 +23,10 @@ export interface TopUp {
   readonly error: string | null;
   /** "Top up to 50 test USDC". */
   readonly label: string;
-  /** One sentence on how often it works, or how long until it works again. */
+  /** A few words on how often it works, or how long until it works again. */
   readonly hint: string;
+  /** True while the faucet is cooling down for this wallet. */
+  readonly cooling: boolean;
   /** Not an error: the wallet already holds the target. */
   readonly info: string | null;
   readonly last: { readonly hash: string; readonly amount: string } | null;
@@ -89,7 +91,8 @@ export function useTopUp(wallet: Wallet, onDone?: () => void): TopUp {
     label: `Top up to ${formatAmount(target, { minFraction: 0 })} test USDC`,
     hint: waiting
       ? cooldownText(Math.ceil((readyAt - now) / 1000))
-      : `Use it whenever you run low, ${cooldownWords(cooldown)}.`,
+      : `Free, ${cooldownWords(cooldown)}.`,
+    cooling: waiting,
     info,
     last,
     run: () => void action.run(),
@@ -100,40 +103,43 @@ export function useTopUp(wallet: Wallet, onDone?: () => void): TopUp {
 export function FaucetOffline() {
   return (
     <>
-      Faucet offline, get test USDC at{' '}
+      Faucet offline. Try{' '}
       <a href="https://faucet.circle.com" target="_blank" rel="noreferrer">
-        https://faucet.circle.com
-      </a>{' '}
-      (Stellar testnet).
+        faucet.circle.com
+        <span className="sr-only"> (Stellar testnet, opens in a new tab)</span>
+      </a>
     </>
   );
 }
 
-/** A self contained top up: intro, button, status. */
+/** A self contained top up: the button, how often it works, and what it did. */
 export function TopUpPanel({
   wallet,
   intro,
   onDone,
 }: {
   wallet: Wallet;
-  intro: string;
+  /** One short line above the button, when the place needs it. */
+  intro?: string;
   onDone?: () => void;
 }) {
   const t = useTopUp(wallet, onDone);
   return (
     <div className="stack-sm">
-      <p className="small">{t.enabled ? intro : <FaucetOffline />}</p>
+      {intro === undefined && t.enabled ? null : (
+        <p className="small">{t.enabled ? intro : <FaucetOffline />}</p>
+      )}
       <div className="actions">
         <button type="button" className="btn" disabled={!t.enabled || t.busy} onClick={t.run}>
           {t.busy ? <Spinner /> : null}
           {t.label}
         </button>
+        {t.enabled ? (
+          <span className="muted small" role="status">
+            {t.hint}
+          </span>
+        ) : null}
       </div>
-      {t.enabled ? (
-        <p className="muted small" role="status">
-          {t.hint}
-        </p>
-      ) : null}
       <TopUpResult t={t} />
     </div>
   );

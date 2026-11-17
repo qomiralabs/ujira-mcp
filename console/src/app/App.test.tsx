@@ -54,11 +54,12 @@ describe('the console in mock mode', () => {
     ]) {
       expect(screen.getByRole('heading', { name: step })).toBeTruthy();
     }
-    expect(screen.getByText('Stellar testnet. Test money only.')).toBeTruthy();
+    expect(screen.getByText('Testnet')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Connect Freighter/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Connect Albedo/ })).toBeTruthy();
     const soon = within(screen.getByRole('region', { name: 'Coming next' }));
-    expect(soon.getAllByText('Soon')).toHaveLength(3);
+    expect(soon.getAllByText('Soon')).toHaveLength(1);
+    expect(soon.getByText('Local currency payouts')).toBeTruthy();
   });
 
   it('runs the whole story from setup to receipts', { timeout: 30_000 }, async () => {
@@ -155,13 +156,7 @@ describe('the console in mock mode', () => {
     const user = userEvent.setup();
     render(<App api={createMockApi({ delayMs: 0 })} mock />);
     await user.click(await screen.findByRole('button', { name: /Connect Demo wallet/ }));
-    expect(
-      await screen.findByText(
-        /Use it whenever you run low, once every 10 minutes\./,
-        undefined,
-        LONG,
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText('Free, once every 10 minutes.', undefined, LONG)).toBeTruthy();
   });
 
   it('offers a top up when the wallet cannot fund the mandate', async () => {
@@ -170,10 +165,10 @@ describe('the console in mock mode', () => {
     await connectAndSetUp(user);
     await user.click(screen.getByRole('link', { name: 'Create a mandate' }));
     const fund = await screen.findByLabelText(/Fund it with/);
-    expect(screen.queryByText(/does not hold enough test USDC to fund this/)).toBeNull();
+    expect(screen.queryByText(/Not enough test USDC in your wallet/)).toBeNull();
     await user.clear(fund);
     await user.type(fund, '60');
-    expect(await screen.findByText(/does not hold enough test USDC to fund this/)).toBeTruthy();
+    expect(await screen.findByText(/Not enough test USDC in your wallet/)).toBeTruthy();
     expect(screen.getByRole('button', { name: TOP_UP })).toBeTruthy();
     // Test recipients are explained as recycled back to the faucet.
     expect(screen.getByText(/send the USDC they receive back to our faucet/)).toBeTruthy();
@@ -186,7 +181,7 @@ describe('the console in mock mode', () => {
     await connectAndSetUp(user);
     await createWithTestRecipient(user);
     const owner = within(await screen.findByRole('region', { name: 'Owner controls' }, LONG));
-    expect(owner.getByText(/Wallet running low\?/)).toBeTruthy();
+    expect(owner.getByText('Your wallet signs')).toBeTruthy();
     clock += 601_000;
     await user.click(owner.getByRole('button', { name: TOP_UP }));
     await owner.findByText(/Sent 40\.00 test USDC to your wallet/);

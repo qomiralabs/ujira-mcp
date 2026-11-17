@@ -9,7 +9,7 @@ import { ConnectPrompt } from '../components/Connect';
 import { Link } from '../components/Link';
 import { SigningSteps, type SigningStep } from '../components/SigningSteps';
 import { TopUpPanel } from '../components/TopUp';
-import { ErrorNotice, Field, Notice, Spinner } from '../components/ui';
+import { ErrorNotice, Field, Icon, Notice, Spinner, Tip } from '../components/ui';
 import {
   DEFAULT_DRAFT,
   MAX_LABEL,
@@ -66,10 +66,6 @@ function RecipientsEditor({
   return (
     <fieldset className="recipients">
       <legend>Who can be paid</legend>
-      <p className="help">
-        Only these wallets can ever receive money from this mandate. A test recipient is a new
-        testnet wallet we make for you, already able to receive USDC.
-      </p>
       {draft.recipients.length === 0 ? null : (
         <ul className="recipient-rows">
           {draft.recipients.map((r, i) => {
@@ -91,7 +87,7 @@ function RecipientsEditor({
                   onChange={(v) => {
                     update(i, { address: v.trim() });
                   }}
-                  help={r.test === true ? 'Test wallet made by UJIRA' : undefined}
+                  help={r.test === true ? 'Test wallet' : undefined}
                 />
                 <button
                   type="button"
@@ -139,15 +135,12 @@ function RecipientsEditor({
         >
           Paste an address
         </button>
+        <Tip
+          label="About recipients"
+          text="Only these wallets can ever be paid from this mandate. A test recipient is a fresh testnet wallet we make for you. Test recipients send the USDC they receive back to our faucet a few minutes later, so the demo stays funded; receipts still show every payment."
+        />
       </div>
-      <p className="muted small">
-        Test recipients send the USDC they receive back to our faucet a few minutes later, so the
-        demo stays funded for the next person. Your receipts and Stellar Expert links still show
-        every payment.
-      </p>
-      {full ? (
-        <p className="muted small">That is the most one signature can add ({limit}).</p>
-      ) : null}
+      {full ? <p className="muted small">Up to {limit} per signature.</p> : null}
       {errors.recipients === undefined ? null : <p className="error-text">{errors.recipients}</p>}
       {addTest.error === null ? null : <ErrorNotice error={addTest.error} />}
     </fieldset>
@@ -159,15 +152,15 @@ function stepsFor(plan: MandatePlan): SigningStep[] {
   return [
     {
       title: 'Create the mandate',
-      why: `Deploys your mandate contract with these rules: budget ${formatUsdc(plan.budget)}, at most ${formatUsdc(plan.perPaymentCap)} per payment and ${formatUsdc(plan.dailyCap)} per recipient per day, your approval from ${formatUsdc(plan.approvalThreshold)}. You are the owner and the approver.`,
+      why: `Budget ${formatUsdc(plan.budget)}. Max ${formatUsdc(plan.perPaymentCap)} per payment, ${formatUsdc(plan.dailyCap)} per person a day. Your approval from ${formatUsdc(plan.approvalThreshold)}. You own it.`,
     },
     {
       title: n === 1 ? 'Allow 1 recipient' : `Allow ${n} recipients`,
-      why: `Adds ${plan.recipients.map((r) => r.label).join(', ')} to the list of wallets this mandate may pay. Nobody else can be paid.`,
+      why: `${plan.recipients.map((r) => r.label).join(', ')}. Nobody else can be paid.`,
     },
     {
       title: `Fund it with ${formatUsdc(plan.fund)}`,
-      why: 'Moves test USDC from your wallet into the mandate. You can take back whatever is left at any time by revoking it.',
+      why: 'From your wallet. Revoke any time to take back what is left.',
     },
   ];
 }
@@ -245,7 +238,7 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
             value={draft.budget}
             onChange={set('budget')}
             error={errors.budget}
-            help="The most this mandate can ever pay out, all payouts together."
+            tip="The most this mandate can ever pay out, all payouts together."
           />
           <Field
             label="Max per payment"
@@ -254,25 +247,25 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
             value={draft.perPaymentCap}
             onChange={set('perPaymentCap')}
             error={errors.perPaymentCap}
-            help="No single payout can be bigger than this."
+            tip="No single payout can be bigger than this."
           />
           <Field
-            label="Max per recipient per day"
+            label="Daily cap per person"
             suffix="USDC"
             inputMode="decimal"
             value={draft.dailyCap}
             onChange={set('dailyCap')}
             error={errors.dailyCap}
-            help="What one person can receive in a day, all payouts together."
+            tip="What one recipient can receive in a day, all payouts together."
           />
           <Field
-            label="Needs your approval from"
+            label="Approval from"
             suffix="USDC"
             inputMode="decimal"
             value={draft.approvalThreshold}
             onChange={set('approvalThreshold')}
             error={errors.approvalThreshold}
-            help="Payouts of this amount or more wait until you approve them in your wallet. Use 0 to approve every payout."
+            tip="Payouts of this amount or more wait until you approve them in your wallet. Use 0 to approve every payout."
           />
           <Field
             label="Ends after"
@@ -281,11 +274,7 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
             value={draft.expiryDays}
             onChange={set('expiryDays')}
             error={errors.expiryDays}
-            help={
-              end === null
-                ? 'After this the mandate stops paying.'
-                : `It stops paying after ${end}.`
-            }
+            help={end === null ? undefined : `On ${end}`}
           />
           <Field
             label="Fund it with"
@@ -296,17 +285,17 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
             error={errors.fund}
             help={
               walletUsdc === undefined
-                ? 'Test USDC moved from your wallet into the mandate now.'
+                ? undefined
                 : walletUsdc === null
-                  ? 'Your wallet cannot hold USDC yet. Finish the setup steps first.'
-                  : `Moved from your wallet now. You hold ${formatAmount(walletUsdc)} USDC.`
+                  ? 'Your wallet cannot hold USDC yet.'
+                  : `You hold ${formatAmount(walletUsdc)} USDC`
             }
           />
         </div>
         {short ? (
           <TopUpPanel
             wallet={wallet}
-            intro="Your wallet does not hold enough test USDC to fund this. Top it up, or fund less."
+            intro="Not enough test USDC in your wallet to fund this."
             onDone={account.reload}
           />
         ) : null}
@@ -320,18 +309,20 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
           <p>Each one is marked next to its field.</p>
         </Notice>
       ) : null}
-      <div className="actions">
-        <button type="submit" className="btn btn-primary">
-          Review and sign
-        </button>
-        <Link to="/mandates" className="btn btn-ghost">
-          Cancel
-        </Link>
+      <div className="form-foot">
+        <p className="assure">
+          <Icon name="lock" size={16} />
+          Three signatures: create, allow, fund.
+        </p>
+        <div className="actions">
+          <Link to="/mandates" className="btn btn-ghost">
+            Cancel
+          </Link>
+          <button type="submit" className="btn btn-primary">
+            Review and sign
+          </button>
+        </div>
       </div>
-      <p className="muted small">
-        Next you sign three transactions in your wallet: create, allow recipients, fund. We show
-        what each one does before you sign.
-      </p>
     </form>
   );
 }
@@ -348,15 +339,10 @@ export function CreateMandate() {
   }
   return (
     <div className="stack narrow">
-      <div className="page-head">
-        <Link to="/mandates" className="back">
-          &larr; Your mandates
-        </Link>
-        <p className="lead">
-          Write the rules once. After that the agent can only pay inside them, and the contract on
-          Stellar enforces every one.
-        </p>
-      </div>
+      <Link to="/mandates" className="back">
+        <Icon name="back" size={16} />
+        Mandates
+      </Link>
       {plan === null ? (
         <CreateForm wallet={wallet} onPlan={setPlan} />
       ) : (

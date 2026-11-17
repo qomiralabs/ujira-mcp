@@ -79,7 +79,7 @@ describe('the dashboard', () => {
     ).toBe('page');
     expect(nav().getAllByText('Soon')).toHaveLength(3);
     expect(screen.getByRole('link', { name: 'UJIRA home page' }).getAttribute('href')).toBe('/');
-    expect(screen.getByText('Stellar testnet. Test money only.')).toBeTruthy();
+    expect(screen.getByText('Testnet')).toBeTruthy();
   });
 
   it('keeps mock mode in every link', async () => {
@@ -213,7 +213,7 @@ describe('the dashboard', () => {
 
       // Overview: the figures add up.
       await openPage(user, 'Overview');
-      expect(await screen.findByRole('region', { name: 'Latest receipts' })).toBeTruthy();
+      expect(await screen.findByRole('region', { name: 'Recent payouts' })).toBeTruthy();
       expect(screen.queryByRole('region', { name: 'Get your wallet ready' })).toBeNull();
     },
   );

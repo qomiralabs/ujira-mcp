@@ -8,32 +8,28 @@ import { loaded, usePortfolio } from '../app/portfolio';
 import { ConnectPrompt } from '../components/Connect';
 import { ConnectClaude } from '../components/ConnectClaude';
 import { Link } from '../components/Link';
-import { ComingSoon, CopyButton, ErrorNotice, Notice, Skeleton } from '../components/ui';
+import { CopyButton, Empty, ErrorNotice, Skeleton, SoonRow, Tip } from '../components/ui';
 import { shortAddress } from '../lib/strkey';
 
 const TOOLS: readonly { name: string; text: string }[] = [
-  {
-    name: 'quote_payout',
-    text: 'Asks what would happen: allowed, needs approval, or blocked and why. Moves nothing.',
-  },
-  {
-    name: 'request_payout',
-    text: 'Asks the mandate to pay a recipient for a task. One task is paid at most once.',
-  },
-  { name: 'payout_status', text: 'Where a payout stands: waiting, paid, rejected or blocked.' },
-  { name: 'list_receipts', text: 'Every request so far, with the Stellar transaction when paid.' },
+  { name: 'quote_payout', text: 'What would happen. Moves nothing.' },
+  { name: 'request_payout', text: 'Pays a recipient for a task, once.' },
+  { name: 'payout_status', text: 'Waiting, paid, rejected or blocked.' },
+  { name: 'list_receipts', text: 'Every request, with its transaction.' },
 ];
 
 function Tools() {
   return (
     <section className="card" aria-labelledby="tools-title">
-      <h2 id="tools-title" className="card-title">
-        What an agent can do
-      </h2>
-      <p className="muted">
-        Each mandate&apos;s MCP address offers four tools, bound to that mandate and its rules.
-        Nothing else: an agent cannot change the rules, move funds out, or approve.
-      </p>
+      <div className="card-head">
+        <h2 id="tools-title" className="card-title">
+          What an agent can do
+        </h2>
+        <Tip
+          label="About the tools"
+          text="Each mandate's MCP address offers these four tools, bound to that mandate and its rules. An agent cannot change the rules, move funds out, or approve."
+        />
+      </div>
       <dl className="tools">
         {TOOLS.map((t) => (
           <div key={t.name}>
@@ -50,13 +46,15 @@ function DemoServer() {
   const url = `${location.origin}/mcp`;
   return (
     <section className="card" aria-labelledby="demo-mcp-title">
-      <h2 id="demo-mcp-title" className="card-title">
-        Try it without a mandate of your own
-      </h2>
-      <p className="muted">
-        Our public demo mandate answers at this address, with the same four tools and test money
-        only.
-      </p>
+      <div className="card-head">
+        <h2 id="demo-mcp-title" className="card-title">
+          Public demo
+        </h2>
+        <Tip
+          label="About the demo"
+          text="Our shared demo mandate answers at this address, with the same four tools and test money only."
+        />
+      </div>
       <div className="copy-row">
         <label className="sr-only" htmlFor="demo-mcp-url">
           MCP address of the demo mandate
@@ -87,10 +85,6 @@ export function DevelopersPage() {
 
   return (
     <div className="stack">
-      <p className="lead">
-        Every mandate has its own MCP address. Give it to Claude, or any MCP client, and the agent
-        pays from that mandate inside its rules.
-      </p>
       {wallet === null || portfolio === null ? (
         <ConnectPrompt what="the MCP address of each mandate" />
       ) : portfolio.loading ? (
@@ -98,12 +92,16 @@ export function DevelopersPage() {
       ) : portfolio.data === undefined ? (
         <ErrorNotice error={portfolio.error ?? 'Not loaded.'} onRetry={portfolio.reload} />
       ) : m === undefined ? (
-        <Notice tone="info" title="No mandate yet">
-          <p>
-            <Link to="/mandates/new">Create a mandate</Link> to get its MCP address, or try the demo
-            mandate below.
-          </p>
-        </Notice>
+        <section className="card">
+          <Empty
+            text="No mandate yet. Try the public demo below."
+            action={
+              <Link to="/mandates/new" className="btn btn-primary btn-small">
+                Create a mandate
+              </Link>
+            }
+          />
+        </section>
       ) : (
         <>
           {mandates.length > 1 ? (
@@ -135,15 +133,7 @@ export function DevelopersPage() {
         <Tools />
         <DemoServer />
       </div>
-      <ComingSoon
-        title="Build on UJIRA"
-        lede="Create payouts from your own systems, and hear back the moment one is paid."
-        items={[
-          { title: 'API keys', text: 'Scoped to one project, rotated without downtime.' },
-          { title: 'Webhooks', text: 'Paid, blocked and approval events, signed.' },
-          { title: 'TypeScript SDK', text: 'The same calls as the API, typed.' },
-        ]}
-      />
+      <SoonRow title="Build on UJIRA" items={['API keys', 'Webhooks', 'TypeScript SDK']} />
     </div>
   );
 }

@@ -6,45 +6,28 @@
 
 import { explorerAccount, useApp } from '../app/context';
 import { Link } from '../components/Link';
-import { ComingSoon, Notice } from '../components/ui';
+import { ComingSoon, Empty, Icon } from '../components/ui';
 
 export function LocalCurrencyPage() {
   return (
-    <div className="stack">
+    <div className="stack narrow">
       <ComingSoon
         title="Local currency payouts"
-        lede="Pay people in the money they spend: bank accounts, mobile money and cash pickup, through Stellar anchors. This comes after the testnet launch."
-        items={[
-          { title: 'Bank and mobile money', text: 'Naira, shillings, cedis and more.' },
-          { title: 'Cash pickup', text: 'Collected at an agent near the recipient.' },
-          { title: 'Funding by bank transfer', text: 'Top up a mandate without holding USDC.' },
-        ]}
-      >
-        <p className="muted small">
-          Today every payout is USDC to the recipient&apos;s Stellar wallet, or through the Stellar
-          Disbursement Platform.
-        </p>
-      </ComingSoon>
+        lede="Bank, mobile money and cash through Stellar anchors. Today: USDC or SDP."
+        items={['Bank and mobile money', 'Cash pickup', 'Funding by bank transfer']}
+      />
     </div>
   );
 }
 
 export function TeamPage() {
   return (
-    <div className="stack">
+    <div className="stack narrow">
       <ComingSoon
         title="Team and keys"
-        lede="Invite approvers who sign with a passkey, decide who can ask for payouts and who can approve them, and rotate keys safely."
-        items={[
-          { title: 'Passkey approvers', text: 'No seed phrases to lose.' },
-          { title: 'Roles', text: 'Ask, approve and recover, each on its own key.' },
-          { title: 'Rotation and recovery', text: 'Replace a lost key without a new mandate.' },
-        ]}
-      >
-        <p className="muted small">
-          Today the wallet that creates a mandate owns it and approves its big payouts.
-        </p>
-      </ComingSoon>
+        lede="Approvers with passkeys, roles and safe key rotation. Today: the owner wallet approves."
+        items={['Passkey approvers', 'Roles', 'Rotation and recovery']}
+      />
     </div>
   );
 }
@@ -52,25 +35,23 @@ export function TeamPage() {
 export function ActivityPage() {
   const { config, wallet } = useApp();
   return (
-    <div className="stack">
+    <div className="stack narrow">
       <ComingSoon
         title="Wallet activity"
-        lede="Everything your wallet did on testnet in one list: setup, mandates, deposits and approvals, each with its transaction."
-        items={[
-          { title: 'One timeline', text: 'Every signature you gave, newest first.' },
-          { title: 'Filters', text: 'By mandate, by kind, by date.' },
-          { title: 'Export', text: 'A file of the whole history.' },
-        ]}
+        lede="Every signature your wallet gave, in one timeline."
+        items={['One timeline', 'Filters', 'Export']}
       >
         <p className="small">
-          Until then, <Link to="/receipts">receipts</Link> list every payout, and{' '}
-          {wallet === null ? (
-            'Stellar Expert shows any wallet in full.'
-          ) : (
-            <a href={explorerAccount(config, wallet.address)} target="_blank" rel="noreferrer">
-              Stellar Expert shows your wallet in full
-              <span className="sr-only"> (opens in a new tab)</span>
-            </a>
+          For now: <Link to="/receipts">receipts</Link>
+          {wallet === null ? null : (
+            <>
+              {' '}
+              or{' '}
+              <a href={explorerAccount(config, wallet.address)} target="_blank" rel="noreferrer">
+                Stellar Expert
+                <span className="sr-only"> (opens your wallet in a new tab)</span>
+              </a>
+            </>
           )}
           .
         </p>
@@ -82,11 +63,17 @@ export function ActivityPage() {
 export function NotFoundPage() {
   return (
     <div className="stack narrow">
-      <Notice tone="info" title="There is no page at this address">
-        <p>
-          It may have moved. <Link to="/">Go to the overview</Link>, or pick a page from the menu.
-        </p>
-      </Notice>
+      <section className="card">
+        <Empty
+          text="There is no page at this address."
+          action={
+            <Link to="/" className="btn btn-primary btn-small">
+              <Icon name="home" size={16} />
+              Go to the overview
+            </Link>
+          }
+        />
+      </section>
     </div>
   );
 }

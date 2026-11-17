@@ -6,13 +6,13 @@ import { formatUsdc, percentOf } from '../lib/money';
 import { shortAddress } from '../lib/strkey';
 import { MANDATE_STATUS, mandateStatus } from '../lib/words';
 import { Link } from './Link';
-import { Amount, BrandIcon, ErrorNotice, Skeleton, StatusPill } from './ui';
+import { Amount, BrandIcon, Empty, ErrorNotice, Icon, Skeleton, StatusPill } from './ui';
 
 function created(iso: string | null | undefined): string {
   if (iso === null || iso === undefined) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return `Created ${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function MandateRow({ b, compact }: { b: MandateBundle; compact: boolean }) {
@@ -22,10 +22,14 @@ function MandateRow({ b, compact }: { b: MandateBundle; compact: boolean }) {
     return (
       <li>
         <Link to={to} className="mandate-link">
-          <BrandIcon name="mandate" />
-          <span className="mono">{shortAddress(b.summary.id, 6)}</span>
-          <span className="muted small">Could not load it just now. {b.error}</span>
-          <span aria-hidden="true">&rarr;</span>
+          <span className="mandate-icon">
+            <BrandIcon name="mandate" />
+          </span>
+          <span className="mandate-main">
+            <span className="mono">{shortAddress(b.summary.id, 6)}</span>
+            <span className="muted small">Could not load. {b.error}</span>
+          </span>
+          <Icon name="arrow" size={18} />
         </Link>
       </li>
     );
@@ -33,30 +37,20 @@ function MandateRow({ b, compact }: { b: MandateBundle; compact: boolean }) {
   const status = MANDATE_STATUS[mandateStatus(m.state)];
   const used = percentOf(m.state.spent, m.rules.budget);
   const waiting = b.payouts.filter(isWaiting).length;
+  const date = created(b.summary.createdAt);
   return (
     <li>
       <Link to={to} className={`mandate-link${compact ? '' : ' mandate-link-full'}`}>
-        <BrandIcon name="mandate" />
+        <span className="mandate-icon">
+          <BrandIcon name="mandate" />
+        </span>
         <span className="mandate-main">
           <span className="mandate-id">
             <span className="mono">{shortAddress(m.id, 6)}</span>
             <StatusPill tone={status.tone}>{status.label}</StatusPill>
             {waiting > 0 ? <span className="count">{waiting} waiting</span> : null}
           </span>
-          <span className="muted small">
-            {[
-              created(b.summary.createdAt),
-              compact
-                ? ''
-                : `${String(m.recipients.length)} ${m.recipients.length === 1 ? 'recipient' : 'recipients'}`,
-            ]
-              .filter((x) => x !== '')
-              .join('. ')}
-          </span>
-        </span>
-        <span className="mandate-money">
-          <Amount minor={m.state.balance} />
-          <span className="muted small">held</span>
+          {date === '' ? null : <span className="muted small">{date}</span>}
         </span>
         {compact ? null : (
           <span className="mandate-meter">
@@ -68,11 +62,15 @@ function MandateRow({ b, compact }: { b: MandateBundle; compact: boolean }) {
               <span className="meter-used" style={{ width: `${String(used)}%` }} />
             </span>
             <span className="muted small">
-              {formatUsdc(m.state.spent)} of {formatUsdc(m.rules.budget)} paid
+              {used}% of {formatUsdc(m.rules.budget)}
             </span>
           </span>
         )}
-        <span aria-hidden="true">&rarr;</span>
+        <span className="mandate-money">
+          <Amount minor={m.state.balance} />
+          <span className="muted small">held</span>
+        </span>
+        <Icon name="arrow" size={18} />
       </Link>
     </li>
   );
@@ -94,12 +92,7 @@ export function MandateList({
     return <ErrorNotice error={portfolio.error ?? 'Not loaded.'} onRetry={portfolio.reload} />;
   }
   if (portfolio.data.length === 0) {
-    return (
-      <p className="muted">
-        None yet. A mandate is where your rules and your test USDC live; create one to watch an
-        agent pay inside it.
-      </p>
-    );
+    return <Empty text="No mandates yet." />;
   }
   const shown = limit === undefined ? portfolio.data : portfolio.data.slice(0, limit);
   return (

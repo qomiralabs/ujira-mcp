@@ -1,0 +1,163 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Qomira Labs */
+
+/* The one set of design tokens for the dashboard. The first block is the
+   landing page's own :root, copied line for line from site/index.html (a test
+   keeps the two identical). The blocks after it only name roles for light and
+   dark mode, built from those tokens. */
+
+/* prettier-ignore */
+:root {
+  --page: #EDF5F6; --white: #FFFFFF; --ink: #0A1F26; --ink-2: #3F5258; --ink-3: #6D7E83;
+  --teal: #0F4C5C; --teal-2: #155C6E; --teal-mid: #4F9DAD; --teal-soft: #A9D3DB; --mist: #D7EBEE;
+  --saffron: #F4A300; --saffron-2: #F7B955; --peach: #F3CFA0; --saffron-deep: #8F5A00;
+  --paid: #15803D; --paid-bg: #DCFCE7; --wait: #B45309; --wait-bg: #FEF3C7; --block: #DC2626; --block-bg: #FEE2E2;
+  --grad-text: linear-gradient(92deg, #F4A300 0%, #E9813A 38%, #C9675C 58%, #1F7A8C 100%);
+  --grad-sky: radial-gradient(120% 90% at 50% 112%, #F4A300 0%, #F7B955 14%, #F1CB98 27%, #B9D9DA 45%, #8FC5D0 60%, #C9E4E9 78%, #EDF5F6 100%);
+  --grad-card: linear-gradient(180deg, #F6C47E 0%, #F2B38F 45%, #9CCBD5 100%);
+  --sans: "Urbanist", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.16,1,.3,1);
+  --shadow: 0 2px 6px rgba(10,31,38,.06), 0 24px 60px -18px rgba(10,31,38,.28);
+}
+
+/* Light: the landing page as it is. */
+:root {
+  color-scheme: light;
+  --bg: var(--page);
+  --surface: var(--white);
+  --surface-2: #f4f7f7;
+  --row-bg: var(--page);
+  --field-bg: var(--page);
+  --line: #e3eaec;
+  --line-2: #cbd7da;
+  --card-line: transparent;
+  --card-shadow: 0 1px 2px rgba(10, 31, 38, 0.06), 0 14px 34px -24px rgba(10, 31, 38, 0.22);
+  --text: var(--ink);
+  --text-2: var(--ink-2);
+  --text-3: var(--ink-3);
+  --accent-text: var(--saffron-deep);
+  --focus: var(--saffron-deep);
+  --btn: #000;
+  --btn-text: #fff;
+  --btn-hover: var(--teal);
+  --btn-2: var(--white);
+  --btn-2-hover: #f7fafa;
+  --paid-fg: var(--paid);
+  --paid-tint: var(--paid-bg);
+  --wait-fg: var(--wait);
+  --wait-tint: var(--wait-bg);
+  --block-fg: var(--block);
+  --block-tint: var(--block-bg);
+  --neutral-tint: #eef2f3;
+  --avatar-bg: var(--mist);
+  --avatar-text: var(--teal);
+  --nav-on: var(--white);
+  --logo-ink: var(--teal);
+  --pop-bg: var(--ink);
+  --pop-text: var(--white);
+  --hero:
+    radial-gradient(70% 120% at 100% 125%, rgba(244, 163, 0, 0.32) 0%, rgba(244, 163, 0, 0) 70%),
+    radial-gradient(60% 90% at 0% 0%, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%),
+    var(--mist);
+  --welcome:
+    radial-gradient(
+      85% 55% at 50% 125%,
+      #f4a300 0%,
+      rgba(247, 185, 85, 0.85) 26%,
+      rgba(241, 203, 152, 0.6) 48%,
+      rgba(241, 203, 152, 0) 75%
+    ),
+    linear-gradient(180deg, #edf5f6 0%, #cfe6eb 40%, #9fcfd8 75%, #7dbdcb 100%);
+  --r-card: 22px;
+  --r-row: 12px;
+  --r-btn: 10px;
+  --r-pill: 8px;
+}
+
+/* Dark: the teal and ink of the landing page's live dashboard panel. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b2a33;
+  --surface: #0f3a45;
+  --surface-2: #134450;
+  --row-bg: #134450;
+  --field-bg: #0b2a33;
+  --line: #1c4f5b;
+  --line-2: #2e5e69;
+  --card-line: #1c4f5b;
+  --card-shadow: none;
+  --text: #eaf4f5;
+  --text-2: #a9c6cc;
+  --text-3: #86a9b0;
+  --accent-text: var(--saffron-2);
+  --focus: var(--saffron);
+  --btn: #eaf4f5;
+  --btn-text: #0b2a33;
+  --btn-hover: #ffffff;
+  --btn-2: #0f3a45;
+  --btn-2-hover: #134450;
+  --paid-fg: #4ade80;
+  --paid-tint: rgba(74, 222, 128, 0.14);
+  --wait-fg: #fbbf24;
+  --wait-tint: rgba(251, 191, 36, 0.14);
+  --block-fg: #f87171;
+  --block-tint: rgba(248, 113, 113, 0.14);
+  --neutral-tint: #16444f;
+  --avatar-bg: #1c4f5b;
+  --avatar-text: #eaf4f5;
+  --nav-on: #0f3a45;
+  --logo-ink: #eaf4f5;
+  --pop-bg: #eaf4f5;
+  --pop-text: #0b2a33;
+  --hero:
+    radial-gradient(70% 120% at 100% 125%, rgba(244, 163, 0, 0.26) 0%, rgba(244, 163, 0, 0) 70%),
+    linear-gradient(160deg, #134450 0%, #0f3a45 60%);
+  --welcome:
+    radial-gradient(85% 55% at 50% 125%, rgba(244, 163, 0, 0.55) 0%, rgba(244, 163, 0, 0) 72%),
+    linear-gradient(180deg, #0f3a45 0%, #134450 60%, #1c4f5b 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0b2a33;
+    --surface: #0f3a45;
+    --surface-2: #134450;
+    --row-bg: #134450;
+    --field-bg: #0b2a33;
+    --line: #1c4f5b;
+    --line-2: #2e5e69;
+    --card-line: #1c4f5b;
+    --card-shadow: none;
+    --text: #eaf4f5;
+    --text-2: #a9c6cc;
+    --text-3: #86a9b0;
+    --accent-text: var(--saffron-2);
+    --focus: var(--saffron);
+    --btn: #eaf4f5;
+    --btn-text: #0b2a33;
+    --btn-hover: #ffffff;
+    --btn-2: #0f3a45;
+    --btn-2-hover: #134450;
+    --paid-fg: #4ade80;
+    --paid-tint: rgba(74, 222, 128, 0.14);
+    --wait-fg: #fbbf24;
+    --wait-tint: rgba(251, 191, 36, 0.14);
+    --block-fg: #f87171;
+    --block-tint: rgba(248, 113, 113, 0.14);
+    --neutral-tint: #16444f;
+    --avatar-bg: #1c4f5b;
+    --avatar-text: #eaf4f5;
+    --nav-on: #0f3a45;
+    --logo-ink: #eaf4f5;
+    --pop-bg: #eaf4f5;
+    --pop-text: #0b2a33;
+    --hero:
+      radial-gradient(70% 120% at 100% 125%, rgba(244, 163, 0, 0.26) 0%, rgba(244, 163, 0, 0) 70%),
+      linear-gradient(160deg, #134450 0%, #0f3a45 60%);
+    --welcome:
+      radial-gradient(85% 55% at 50% 125%, rgba(244, 163, 0, 0.55) 0%, rgba(244, 163, 0, 0) 72%),
+      linear-gradient(180deg, #0f3a45 0%, #134450 60%, #1c4f5b 100%);
+  }
+}

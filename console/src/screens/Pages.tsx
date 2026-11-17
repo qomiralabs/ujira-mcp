@@ -21,7 +21,7 @@ import { ConnectPrompt } from '../components/Connect';
 import { Link } from '../components/Link';
 import { MandateList } from '../components/MandateList';
 import { PayoutsTable, ReceiptsTable } from '../components/ReceiptsTable';
-import { Amount, ComingSoon, ErrorNotice, Notice, Skeleton } from '../components/ui';
+import { Amount, Empty, ErrorNotice, Icon, Notice, Skeleton, SoonRow } from '../components/ui';
 import { formatUsdc } from '../lib/money';
 import type { Mandate, Receipt } from '../lib/schemas';
 import { shortAddress } from '../lib/strkey';
@@ -46,14 +46,20 @@ function WithPortfolio({
   return <>{children(portfolio)}</>;
 }
 
+function CreateLink({ small = false }: { small?: boolean }) {
+  return (
+    <Link to="/mandates/new" className={small ? 'btn btn-primary btn-small' : 'btn btn-primary'}>
+      <Icon name="plus" size={small ? 16 : 18} />
+      Create a mandate
+    </Link>
+  );
+}
+
 function NoMandateYet() {
   return (
-    <Notice tone="info" title="No mandate that can pay yet">
-      <p>
-        Payouts come from a mandate. <Link to="/mandates/new">Create a mandate</Link> with your
-        rules and some test USDC, then come back here.
-      </p>
-    </Notice>
+    <section className="card">
+      <Empty text="No mandate can pay yet." action={<CreateLink small />} />
+    </section>
   );
 }
 
@@ -63,7 +69,7 @@ function PortfolioProblems({ portfolio }: { portfolio: Portfolio }) {
     <>
       {portfolio.error !== null && portfolio.data !== undefined ? (
         <Notice tone="waiting">
-          <p>Could not refresh just now: {portfolio.error} Showing the last known state.</p>
+          <p>Could not refresh: {portfolio.error} Showing the last known state.</p>
         </Notice>
       ) : null}
       {broken.map((b) => (
@@ -83,14 +89,8 @@ export function MandatesPage() {
     <WithPortfolio what="your mandates">
       {(portfolio) => (
         <div className="stack">
-          <div className="page-intro">
-            <p className="lead">
-              A mandate holds your test USDC and the rules an agent must follow to pay from it. Open
-              one to act as the agent, approve, pause or revoke.
-            </p>
-            <Link to="/mandates/new" className="btn btn-primary">
-              Create a mandate
-            </Link>
+          <div className="toolbar">
+            <CreateLink />
           </div>
           <PortfolioProblems portfolio={portfolio} />
           <section className="card" aria-labelledby="mandates-title">
@@ -108,23 +108,18 @@ export function MandatesPage() {
 function RulesAtAGlance({ m }: { m: Mandate }) {
   const rows: [string, ReactNode][] = [
     ['Held now', <Amount key="held" minor={m.state.balance} />],
-    ['Left in the budget', <Amount key="left" minor={m.state.remaining} />],
+    ['Left in budget', <Amount key="left" minor={m.state.remaining} />],
     ['Max per payment', formatUsdc(m.rules.perPaymentCap)],
-    ['Max per recipient per day', formatUsdc(m.rules.dailyCap)],
-    ['Needs your approval from', formatUsdc(m.rules.approvalThreshold)],
-    [
-      'Held by UJIRA',
-      <span key="held-by" className="plain">
-        Nothing. The money stays in your mandate.
-      </span>,
-    ],
+    ['Daily cap per person', formatUsdc(m.rules.dailyCap)],
+    ['Approval from', formatUsdc(m.rules.approvalThreshold)],
+    ['Held by UJIRA', '0.00 USDC'],
   ];
   return (
-    <dl className="rules rules-compact">
+    <dl className="rules">
       {rows.map(([k, v]) => (
         <div key={k}>
           <dt>{k}</dt>
-          <dd className="mono">{v}</dd>
+          <dd>{v}</dd>
         </div>
       ))}
     </dl>
@@ -142,10 +137,6 @@ export function PayoutsPage() {
         const m = options.find((x) => x.id === chosen) ?? options[0];
         return (
           <div className="stack">
-            <p className="lead">
-              An agent asks for each payout and the mandate on Stellar checks it against your rules.
-              Act as the agent here, or connect Claude to do it from a chat.
-            </p>
             <PortfolioProblems portfolio={portfolio} />
             {portfolio.loading ? (
               <Skeleton lines={4} label="Loading your mandates" />
@@ -158,9 +149,14 @@ export function PayoutsPage() {
             ) : (
               <div className="grid-2">
                 <section className="card" aria-labelledby={`${chooserId}-title`}>
-                  <h2 id={`${chooserId}-title`} className="card-title">
-                    Pay from
-                  </h2>
+                  <div className="card-head">
+                    <h2 id={`${chooserId}-title`} className="card-title">
+                      Pay from
+                    </h2>
+                    <Link to={`/mandates/${m.id}`} className="card-link">
+                      Open
+                    </Link>
+                  </div>
                   {options.length > 1 ? (
                     <div className="field">
                       <label htmlFor={chooserId}>Mandate</label>
@@ -179,14 +175,9 @@ export function PayoutsPage() {
                       </select>
                     </div>
                   ) : (
-                    <p>
-                      Mandate <span className="mono">{shortAddress(m.id, 6)}</span>
-                    </p>
+                    <p className="mono">{shortAddress(m.id, 6)}</p>
                   )}
                   <RulesAtAGlance m={m} />
-                  <Link to={`/mandates/${m.id}`} className="btn btn-ghost btn-small">
-                    Open this mandate
-                  </Link>
                 </section>
                 <AgentPanel key={m.id} m={m} onDone={portfolio.reload} />
               </div>
@@ -196,22 +187,11 @@ export function PayoutsPage() {
               loading={portfolio.loading}
               error={portfolio.error}
               onRetry={portfolio.reload}
-              empty="No payouts yet. Ask for one above and it shows here, paid, waiting or blocked."
+              empty="No payouts yet."
             />
-            <ComingSoon
+            <SoonRow
               title="More ways to pay"
-              lede="Today a payout is USDC to the recipient's Stellar wallet, or through the Stellar Disbursement Platform. Local money is next."
-              items={[
-                {
-                  title: 'Bank and mobile money',
-                  text: 'Paid out in local currency through Stellar anchors.',
-                },
-                { title: 'Cash pickup', text: 'Collected at an agent near the recipient.' },
-                {
-                  title: 'Split one payout',
-                  text: 'Part to a wallet, part to a bank, as the recipient chooses.',
-                },
-              ]}
+              items={['Bank and mobile money', 'Cash pickup', 'Split payouts']}
             />
           </div>
         );
@@ -232,10 +212,6 @@ export function ApprovalsPage() {
             : loaded(bundles).filter(({ bundle }) => bundle.payouts.some(isWaiting));
         return (
           <div className="stack">
-            <p className="lead">
-              Payouts at or above a mandate&apos;s approval amount wait here. Approve or reject each
-              one in your wallet; once approved, press Pay now and the mandate pays.
-            </p>
             <PortfolioProblems portfolio={portfolio} />
             {lastPaid === null ? null : (
               <RequestNotice result={lastPaid.result} label={lastPaid.label} />
@@ -249,11 +225,14 @@ export function ApprovalsPage() {
                 <h2 id="none-waiting" className="card-title">
                   Nothing waiting
                 </h2>
-                <p className="muted">
-                  {bundles.length === 0
-                    ? 'Create a mandate first. Payouts at or above its approval amount show up here.'
-                    : 'Every payout so far was below the approval amount, or is already decided. New ones show up here.'}
-                </p>
+                <Empty
+                  text={
+                    bundles.length === 0
+                      ? 'Create a mandate first.'
+                      : 'Payouts above your approval amount land here.'
+                  }
+                  action={bundles.length === 0 ? <CreateLink small /> : undefined}
+                />
               </section>
             ) : (
               groups.map(({ mandate, bundle }) => (
@@ -272,17 +251,9 @@ export function ApprovalsPage() {
                 />
               ))
             )}
-            <ComingSoon
+            <SoonRow
               title="Approve as a team"
-              lede="Any two of three people approve a big payout, each with a passkey. One is never enough."
-              items={[
-                {
-                  title: 'Passkey approvers',
-                  text: 'Approve with a fingerprint. No seed phrases.',
-                },
-                { title: 'Two of three', text: 'Set how many people must say yes.' },
-                { title: 'Approve on your phone', text: 'A link that opens the payout to decide.' },
-              ]}
+              items={['Passkey approvers', 'Two of three', 'Approve on your phone']}
             />
           </div>
         );
@@ -296,10 +267,6 @@ export function ReceiptsPage() {
     <WithPortfolio what="your receipts">
       {(portfolio) => (
         <div className="stack">
-          <p className="lead">
-            Every request an agent makes leaves a receipt, paid or blocked: the task, who, how much,
-            and the Stellar transaction when money moved.
-          </p>
           <PortfolioProblems portfolio={portfolio} />
           <ReceiptsTable
             title="All receipts"
@@ -309,14 +276,9 @@ export function ReceiptsPage() {
             onRetry={portfolio.reload}
             showMandate
           />
-          <ComingSoon
+          <SoonRow
             title="Receipts you can hand on"
-            lede="A receipt that you and the recipient can check without trusting UJIRA."
-            items={[
-              { title: 'Signed receipts', text: 'Verifiable offline against the Stellar ledger.' },
-              { title: 'Export', text: 'A file for your accountants, by month or by mandate.' },
-              { title: 'A page per receipt', text: 'A link to send the person who was paid.' },
-            ]}
+            items={['Signed receipts', 'Export', 'A page per receipt']}
           />
         </div>
       )}

@@ -2,34 +2,17 @@
 // Copyright 2026 Qomira Labs
 
 import react from '@vitejs/plugin-react';
-import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
-
-import tokens from './src/brand/tokens.json' with { type: 'json' };
-import { tokensToCss } from './src/brand/tokens.ts';
 
 // During development the API runs on the server (ujira-mcp-http, port 8080 by
 // default); the dev server forwards /api to it so the browser sees one origin.
 const apiTarget = process.env['UJIRA_API_URL'] ?? 'http://127.0.0.1:8080';
 
-const TOKENS_ID = 'virtual:ujira-tokens.css';
-// A path like id ending in .css, so the CSS pipeline picks the module up.
-const RESOLVED_TOKENS_ID = '/__ujira-tokens.css';
-
-/** Serves the brand colour tokens as CSS custom properties. */
-function brandTokens(): Plugin {
-  return {
-    name: 'ujira-brand-tokens',
-    resolveId: (id) => (id === TOKENS_ID ? RESOLVED_TOKENS_ID : undefined),
-    load: (id) => (id === RESOLVED_TOKENS_ID ? tokensToCss(tokens) : undefined),
-  };
-}
-
 // Served by the UJIRA server at /app; the marketing site owns the root.
 const BASE = '/app/';
 
 export default defineConfig({
-  plugins: [brandTokens(), react()],
+  plugins: [react()],
   base: BASE,
   build: {
     outDir: 'dist',

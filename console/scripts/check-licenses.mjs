@@ -74,8 +74,8 @@ if (process.argv.includes('--write')) {
     '| --- | --- | --- |',
     ...shipped.map((p) => `| ${p.name} | ${p.version} | ${p.license} |`),
     '',
-    'Fonts: Inter and JetBrains Mono, SIL Open Font License 1.1, through Fontsource.',
-    'Brand marks, icons and the weave band are Qomira Labs assets.',
+    'Fonts: Urbanist and JetBrains Mono, SIL Open Font License 1.1, from Google Fonts, as on the landing page.',
+    'Brand marks and icons are Qomira Labs assets.',
     '',
   ];
   writeFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), lines.join('\n'));

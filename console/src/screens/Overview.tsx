@@ -3,7 +3,7 @@
 
 import { type ReactNode } from 'react';
 
-import { explorerAccount, useApp } from '../app/context';
+import { useApp } from '../app/context';
 import { useAction, useResource, type Resource } from '../app/hooks';
 import {
   allReceipts,
@@ -16,67 +16,46 @@ import { WalletChoices } from '../components/Connect';
 import { Link } from '../components/Link';
 import { MandateList } from '../components/MandateList';
 import { ReceiptsTable } from '../components/ReceiptsTable';
-import { FaucetOffline, TopUpPanel, TopUpResult, useTopUp } from '../components/TopUp';
+import { FaucetOffline, TopUpResult, useTopUp } from '../components/TopUp';
 import {
   Amount,
   BrandIcon,
   ErrorNotice,
-  Kpi,
-  Notice,
+  Icon,
   Skeleton,
-  SoonTag,
+  SoonRow,
   Spinner,
   type BrandIconName,
 } from '../components/ui';
-import { compareMinor, formatAmount } from '../lib/money';
+import { addMinor, compareMinor, formatAmount } from '../lib/money';
 import type { Account } from '../lib/schemas';
 import { signAndSubmit } from '../lib/sign';
-import { shortAddress } from '../lib/strkey';
 import type { Wallet } from '../lib/wallet';
 
 const STEPS: readonly { icon: BrandIconName; title: string; text: string }[] = [
-  {
-    icon: 'mandate',
-    title: 'You set the rules',
-    text: 'A total budget, a limit per payment and per person per day, who can be paid, and an end date.',
-  },
-  {
-    icon: 'agent',
-    title: 'The agent asks',
-    text: 'Your AI agent asks the mandate to pay someone for a task. It never holds your money.',
-  },
-  {
-    icon: 'rail',
-    title: 'The contract decides',
-    text: 'The mandate on Stellar checks every rule. If one fails, nothing is paid and you see why.',
-  },
-  {
-    icon: 'approval',
-    title: 'A person approves big payouts',
-    text: 'Anything at or above your approval amount waits until you approve it from your wallet.',
-  },
-  {
-    icon: 'receipt',
-    title: 'Every payment gets a receipt',
-    text: 'Task, recipient, amount and the Stellar transaction, so anyone can check it.',
-  },
+  { icon: 'mandate', title: 'You set the rules', text: 'Budget, caps, recipients, end date.' },
+  { icon: 'agent', title: 'The agent asks', text: 'One payout request per task.' },
+  { icon: 'rail', title: 'The contract decides', text: 'Every rule checked on Stellar.' },
+  { icon: 'approval', title: 'A person approves big payouts', text: 'Above your limit, you sign.' },
+  { icon: 'receipt', title: 'Every payment gets a receipt', text: 'Task, amount, transaction.' },
 ];
 
 export function HowItWorks() {
   return (
-    <section className="how" aria-labelledby="how-title">
-      <h2 id="how-title" className="section-title">
+    <section className="card how" aria-labelledby="how-title">
+      <h2 id="how-title" className="card-title">
         How UJIRA works
       </h2>
       <ol className="how-steps">
-        {STEPS.map((s, i) => (
+        {STEPS.map((s) => (
           <li key={s.title}>
-            <span className="how-icon">
+            <span className="tile">
               <BrandIcon name={s.icon} size={22} />
             </span>
-            <span className="how-n label">{String(i + 1).padStart(2, '0')}</span>
-            <h3>{s.title}</h3>
-            <p>{s.text}</p>
+            <span>
+              <h3>{s.title}</h3>
+              <p className="muted small">{s.text}</p>
+            </span>
           </li>
         ))}
       </ol>
@@ -86,61 +65,30 @@ export function HowItWorks() {
 
 function ComingNext() {
   return (
-    <section className="card" aria-labelledby="soon-title">
-      <h2 id="soon-title" className="card-title">
-        Coming next
-      </h2>
-      <ul className="soon-list">
-        <li>
-          <BrandIcon name="local-currency" />
-          <span>
-            <strong>Local currency payouts</strong>
-            <span className="muted">Bank, mobile money and cash through Stellar anchors.</span>
-          </span>
-          <SoonTag />
-        </li>
-        <li>
-          <BrandIcon name="payout" />
-          <span>
-            <strong>Fund with a bank transfer</strong>
-            <span className="muted">Top up a mandate from a bank account instead of USDC.</span>
-          </span>
-          <SoonTag />
-        </li>
-        <li>
-          <BrandIcon name="approval" />
-          <span>
-            <strong>Several approvers with passkeys</strong>
-            <span className="muted">
-              Two of three people approve a big payout. No seed phrases.
-            </span>
-          </span>
-          <SoonTag />
-        </li>
-      </ul>
-    </section>
+    <SoonRow
+      title="Coming next"
+      items={['Local currency payouts', 'Bank funding', 'Passkey approvers']}
+    />
   );
 }
 
 function Welcome() {
   return (
-    <section className="hero" aria-labelledby="hero-title">
-      <div className="hero-copy">
-        <p className="label">UJIRA dashboard</p>
-        <h2 id="hero-title">Pay the people who do the work.</h2>
-        <p className="lead">
-          Create a spending mandate on Stellar with your own wallet, fund it with test USDC, and
-          watch an AI agent ask it for payouts. The contract decides, you approve the big ones, and
-          every payment leaves a receipt.
-        </p>
+    <section className="welcome" aria-labelledby="hero-title">
+      <div className="welcome-copy">
+        <p className="eyebrow">Non-custodial payouts</p>
+        <h2 id="hero-title">
+          Pay people from a mandate <span className="grad">you own.</span>
+        </h2>
+        <p className="lede">Set the rules once. The contract on Stellar enforces them.</p>
       </div>
       <div className="connect">
-        <h3 className="card-title">Connect a wallet to start</h3>
-        <p className="muted">
-          Your keys stay in your wallet. You approve each step there, and nothing moves without your
-          signature.
-        </p>
+        <h3 className="card-title">Connect a wallet</h3>
         <WalletChoices />
+        <p className="assure">
+          <Icon name="lock" size={16} />
+          Your keys stay in your wallet.
+        </p>
       </div>
     </section>
   );
@@ -163,26 +111,19 @@ function SetupStep(props: {
   return (
     <li className={`setup-step setup-${props.state}`}>
       <span className="setup-n" aria-hidden="true">
-        {props.state === 'done' ? (
-          <svg width="16" height="16" viewBox="0 0 16 16">
-            <path d="M4 8.5 6.8 11.3 12 5.5" />
-          </svg>
-        ) : (
-          props.n
-        )}
+        {props.state === 'done' ? <Icon name="check" size={16} /> : props.n}
       </span>
       <div className="setup-body">
         <h3>
           {props.title}
           <span className="sr-only">{props.state === 'done' ? ' (done)' : ' (to do)'}</span>
         </h3>
-        <p className="muted">{props.text}</p>
-        {props.detail === undefined ? null : <p className="setup-detail">{props.detail}</p>}
+        <p className="muted small">{props.detail ?? props.text}</p>
       </div>
       {showAction && props.action !== undefined ? (
         <button
           type="button"
-          className={props.state === 'next' ? 'btn btn-primary' : 'btn'}
+          className={props.state === 'next' ? 'btn btn-primary btn-small' : 'btn btn-small'}
           disabled={!usable || props.action.busy || props.action.disabled === true}
           onClick={props.action.onClick}
         >
@@ -211,7 +152,13 @@ function setupStates(a: Account | undefined): {
   };
 }
 
-const xlmText = (xlm: string) => xlm.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+/** "10000.5000000" as "10,000.5": thousands grouped, no trailing zeros. */
+function xlmText(xlm: string): string {
+  const [whole = '0', fraction = ''] = xlm.split('.');
+  const shown = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const rest = fraction.replace(/0+$/, '');
+  return rest === '' ? shown : `${shown}.${rest}`;
+}
 
 function SetupChecklist({ wallet, account }: { wallet: Wallet; account: Resource<Account> }) {
   const { api, config, notify } = useApp();
@@ -237,11 +184,8 @@ function SetupChecklist({ wallet, account }: { wallet: Wallet; account: Resource
         <h2 id="setup-title" className="card-title">
           Get your wallet ready
         </h2>
-        {s.ready ? <span className="muted">All set</span> : null}
+        {s.ready ? <span className="pill pill-paid">All set</span> : null}
       </div>
-      <p className="muted">
-        Three quick steps. Come back to top up whenever you run low. Everything here is test money.
-      </p>
       {account.loading ? (
         <Skeleton lines={3} label="Checking your wallet" />
       ) : account.error !== null && a === undefined ? (
@@ -252,32 +196,22 @@ function SetupChecklist({ wallet, account }: { wallet: Wallet; account: Resource
             n={1}
             state={s.xlm}
             title="Get test XLM"
-            text="Pays the tiny network fees. It comes from Stellar's free test faucet."
-            detail={
-              a?.xlm === null || a?.xlm === undefined
-                ? undefined
-                : `${xlmText(a.xlm)} XLM in your wallet`
-            }
+            text="Pays network fees."
+            detail={a?.xlm === null || a?.xlm === undefined ? undefined : `${xlmText(a.xlm)} XLM`}
             action={{ label: 'Get test XLM', busy: xlm.busy, onClick: () => void xlm.run() }}
           />
           <SetupStep
             n={2}
             state={s.trust}
             title="Let your wallet hold USDC"
-            text="Adds a USDC trustline. Your wallet asks you to sign one transaction."
+            text="One signature."
             action={{ label: 'Add USDC', busy: trust.busy, onClick: () => void trust.run() }}
           />
           <SetupStep
             n={3}
             state={s.usdc}
             title="Get test USDC"
-            text={
-              topUp.enabled ? (
-                `Our faucet tops your wallet up so you can fund a mandate. ${topUp.hint}`
-              ) : (
-                <FaucetOffline />
-              )
-            }
+            text={topUp.enabled ? topUp.hint : <FaucetOffline />}
             detail={
               a?.usdc === null || a?.usdc === undefined
                 ? undefined
@@ -293,106 +227,128 @@ function SetupChecklist({ wallet, account }: { wallet: Wallet; account: Resource
           />
         </ol>
       )}
+      {topUp.cooling ? (
+        <p className="muted small" role="status">
+          {topUp.hint}
+        </p>
+      ) : null}
       {error === null ? null : <ErrorNotice error={error} />}
       <TopUpResult t={topUp} />
-      <div className="actions">
-        <Link to="/mandates/new" className={s.ready ? 'btn btn-primary' : 'btn'}>
-          Create a mandate
-        </Link>
-        {!s.ready && !account.loading ? (
-          <span className="muted small">
-            Finish the steps above first, or create one anyway if you already hold test USDC.
-          </span>
-        ) : null}
-      </div>
     </section>
   );
 }
 
-function WalletCard({ wallet, account }: { wallet: Wallet; account: Resource<Account> }) {
+function Figure({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className="card" aria-labelledby="wallet-title">
-      <h2 id="wallet-title" className="card-title">
-        Your wallet
-      </h2>
-      <p className="muted">
-        Fees are paid in test XLM. Mandates are funded from the test USDC here.
-      </p>
-      <TopUpPanel
-        wallet={wallet}
-        intro="Running low? The faucet tops your wallet up with test USDC, then add funds to a mandate from its page."
-        onDone={account.reload}
-      />
-    </section>
-  );
-}
-
-function Figures({
-  account,
-  bundles,
-}: {
-  account: Resource<Account>;
-  bundles: readonly MandateBundle[] | undefined;
-}) {
-  const a = account.data;
-  const waiting = bundles === undefined ? undefined : waitingPayouts(bundles).length;
-  const pending = <span className="muted">Checking</span>;
-  return (
-    <div className="kpis">
-      <Kpi
-        label="Test XLM"
-        value={
-          a === undefined ? (
-            pending
-          ) : a.xlm === null ? (
-            'Not funded'
-          ) : (
-            <span className="amount">{xlmText(a.xlm)}</span>
-          )
-        }
-        note="Pays the network fees"
-      />
-      <Kpi
-        label="USDC in your wallet"
-        value={
-          a === undefined ? pending : a.usdc === null ? 'Not added' : <Amount minor={a.usdc} />
-        }
-        note="Moves into a mandate when you fund it"
-      />
-      <Kpi
-        label="Held in your mandates"
-        value={bundles === undefined ? pending : <Amount minor={heldTotal(bundles)} />}
-        note={
-          bundles === undefined
-            ? ' '
-            : bundles.length === 1
-              ? 'Across 1 mandate'
-              : `Across ${String(bundles.length)} mandates`
-        }
-      />
-      <Kpi
-        label="Waiting for you"
-        value={waiting === undefined ? pending : <span className="amount">{waiting}</span>}
-        note={waiting === 1 ? 'Payout to approve or pay' : 'Payouts to approve or pay'}
-        action={
-          waiting !== undefined && waiting > 0 ? (
-            <Link to="/approvals" className="kpi-link">
-              Review approvals
-            </Link>
-          ) : undefined
-        }
-      />
+    <div>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
     </div>
   );
 }
 
-function greeting(): string {
-  const h = new Date().getHours();
-  return h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
+/** The figure a person looks for first: what they hold, and the two main actions. */
+function Balance({
+  wallet,
+  account,
+  bundles,
+  canTopUp,
+}: {
+  wallet: Wallet;
+  account: Resource<Account>;
+  bundles: readonly MandateBundle[] | undefined;
+  canTopUp: boolean;
+}) {
+  const topUp = useTopUp(wallet, account.reload);
+  const a = account.data;
+  const held = bundles === undefined ? undefined : heldTotal(bundles);
+  const inWallet = a === undefined ? undefined : (a.usdc ?? '0');
+  const total = held === undefined || inWallet === undefined ? undefined : addMinor(held, inWallet);
+  const checking = <span className="muted">...</span>;
+  return (
+    <section className="balance" aria-labelledby="balance-title">
+      <div className="balance-top">
+        <h2 id="balance-title" className="balance-label">
+          Total balance
+        </h2>
+        <span className="assure">
+          <Icon name="lock" size={15} />
+          Non-custodial. Your wallet signs.
+        </span>
+      </div>
+      <p className="balance-value">
+        {total === undefined ? (
+          <>
+            <span className="skeleton-line balance-skeleton" aria-hidden="true" />
+            <span className="sr-only">Checking</span>
+          </>
+        ) : (
+          <Amount minor={total} size="xl" />
+        )}
+      </p>
+      <dl className="balance-split">
+        <Figure label="In mandates">
+          {held === undefined ? checking : <Amount minor={held} />}
+        </Figure>
+        <Figure label="In wallet">
+          {a === undefined ? checking : a.usdc === null ? 'Not added' : <Amount minor={a.usdc} />}
+        </Figure>
+        <Figure label="Test XLM">
+          {a === undefined ? (
+            checking
+          ) : a.xlm === null ? (
+            'Not funded'
+          ) : (
+            <span className="amount">{xlmText(a.xlm)}</span>
+          )}
+        </Figure>
+      </dl>
+      <div className="balance-actions">
+        <Link to="/mandates/new" className="btn btn-primary">
+          <Icon name="plus" size={18} />
+          Create a mandate
+        </Link>
+        {canTopUp ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={!topUp.enabled || topUp.busy}
+            onClick={topUp.run}
+            title={topUp.label}
+          >
+            {topUp.busy ? <Spinner /> : null}
+            Top up
+          </button>
+        ) : null}
+      </div>
+      {canTopUp ? (
+        <div className="balance-note">
+          {topUp.cooling ? (
+            <p className="small" role="status">
+              {topUp.hint}
+            </p>
+          ) : null}
+          <TopUpResult t={topUp} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function WaitingStrip({ n }: { n: number }) {
+  if (n === 0) return null;
+  return (
+    <Link to="/approvals" className="strip">
+      <span className="strip-dot" aria-hidden="true" />
+      <strong>{n === 1 ? '1 payout waiting' : `${String(n)} payouts waiting`}</strong>
+      <span className="muted">for your approval</span>
+      <Icon name="arrow" size={18} />
+    </Link>
+  );
 }
 
 export function Overview() {
-  const { api, config, wallet } = useApp();
+  const { api, wallet } = useApp();
   const address = wallet?.address ?? null;
   const account = useResource(address === null ? null : `account:${address}`, () =>
     api.account(address ?? ''),
@@ -411,74 +367,54 @@ export function Overview() {
 
   const bundles = portfolio?.data;
   const hasMandates = bundles !== undefined && bundles.length > 0;
-  const receipts = bundles === undefined ? undefined : allReceipts(bundles).slice(0, 5);
+  const receipts = bundles === undefined ? undefined : allReceipts(bundles).slice(0, 6);
+  const waiting = bundles === undefined ? 0 : waitingPayouts(bundles).length;
+
+  if (!hasMandates) {
+    return (
+      <div className="stack">
+        <Balance wallet={wallet} account={account} bundles={bundles} canTopUp={false} />
+        <div className="grid-2">
+          <SetupChecklist wallet={wallet} account={account} />
+          <HowItWorks />
+        </div>
+        <ComingNext />
+      </div>
+    );
+  }
 
   return (
     <div className="stack">
-      <section className="greet" aria-labelledby="greet-title">
-        <div>
-          <h2 id="greet-title">
-            {greeting()} <span className="greet-accent">Ready to pay.</span>
-          </h2>
-          <p className="muted">
-            Wallet <span className="mono">{shortAddress(wallet.address, 6)}</span> on Stellar
-            testnet.{' '}
-            <a href={explorerAccount(config, wallet.address)} target="_blank" rel="noreferrer">
-              See it on Stellar Expert<span className="sr-only"> (opens in a new tab)</span>
-            </a>
-          </p>
-        </div>
-        {hasMandates ? (
-          <div className="actions">
-            <Link to="/payouts" className="btn">
-              Ask for a payout
-            </Link>
-            <Link to="/mandates/new" className="btn btn-primary">
-              Create a mandate
-            </Link>
-          </div>
-        ) : null}
-      </section>
-      <Figures account={account} bundles={bundles} />
-      <div className="grid-2">
-        {hasMandates ? (
-          <WalletCard wallet={wallet} account={account} />
-        ) : (
-          <SetupChecklist wallet={wallet} account={account} />
-        )}
+      <div className="grid-main">
+        <Balance wallet={wallet} account={account} bundles={bundles} canTopUp />
         <section className="card" aria-labelledby="mine-title">
           <div className="card-head">
             <h2 id="mine-title" className="card-title">
               Your mandates
             </h2>
-            {hasMandates ? (
-              <Link to="/mandates" className="btn btn-ghost btn-small">
-                See all
-              </Link>
-            ) : null}
+            <Link to="/mandates" className="card-link">
+              See all
+            </Link>
           </div>
-          <MandateList portfolio={portfolio} limit={4} compact />
+          <MandateList portfolio={portfolio} limit={3} compact />
         </section>
       </div>
-      {hasMandates ? (
-        <ReceiptsTable
-          title="Latest receipts"
-          rows={receipts}
-          loading={portfolio?.loading ?? false}
-          error={portfolio?.error ?? null}
-          onRetry={portfolio?.reload ?? (() => undefined)}
-          showMandate
-        />
-      ) : (
-        <HowItWorks />
-      )}
+      <WaitingStrip n={waiting} />
+      <ReceiptsTable
+        title="Recent payouts"
+        rows={receipts}
+        loading={portfolio?.loading ?? false}
+        error={portfolio?.error ?? null}
+        onRetry={portfolio?.reload ?? (() => undefined)}
+        showMandate
+        empty="No payouts yet."
+        more={
+          <Link to="/receipts" className="card-link">
+            See all
+          </Link>
+        }
+      />
       <ComingNext />
-      <Notice tone="info">
-        <p>
-          Prefer to drive it from an AI client? Every mandate has its own MCP address.{' '}
-          <Link to="/developers">Connect Claude</Link> from the Developers page.
-        </p>
-      </Notice>
     </div>
   );
 }

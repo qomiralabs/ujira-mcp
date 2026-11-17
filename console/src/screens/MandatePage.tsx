@@ -446,38 +446,54 @@ export function MandatePage({ id }: { id: string }) {
           <p>Could not refresh: {mandate.error} Showing the last known state.</p>
         </Notice>
       )}
-      <div className="grid-2">
-        <section className="card balance balance-card" aria-labelledby="money-title">
-          <h2 id="money-title" className="sr-only">
-            Money
-          </h2>
-          <BudgetMeter m={m} />
-          {lowBalance ? (
-            <p className="small warn-text">Holds less than one max payment. Add funds below.</p>
-          ) : null}
-        </section>
-        <Rules m={m} />
-      </div>
-      <div className="grid-2">
-        <AgentPanel m={m} onDone={refresh} />
-        <Approvals
-          m={m}
-          payouts={payouts.data}
-          loading={payouts.loading}
-          error={payouts.error}
-          onRetry={payouts.reload}
-          onDone={refresh}
-        />
-      </div>
-      <ReceiptsTable
-        rows={receipts.data?.map((receipt) => ({ mandate: m, receipt }))}
-        loading={receipts.loading}
-        error={receipts.error}
-        onRetry={receipts.reload}
-      />
-      <div className="grid-2">
-        <OwnerControls m={m} onChanged={refresh} />
-        <ConnectClaude m={m} />
+      {/* Two columns that stack on their own on wide screens; on a phone the
+          slots fall into one list in the order a person needs them. */}
+      <div className="mandate-grid">
+        <div className="mandate-col">
+          <div className="slot slot-held">
+            <section className="card balance balance-card" aria-labelledby="money-title">
+              <h2 id="money-title" className="sr-only">
+                Money
+              </h2>
+              <BudgetMeter m={m} />
+              {lowBalance ? (
+                <p className="small warn-text">Holds less than one max payment. Add funds below.</p>
+              ) : null}
+            </section>
+          </div>
+          <div className="slot slot-agent">
+            <AgentPanel m={m} onDone={refresh} />
+          </div>
+          <div className="slot slot-owner">
+            <OwnerControls m={m} onChanged={refresh} />
+          </div>
+        </div>
+        <div className="mandate-col">
+          <div className="slot slot-rules">
+            <Rules m={m} />
+          </div>
+          <div className="slot slot-approvals">
+            <Approvals
+              m={m}
+              payouts={payouts.data}
+              loading={payouts.loading}
+              error={payouts.error}
+              onRetry={payouts.reload}
+              onDone={refresh}
+            />
+          </div>
+          <div className="slot slot-claude">
+            <ConnectClaude m={m} />
+          </div>
+        </div>
+        <div className="slot slot-receipts">
+          <ReceiptsTable
+            rows={receipts.data?.map((receipt) => ({ mandate: m, receipt }))}
+            loading={receipts.loading}
+            error={receipts.error}
+            onRetry={receipts.reload}
+          />
+        </div>
       </div>
     </div>
   );

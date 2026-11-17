@@ -569,6 +569,70 @@ select {
   gap: 10px;
 }
 
+/* The mandate page: two independent columns, receipts across the bottom. */
+.mandate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.mandate-col {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  min-width: 0;
+}
+
+.slot {
+  display: grid;
+  min-width: 0;
+}
+
+.slot-receipts {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1080px) {
+  .mandate-grid {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mandate-col {
+    display: contents;
+  }
+
+  .slot-held {
+    order: 1;
+  }
+
+  .slot-approvals {
+    order: 2;
+  }
+
+  .slot-agent {
+    order: 3;
+  }
+
+  .slot-rules {
+    order: 4;
+  }
+
+  .slot-receipts {
+    order: 5;
+  }
+
+  .slot-owner {
+    order: 6;
+  }
+
+  .slot-claude {
+    order: 7;
+  }
+}
+
 /* Cards */
 
 .card {

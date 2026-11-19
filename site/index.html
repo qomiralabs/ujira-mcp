@@ -65,9 +65,7 @@ h1, h2, h3 { font-weight: 500; letter-spacing: -0.045em; text-wrap: balance }
 .nav { position: fixed; z-index: 50; top: 12px; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none }
 .nav-inner { pointer-events: auto; position: relative; display: flex; align-items: center; justify-content: space-between; width: calc(100% - 24px); max-width: 1440px; height: 52px; padding: 0 14px; border-radius: 16px; transition: max-width .7s var(--ease), background .5s, box-shadow .5s, backdrop-filter .5s }
 .nav.scrolled .nav-inner { max-width: 896px; background: rgba(255,255,255,.55); backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 8px 30px -12px rgba(10,31,38,.18) }
-.nav-links { display: flex; gap: 22px; font-size: 16px; color: var(--ink-2) }
-.nav-links a:hover { color: var(--ink) }
-.nav-logo { position: absolute; left: 50%; transform: translateX(-50%); background: #fff; border-radius: 12px; height: 36px; padding: 0 14px; display: flex; align-items: center; box-shadow: 0 1px 2px rgba(10,31,38,.06) }
+.nav-logo { background: #fff; border-radius: 12px; height: 36px; padding: 0 14px; display: flex; align-items: center; box-shadow: 0 1px 2px rgba(10,31,38,.06) }
 .nav-logo svg { height: 22px; width: auto; display: block }
 .nav-right { display: flex; align-items: center; gap: 22px; font-size: 16px; color: var(--ink-2) }
 .gb { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 10px; color: var(--ink); background: #fff; font-weight: 500; isolation: isolate }
@@ -291,7 +289,6 @@ footer { background: #fff; padding: 0 0 40px }
 .fb .built { font: 500 12px var(--mono); letter-spacing: .12em }
 
 @media (max-width: 960px) {
-  .nav-links, .nav-right .login { display: none }
   .split, .wdg-row, .ft { grid-template-columns: minmax(0, 1fr) }
   .gcard { min-height: 0; padding: 48px 20px }
   .kpis, .contracts { grid-template-columns: repeat(2, minmax(0, 1fr)) }
@@ -299,8 +296,6 @@ footer { background: #fff; padding: 0 0 40px }
   .cols { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
 @media (max-width: 560px) {
-  .nav-logo { position: static; transform: none }
-  .nav-inner { justify-content: space-between }
   .profile { padding: 14px 14px 24px }
   .contracts, .kpis { grid-template-columns: minmax(0, 1fr) }
   .call { border-radius: 32px }
@@ -318,11 +313,10 @@ footer { background: #fff; padding: 0 0 40px }
 
 <nav class="nav" id="nav" aria-label="Main">
   <div class="nav-inner">
-    <div class="nav-links"><a href="#platform">Platform</a><a href="#business">For platforms</a><a href="#faq">About</a><a href="/instaward">Testnet proof</a></div>
     <a class="nav-logo" href="#top" aria-label="UJIRA home"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 12 290 76" role="img" aria-label="UJIRA">
 <path d="M34 46C30 38 22 32 14 32C14 56 30 68 50 68C70 68 86 56 86 32C78 32 70 38 66 46" fill="none" stroke="#0F4C5C" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="50" cy="40" r="11" fill="#F4A300"></circle><g transform="translate(104,32) scale(0.9)"><g fill="none" stroke="#0F4C5C" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3.5V22a14.5 14.5 0 0 0 29 0V3.5"></path><path d="M73 3.5V25a11.5 11.5 0 0 1-23 0"></path><path d="M89 3.5V36.5"></path><path d="M105.5 36.5V3.5H119a9 9 0 0 1 0 18H105.5M118 21.5L130 36.5"></path><path d="M142 36.5L157.5 3.5L173 36.5M148 25H167"></path></g><circle cx="18" cy="17" r="5.5" fill="#F4A300"></circle></g>
 </svg></a>
-    <div class="nav-right"><a class="login" href="#business">See it live</a><a class="gb" href="/app">Get started <svg><use href="#chev"/></svg></a></div>
+    <div class="nav-right"><a class="gb" href="/app">Get started <svg><use href="#chev"/></svg></a></div>
   </div>
 </nav>
 

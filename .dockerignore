@@ -19,3 +19,4 @@ test
 .env.*
 *.pem
 *.key
+.railway

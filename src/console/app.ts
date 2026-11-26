@@ -13,28 +13,34 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import {
-  Asset,
-  Keypair,
-  Operation,
-  TransactionBuilder,
-  scValToNative,
-  type Account,
-  type Transaction,
-} from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
+import type { TxSigner } from '../chain/adapter.js';
+import type { StellarChainAdapter } from '../chain/stellar/adapter.js';
+import {
+  allowEntriesOf,
+  classify,
+  parseEnvelope,
+  type AllowedTx,
+} from '../chain/stellar/allowlist.js';
+import { address, bytes32, encodeAllowEntries, i128, nativeOf } from '../chain/stellar/codec.js';
+import { TESTNET_PASSPHRASE } from '../chain/stellar/gateway.js';
+import { randomKeypair, type Keypair } from '../chain/stellar/keys.js';
+import type { Account, Transaction } from '../chain/stellar/network.js';
+import {
+  MAX_ALLOW_ENTRIES,
+  createArgs,
+  invokeTx,
+  paymentTx,
+  trustlineTx,
+} from '../chain/stellar/txbuild.js';
 import { accountAddress, defaultRecipientRef, taskId } from '../ids.js';
-import { MandateClient } from '../mandate/client.js';
-import { address, bytes32, encodeAllowEntries, i128 } from '../mandate/codec.js';
 import { BodyTooLarge, readBody, send, type ExtraRoutes, type McpBinding } from '../mcp/http.js';
 import { WindowLimiter, type HttpSettings } from '../mcp/public.js';
 import { TOOLS, type GuardAnswer, type ToolGuard, type ToolName } from '../mcp/server.js';
 import { formatUnits } from '../money.js';
 import { RAIL_NAMES } from '../rails/rail.js';
 import type { ReceiptLog } from '../receipts/log.js';
-import { TESTNET_PASSPHRASE, type SorobanGateway, type TxSigner } from '../stellar/gateway.js';
-import { allowEntriesOf, classify, parseEnvelope, type AllowedTx } from './allowlist.js';
 import type { ConsoleChain } from './chain.js';
 import { ApiError, toApiError } from './errors.js';
 import {
@@ -47,16 +53,11 @@ import {
 import { defaultLabel, type ConsoleRegistry, type MandateEntry } from './registry.js';
 import type { ConsoleSettings } from './settings.js';
 import {
-  INCLUSION_FEE,
-  MAX_ALLOW_ENTRIES,
   checkCreateParams,
-  createArgs,
   describe,
   describeCreate,
-  invokeTx,
   issues,
   parseBuildRequest,
-  trustlineTx,
   type BuildRequest,
 } from './txbuild.js';
 import type { TestWalletStore } from './wallets.js';
@@ -71,7 +72,8 @@ export interface ConsoleOptions {
   readonly http: HttpSettings;
   readonly agent: TxSigner;
   readonly executor: TxSigner;
-  readonly gateway: SorobanGateway;
+  /** Mandate reads and the engine's chain calls go through this, never a gateway. */
+  readonly adapter: StellarChainAdapter;
   readonly receipts: ReceiptLog;
   readonly registry: ConsoleRegistry;
   readonly chain: ConsoleChain;
@@ -132,7 +134,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
   const { settings, registry, chain } = o;
   const now = o.now ?? Date.now;
   const log = o.log ?? (() => undefined);
-  const newKeypair = o.newKeypair ?? (() => Keypair.random());
+  const newKeypair = o.newKeypair ?? randomKeypair;
   const lim = settings.limits;
   const limiters = {
     api: new WindowLimiter(lim.apiCallsPerMinute, 60_000, now),
@@ -143,7 +145,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     toolCalls: new WindowLimiter(o.http.limits.toolCallsPerMinute, 60_000, now),
   };
   const services: MandateServices = {
-    gateway: o.gateway,
+    adapter: o.adapter,
     receipts: o.receipts,
     agent: o.agent,
     executor: o.executor,
@@ -323,19 +325,12 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         throw new ApiError(503, 'faucet_empty', 'The test USDC faucet is empty for now');
       }
       take(limiters.faucet, client, 'faucet top ups from your address');
-      const tx = new TransactionBuilder(await chain.loadAccount(treasury.publicKey), {
-        fee: INCLUSION_FEE,
-        networkPassphrase: TESTNET_PASSPHRASE,
-      })
-        .addOperation(
-          Operation.payment({
-            destination: addr,
-            asset: new Asset(settings.usdc.code, settings.usdc.issuer),
-            amount: formatUnits(amount),
-          }),
-        )
-        .setTimeout(60)
-        .build();
+      const tx = paymentTx(await chain.loadAccount(treasury.publicKey), {
+        destination: addr,
+        asset: settings.usdc,
+        amount,
+        timeoutSeconds: 60,
+      });
       treasury.sign(tx);
       const sent = await chain.submit(tx);
       if (sent.status !== 'SUCCESS') {
@@ -439,7 +434,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         address: r.address,
       })),
     );
-    const client = new MandateClient(o.gateway, entry.id);
+    const client = o.adapter.mandate(entry.id);
     const allowed = await Promise.all(
       wanted.map((w) => client.isAllowed(w.recipientRef, w.destination)),
     );
@@ -581,8 +576,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       );
     }
     const sent = await chain.submit(tx);
-    const value: unknown =
-      sent.returnValue === undefined ? undefined : scValToNative(sent.returnValue);
+    const value: unknown = sent.returnValue === undefined ? undefined : nativeOf(sent.returnValue);
     const mandate =
       sent.status === 'SUCCESS' ? await afterSuccess(kind, value, sent.hash) : undefined;
     return {
@@ -605,7 +599,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
 
   async function mandate(id: string, req: IncomingMessage) {
     const entry = mandateOr404(id);
-    const view = await mandateView(entry, o.gateway);
+    const view = await mandateView(entry, o.adapter);
     return {
       ...view,
       mcpUrl: `${origin(req)}/m/${id}/mcp`,

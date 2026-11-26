@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 import { PayoutEngine } from '../src/engine/engine.js';
 import { defaultRecipientRef } from '../src/ids.js';
-import { MandateClient } from '../src/mandate/client.js';
+import { MandateClient } from '../src/chain/stellar/mandate-client.js';
 import type { PayoutRail } from '../src/rails/rail.js';
 import { UsdcRail } from '../src/rails/usdc.js';
 import { ReceiptLog } from '../src/receipts/log.js';

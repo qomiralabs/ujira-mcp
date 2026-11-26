@@ -15,7 +15,7 @@ import { ConsoleRegistry, MAX_FAUCET_CLAIMS } from '../src/console/registry.js';
 import { Recycler } from '../src/console/recycler.js';
 import { loadConsoleSettings, testWalletsPath } from '../src/console/settings.js';
 import { TestWalletStore } from '../src/console/wallets.js';
-import { TESTNET_PASSPHRASE } from '../src/stellar/gateway.js';
+import { TESTNET_PASSPHRASE } from '../src/chain/stellar/gateway.js';
 import { FakeChain, keypair, treasury, treasuryKey } from './console-helpers.js';
 import { UNIT } from './fake-rpc.js';
 

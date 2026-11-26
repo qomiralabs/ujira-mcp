@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { createEngine, loadSettings } from '../src/config.js';
 import { EngineError } from '../src/errors.js';
 import { defaultRecipientRef } from '../src/ids.js';
-import type { MandateClient } from '../src/mandate/client.js';
+import type { MandateClient } from '../src/chain/stellar/mandate-client.js';
 import {
   PartialSettlementError,
   type PayoutRail,

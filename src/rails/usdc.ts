@@ -5,15 +5,14 @@
 // transfers the asset to the leg destination, so settling is one execute
 // signed by the executor key.
 
+import type { MandateContract, TxSigner } from '../chain/adapter.js';
 import { EngineError } from '../errors.js';
 import { accountAddress } from '../ids.js';
-import type { MandateClient } from '../mandate/client.js';
-import type { TxSigner } from '../stellar/gateway.js';
 import type { PayoutRail, RailPayment, RailSettlement } from './rail.js';
 
 export class UsdcRail implements PayoutRail {
   readonly name = 'usdc' as const;
-  private readonly mandate: MandateClient;
+  private readonly mandate: MandateContract;
   private readonly executor: TxSigner;
   private readonly named: ReadonlyMap<string, string>;
 
@@ -23,7 +22,7 @@ export class UsdcRail implements PayoutRail {
    * picks the destination; the mandate's allowlist still decides.
    */
   constructor(
-    mandate: MandateClient,
+    mandate: MandateContract,
     executor: TxSigner,
     recipients: Readonly<Record<string, string>> = {},
   ) {

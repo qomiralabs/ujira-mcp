@@ -13,9 +13,15 @@ import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-import { Keypair, StrKey, type Transaction } from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
+import {
+  isSecretSeed,
+  keypairFromSecret,
+  signerFrom,
+  type Keypair,
+} from '../chain/stellar/keys.js';
+import type { Transaction } from '../chain/stellar/network.js';
 import { EngineError } from '../errors.js';
 import { accountAddress } from '../ids.js';
 
@@ -24,7 +30,7 @@ export const MAX_TEST_WALLETS = 5_000;
 
 const walletSchema = z.object({
   address: accountAddress,
-  secret: z.string().refine((s) => StrKey.isValidEd25519SecretSeed(s)),
+  secret: z.string().refine((s) => isSecretSeed(s)),
   createdAt: z.string(),
 });
 
@@ -61,7 +67,7 @@ function load(path: string): WalletFile {
     throw new EngineError('config_invalid', 'the test wallet file is not in the expected format');
   }
   for (const w of parsed.data.wallets) {
-    if (Keypair.fromSecret(w.secret).publicKey() !== w.address) {
+    if (keypairFromSecret(w.secret).publicKey() !== w.address) {
       throw new EngineError('config_invalid', 'the test wallet file has a key for another address');
     }
   }
@@ -122,7 +128,7 @@ export class TestWalletStore {
   sign(address: string, tx: Transaction): boolean {
     const w = this.data.wallets.find((x) => x.address === address);
     if (w === undefined) return false;
-    tx.sign(Keypair.fromSecret(w.secret));
+    signerFrom(keypairFromSecret(w.secret)).sign(tx);
     return true;
   }
 

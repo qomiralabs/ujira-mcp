@@ -3,8 +3,9 @@
 
 import { createHash } from 'node:crypto';
 
-import { StrKey } from '@stellar/stellar-sdk';
 import { z } from 'zod';
+
+import { isAccountAddress, isContractAddress } from './chain/stellar/addresses.js';
 
 /** 32 bytes as 64 lowercase hex digits, the form every BytesN<32> takes here. */
 export const hex32 = z.string().regex(/^[0-9a-f]{64}$/, 'expected 64 lowercase hex digits');
@@ -23,11 +24,11 @@ export const taskId = z
 /** A classic Stellar account (G...), the only destination the USDC rail pays. */
 export const accountAddress = z
   .string()
-  .refine((s) => StrKey.isValidEd25519PublicKey(s), 'expected a Stellar account address (G...)');
+  .refine((s) => isAccountAddress(s), 'expected a Stellar account address (G...)');
 
 export const contractAddress = z
   .string()
-  .refine((s) => StrKey.isValidContract(s), 'expected a Stellar contract address (C...)');
+  .refine((s) => isContractAddress(s), 'expected a Stellar contract address (C...)');
 
 function sha256(parts: readonly string[]): Hex32 {
   // A newline cannot appear in any part (task IDs and addresses refuse it), so

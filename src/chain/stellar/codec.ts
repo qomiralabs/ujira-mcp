@@ -9,15 +9,21 @@
 import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
-import { EngineError } from '../errors.js';
-import type { Hex32 } from '../ids.js';
+import { EngineError } from '../../errors.js';
+import type { Hex32 } from '../../ids.js';
 import type {
+  AllowEntry,
   Leg,
   MandateConfigView,
   MandateStateView,
   PayoutEntry,
   PayoutRequest,
-} from './types.js';
+} from '../types.js';
+
+/** A contract value as plain JavaScript. Throws on a value with no such form. */
+export function nativeOf(value: xdr.ScVal): unknown {
+  return scValToNative(value) as unknown;
+}
 
 export function struct(fields: Readonly<Record<string, xdr.ScVal>>): xdr.ScVal {
   const keys = Object.keys(fields).sort();
@@ -54,9 +60,7 @@ export function encodePayoutRequest(req: PayoutRequest): xdr.ScVal {
   });
 }
 
-export function encodeAllowEntries(
-  entries: readonly { recipientRef: Hex32; destination: string }[],
-): xdr.ScVal {
+export function encodeAllowEntries(entries: readonly AllowEntry[]): xdr.ScVal {
   return xdr.ScVal.scvVec(
     entries.map((e) =>
       struct({ destination: address(e.destination), recipient_ref: bytes32(e.recipientRef) }),

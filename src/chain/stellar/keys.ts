@@ -8,10 +8,25 @@
 import { createHmac, pbkdf2Sync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-import { Keypair, StrKey, type Transaction } from '@stellar/stellar-sdk';
+import { Keypair, StrKey, type FeeBumpTransaction, type Transaction } from '@stellar/stellar-sdk';
 
-import { EngineError } from '../errors.js';
-import type { TxSigner } from './gateway.js';
+import { EngineError } from '../../errors.js';
+import type { TxSigner } from '../types.js';
+
+export type { Keypair } from '@stellar/stellar-sdk';
+
+/** A fresh key, for throwaway testnet wallets the server makes itself. */
+export function randomKeypair(): Keypair {
+  return Keypair.random();
+}
+
+export function isSecretSeed(text: string): boolean {
+  return StrKey.isValidEd25519SecretSeed(text);
+}
+
+export function keypairFromSecret(secret: string): Keypair {
+  return Keypair.fromSecret(secret);
+}
 
 /** SEP-0005: m/44'/148'/0', the path the stellar CLI uses for its identities. */
 const STELLAR_PATH = [44, 148, 0];
@@ -68,7 +83,7 @@ export function keypairFromText(text: string, label: string): Keypair {
 export function signerFrom(keypair: Keypair): TxSigner {
   return {
     publicKey: keypair.publicKey(),
-    sign(tx: Transaction) {
+    sign(tx: Transaction | FeeBumpTransaction) {
       tx.sign(keypair);
     },
   };

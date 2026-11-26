@@ -9,19 +9,25 @@ import { fileURLToPath } from 'node:url';
 
 import { z } from 'zod';
 
+import type { TxSigner } from '../chain/adapter.js';
+import { TESTNET_RPC_URL } from '../chain/stellar/gateway.js';
+import { signerFromEnv } from '../chain/stellar/keys.js';
+import { TESTNET_FRIENDBOT_URL, TESTNET_HORIZON_URL } from '../chain/stellar/network.js';
+import {
+  TESTNET_FACTORY,
+  TESTNET_USDC_CONTRACT,
+  TESTNET_USDC_ISSUER,
+} from '../chain/stellar/testnet.js';
 import { EngineError } from '../errors.js';
 import { accountAddress, contractAddress } from '../ids.js';
 import { minorUnits } from '../money.js';
-import type { TxSigner } from '../stellar/gateway.js';
-import { TESTNET_RPC_URL } from '../stellar/gateway.js';
-import { signerFromEnv } from '../stellar/keys.js';
 
-/** The factory, USDC and fee address from the contracts' testnet deployment. */
-export const TESTNET_FACTORY = 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7';
-export const TESTNET_USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
-export const TESTNET_USDC_CONTRACT = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
-export const TESTNET_HORIZON_URL = 'https://horizon-testnet.stellar.org';
-export const TESTNET_FRIENDBOT_URL = 'https://friendbot.stellar.org';
+export {
+  TESTNET_FACTORY,
+  TESTNET_USDC_CONTRACT,
+  TESTNET_USDC_ISSUER,
+} from '../chain/stellar/testnet.js';
+export { TESTNET_FRIENDBOT_URL, TESTNET_HORIZON_URL } from '../chain/stellar/network.js';
 /** The proof page is served by this same server, so a path keeps visitors on its origin. */
 export const SDP_PROOF_URL = '/instaward';
 

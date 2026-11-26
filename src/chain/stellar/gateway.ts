@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// The only module that talks to Stellar RPC. Everything above it works with
-// the SorobanGateway port, so tests answer it from memory and nothing else in
-// the package needs to know how a transaction is built, simulated or sent.
+// Contract calls over Stellar RPC. Everything above it works with the
+// SorobanGateway port, so tests answer it from memory and nothing outside
+// src/chain needs to know how a contract call is built, simulated or sent.
 
 import {
   Account,
@@ -16,16 +16,13 @@ import {
   type xdr,
 } from '@stellar/stellar-sdk';
 
-import { ContractRefusedError, EngineError, contractCodeIn } from '../errors.js';
+import { ContractRefusedError, EngineError, contractCodeIn } from '../../errors.js';
+import type { TxLookup, TxSigner } from '../types.js';
+
+export type { TxLookup, TxSigner } from '../types.js';
 
 export const TESTNET_RPC_URL = 'https://soroban-testnet.stellar.org';
 export const TESTNET_PASSPHRASE = Networks.TESTNET;
-
-/** Holds a key and signs with it; the key itself never leaves. */
-export interface TxSigner {
-  readonly publicKey: string;
-  sign(tx: Transaction): void;
-}
 
 export interface InvokeResult {
   readonly txHash: string;
@@ -36,10 +33,6 @@ export interface InvokeResult {
 export type SimulateResult =
   | { readonly ok: true; readonly returnValue: xdr.ScVal }
   | { readonly ok: false; readonly error: ContractRefusedError };
-
-export type TxLookup =
-  | { readonly status: 'SUCCESS' | 'FAILED'; readonly ledger: number }
-  | { readonly status: 'NOT_FOUND' };
 
 export interface SorobanGateway {
   /** A read only call: simulated, never sent. Throws ContractRefusedError on a contract error. */

@@ -4,7 +4,26 @@
 // The mandate's values as TypeScript sees them. Amounts are bigint minor
 // units; 32 byte values are lowercase hex.
 
+import type { FeeBumpTransaction, Transaction } from '@stellar/stellar-sdk';
+
 import type { Hex32 } from '../ids.js';
+
+/** Holds a key and signs with it; the key itself never leaves. */
+export interface TxSigner {
+  readonly publicKey: string;
+  sign(tx: Transaction | FeeBumpTransaction): void;
+}
+
+/** What the network says about a transaction hash. */
+export type TxLookup =
+  | { readonly status: 'SUCCESS' | 'FAILED'; readonly ledger: number }
+  | { readonly status: 'NOT_FOUND' };
+
+/** One pair on a mandate's allowlist: who the person is, and where they are paid. */
+export interface AllowEntry {
+  readonly recipientRef: Hex32;
+  readonly destination: string;
+}
 
 export interface Limits {
   readonly totalBudget: bigint;

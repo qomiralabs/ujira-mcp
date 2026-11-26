@@ -14,11 +14,17 @@ export default defineConfig({
       // test/server-process.test.ts runs src/server/main.ts as a child.
       exclude: [
         'src/**/*.test.ts',
+        'src/**/*.test-d.ts',
         'src/mcp/main.ts',
         'src/mcp/http-main.ts',
         'src/server/main.ts',
       ],
       reporter: [['text', { skipFull: false }]],
+      // Code that moves or splits money holds a higher bar than the rest.
+      thresholds: {
+        'src/money/**/*.ts': { lines: 95, functions: 95, branches: 95, statements: 95 },
+        'src/payouts/**/*.ts': { lines: 95, functions: 95, branches: 95, statements: 95 },
+      },
     },
   },
 });

@@ -235,7 +235,7 @@ The same server hosts the UJIRA dashboard (the console): a web app where anyone 
 | `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira.co`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
 | `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built dashboard, served under `/app`. |
 | `UJIRA_SITE_DIR` | `site` in the repository | The marketing site and the testnet proof page, served at the root. |
-| `UJIRA_CANONICAL_HOST` | none | A host name such as `ujira.co`. When set, a page asked for on any other host (the platform URL, `www`) gets a 301 to `https://<host>` with the same path and query. `/api`, `/mcp`, `/m/<mandate>/mcp` and `/healthz` keep answering on every host, so connectors already pointed at an old URL keep working. Set it only once that host serves HTTPS. |
+| `UJIRA_CANONICAL_HOST` | none | A host name such as `ujira.co`. When set, a page asked for on any other host (the platform URL, `www`) gets a 301 to `https://<host>` with the same path and query. `/api`, `/v1`, `/mcp`, `/m/<mandate>/mcp` and `/healthz` keep answering on every host, so connectors already pointed at an old URL keep working. Set it only once that host serves HTTPS. |
 | `UJIRA_SDP_PROOF_URL` | `/instaward` | Where the dashboard links for proof of the SDP rail: a path on this server or an http or https URL. |
 | `UJIRA_HORIZON_URL`, `UJIRA_FRIENDBOT_URL`, `UJIRA_PUBLIC_RPC_URL` | the public testnet ones | Network endpoints; the public RPC URL is the one browsers are told about. |
 | `UJIRA_FACTORY`, `UJIRA_USDC_ISSUER`, `UJIRA_USDC_CONTRACT` | the testnet deployment | The mandate factory and the USDC the console uses. |
@@ -249,6 +249,7 @@ Every page of the product is served from this one server:
 | `/assets/*`, `/data/*` | The site's images, scripts and evidence files. |
 | `/app`, `/app/*` | The dashboard. Hashed files under `/app/assets/` are cached for a year; any other path under `/app` that is not a file gets the dashboard's `index.html`, so its own routes survive a reload. |
 | `/api/*`, `/mcp`, `/m/<mandate>/mcp`, `/healthz` | The API and MCP routes above. |
+| `/v1/*` | The public API, described below. Like `/api`, it answers on every host. |
 
 Old links get a 301: `/instaward.html` to `/instaward`, `/index.html` to `/`, `/app.html` to `/app`, `/?mock=1` to `/app?mock=1`, `/new` to `/app/mandates/new`, and dashboard sections at the root (`/mandates/...`, `/approvals`, `/payouts`, `/receipts`, `/recipients`, `/developers`) to the same path under `/app`. The console once kept its page in the hash (`/#/m/<mandate>`), which a server never sees, so the marketing page forwards those links to `/app` itself. Any other path is the site's 404 page. Pages are read only from inside their folder: a path with a `..` or hidden segment, a backslash or a NUL is a 404, and folders are never listed.
 
@@ -257,6 +258,14 @@ The faucet tops a wallet up rather than paying once, so a reviewer who spent the
 With SDP configured, the console allows each recipient twice, once at their own wallet and once at the SDP distribution account, so the same mandate pays on either rail. `UJIRA_SDP_ASSET_ISSUER` must then be the console's USDC issuer.
 
 `UJIRA_CONSOLE_URL=http://127.0.0.1:8080 npm run console:e2e` walks the whole console story against a running server with a throwaway wallet that signs the server-built transactions: onboard, create, allow, fund, pay, an approval, SDP when the server has it, pause and resume, receipts over the API and the mandate's MCP URL, then revoke and sweep, then waits for the test recipient's USDC to be recycled to the treasury and for the faucet cooldown, and tops up again. It saves the public transaction hashes to `evidence/console-e2e.json`.
+
+### Public API (`/v1`)
+
+The versioned public API is being built under `/v1`, beside the routes above, which it does not change. Today it serves `GET /v1/ping` and `GET /v1/openapi.json`, the OpenAPI 3.1 document generated from the route schemas.
+
+- Every answer carries a `Ujira-Request-Id` header. Quote it when asking for support; the server log line for the request ends with it.
+- Every failure is `{ "error": { "code": "...", "message": "...", "requestId": "..." } }`. A schema failure adds `details`, which names paths and issue kinds, never the values sent.
+- Bodies are JSON (`Content-Type: application/json`) and at most 64 KB: a larger one answers `413 PAYLOAD_TOO_LARGE`, another type `415 UNSUPPORTED_MEDIA_TYPE`.
 
 ## Tools
 

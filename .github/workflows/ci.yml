@@ -28,6 +28,9 @@ env:
   # check rejects. A runner update that moves them fails the check, so the set of
   # rejected characters only changes when this does.
   INVISIBLE_UNICODE_VERSION: 15.0.0
+  # The server and the console are checked on the Node line the image runs
+  # (node:22-slim), at an exact release so a new one cannot change a result.
+  NODE_VERSION: 22.23.5
 
 jobs:
   # Repository checks that need no tools beyond the runner's shell.
@@ -157,3 +160,104 @@ jobs:
       - name: Test the invisible character check
         if: ${{ !cancelled() }}
         run: scripts/test-check-invisible-characters.sh
+
+  # The MCP server, the payout engine and the console API. The install is the
+  # lockfile exactly, with no install scripts, the same way the image builds.
+  # Every step after the install reports even when an earlier one fails, so one
+  # run shows every problem.
+  server:
+    name: server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install
+        id: install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
+
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run format:check
+
+      - name: Test with coverage
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test
+
+      # Only what ships in the image. Dev tools never reach production, and
+      # their advisories are handled through Dependabot.
+      - name: Audit production dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --omit=dev
+
+  # The console web app served at /app. Same rules as the server, plus the
+  # production build the image ships and the license allowlist.
+  console:
+    name: console
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+        working-directory: console
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install
+        id: install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
+
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run format:check
+
+      - name: Test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test
+
+      - name: Build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node_modules/.bin/vite build
+
+      - name: Check licenses
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run licenses
+
+      - name: Audit production dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --omit=dev

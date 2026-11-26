@@ -29,3 +29,7 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 *.tgz
+
+# Python bytecode from running the repository scripts
+__pycache__/
+*.pyc

@@ -4,6 +4,7 @@
 // Builds the console from the environment and the demo server's wiring, so
 // both share one gateway, one receipt log and the same keys.
 
+import { StellarChainAdapter } from '../chain/stellar/adapter.js';
 import type { Settings, Wiring } from '../config.js';
 import { EngineError } from '../errors.js';
 import type { ExtraRoutes } from '../mcp/http.js';
@@ -44,6 +45,13 @@ export function consoleFromEnv(
     horizonUrl: settings.horizonUrl,
     friendbotUrl: settings.friendbotUrl,
   });
+  // The console's mandates use its own factory and USDC, over the one gateway the demo uses.
+  const adapter = new StellarChainAdapter({
+    gateway: wiring.gateway,
+    chain: chain.network,
+    factory: settings.factory,
+    asset: settings.usdc,
+  });
   // Test wallets are only worth keeping when there is a treasury to send their money back to.
   const wallets =
     settings.treasury === undefined ? undefined : TestWalletStore.open(testWalletsPath(settings));
@@ -52,7 +60,7 @@ export function consoleFromEnv(
     http,
     agent: base.agent,
     executor: base.executor,
-    gateway: wiring.gateway,
+    adapter,
     receipts: wiring.receipts,
     registry: ConsoleRegistry.open(registryPath(settings)),
     chain,

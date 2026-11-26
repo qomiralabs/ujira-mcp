@@ -11,15 +11,15 @@ import { createHash } from 'node:crypto';
 import { Keypair, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
 
 import { ContractRefusedError, EngineError } from '../src/errors.js';
-import { address, i128, struct, u64 } from '../src/mandate/codec.js';
+import { address, i128, struct, u64 } from '../src/chain/stellar/codec.js';
 import type {
   InvokeResult,
   SimulateResult,
   SorobanGateway,
   TxLookup,
   TxSigner,
-} from '../src/stellar/gateway.js';
-import { signerFrom } from '../src/stellar/keys.js';
+} from '../src/chain/stellar/gateway.js';
+import { signerFrom } from '../src/chain/stellar/keys.js';
 
 export const MANDATE = 'CDEEDQ64YS6XHBTWC3QLS5JWOLI3LSO46VDDZE66FW6CZGHZNRDV4GZW';
 export const ASSET = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';

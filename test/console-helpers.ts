@@ -20,6 +20,10 @@ import {
   type xdr,
 } from '@stellar/stellar-sdk';
 
+import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
+import { TESTNET_PASSPHRASE, type TxSigner } from '../src/chain/stellar/gateway.js';
+import { signerFrom } from '../src/chain/stellar/keys.js';
+import type { AccountFacts, StellarNetworkPort } from '../src/chain/stellar/network.js';
 import { createConsole } from '../src/console/app.js';
 import type { AccountView, ConsoleChain, Submitted } from '../src/console/chain.js';
 import { ApiError } from '../src/console/errors.js';
@@ -35,8 +39,6 @@ import {
 import { TestWalletStore } from '../src/console/wallets.js';
 import { createHttpServer } from '../src/mcp/http.js';
 import { DEFAULT_MAX_AMOUNT, type HttpSettings } from '../src/mcp/public.js';
-import { TESTNET_PASSPHRASE, type TxSigner } from '../src/stellar/gateway.js';
-import { signerFrom } from '../src/stellar/keys.js';
 import { FakeMandateRpc, MANDATE, UNIT, agent, executor } from './fake-rpc.js';
 import { setup } from './helpers.js';
 
@@ -48,7 +50,7 @@ export const owner = keypair('owner');
 export const treasuryKey = keypair('treasury');
 export const treasury: TxSigner = signerFrom(treasuryKey);
 
-export class FakeChain implements ConsoleChain {
+export class FakeChain implements ConsoleChain, StellarNetworkPort {
   accounts = new Map<string, AccountView>();
   prepared: Transaction[] = [];
   submitted: Transaction[] = [];
@@ -91,6 +93,19 @@ export class FakeChain implements ConsoleChain {
       this.accounts.set(address, { exists: true, xlm: '10000.0000000', usdc: null });
     }
     return Promise.resolve();
+  }
+
+  accountFacts(address: string): Promise<AccountFacts> {
+    const view = this.accounts.get(address);
+    return Promise.resolve({
+      exists: view?.exists === true,
+      trustlines: view === undefined || view.usdc === null ? [] : [`USDC:${TESTNET_USDC_ISSUER}`],
+      memoRequired: false,
+    });
+  }
+
+  latestLedger(): Promise<number> {
+    return Promise.resolve(1);
   }
 }
 
@@ -201,7 +216,12 @@ export async function startConsole(
     http,
     agent,
     executor,
-    gateway: world.rpc,
+    adapter: new StellarChainAdapter({
+      gateway: world.rpc,
+      chain,
+      factory: settings.factory,
+      asset: settings.usdc,
+    }),
     receipts: world.receipts,
     registry,
     chain,

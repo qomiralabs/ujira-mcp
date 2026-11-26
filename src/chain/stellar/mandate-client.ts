@@ -5,9 +5,18 @@
 
 import type { xdr } from '@stellar/stellar-sdk';
 
-import { ContractRefusedError, EngineError } from '../errors.js';
-import type { Hex32 } from '../ids.js';
-import type { SorobanGateway, TxLookup, TxSigner } from '../stellar/gateway.js';
+import { EngineError } from '../../errors.js';
+import type { Hex32 } from '../../ids.js';
+import type { MandateContract, RequestSimulation, StatusTx } from '../adapter.js';
+import type {
+  AllowEntry,
+  MandateConfigView,
+  MandateStateView,
+  PayoutEntry,
+  PayoutRequest,
+  TxLookup,
+  TxSigner,
+} from '../types.js';
 import {
   address,
   bytes32,
@@ -20,18 +29,11 @@ import {
   encodeAllowEntries,
   encodePayoutRequest,
 } from './codec.js';
-import type { MandateConfigView, MandateStateView, PayoutEntry, PayoutRequest } from './types.js';
+import type { SorobanGateway } from './gateway.js';
 
-export interface StatusTx {
-  readonly status: number;
-  readonly txHash: string;
-}
+export type { RequestSimulation, StatusTx } from '../adapter.js';
 
-export type RequestSimulation =
-  | { readonly ok: true; readonly status: number }
-  | { readonly ok: false; readonly error: ContractRefusedError };
-
-export class MandateClient {
+export class MandateClient implements MandateContract {
   readonly contractId: string;
   private readonly gateway: SorobanGateway;
 
@@ -130,7 +132,7 @@ export class MandateClient {
   /** Principal only. Used to set up a demo mandate. */
   async allowRecipients(
     principal: TxSigner,
-    entries: readonly { recipientRef: Hex32; destination: string }[],
+    entries: readonly AllowEntry[],
   ): Promise<{ readonly txHash: string }> {
     const sent = await this.gateway.invoke(
       this.contractId,

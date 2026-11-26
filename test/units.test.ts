@@ -11,12 +11,16 @@ import { describe, expect, it } from 'vitest';
 import { loadSettings, createEngine } from '../src/config.js';
 import { ContractRefusedError, contractCodeIn, mandateErrorName } from '../src/errors.js';
 import { defaultRecipientRef, payoutIdFor, taskRefFor } from '../src/ids.js';
-import { decodeConfig, decodePayoutEntry, encodePayoutRequest } from '../src/mandate/codec.js';
-import { statusName } from '../src/mandate/types.js';
+import {
+  decodeConfig,
+  decodePayoutEntry,
+  encodePayoutRequest,
+} from '../src/chain/stellar/codec.js';
+import { statusName } from '../src/chain/types.js';
 import { formatUnits, minorUnits, units } from '../src/money.js';
 import { ReceiptLog } from '../src/receipts/log.js';
-import { contractCodeInEvents, withTimeout } from '../src/stellar/gateway.js';
-import { keypairFromMnemonic, keypairFromText, signerFromEnv } from '../src/stellar/keys.js';
+import { contractCodeInEvents, withTimeout } from '../src/chain/stellar/gateway.js';
+import { keypairFromMnemonic, keypairFromText, signerFromEnv } from '../src/chain/stellar/keys.js';
 import { FakeMandateRpc, MANDATE } from './fake-rpc.js';
 import { alice } from './helpers.js';
 

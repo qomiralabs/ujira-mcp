@@ -10,14 +10,11 @@
 // that fails is logged and tried again on the next round; one bad wallet
 // never stops the others.
 
-import { Asset, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
-
+import { paymentTx } from '../chain/stellar/txbuild.js';
 import { formatUnits } from '../money.js';
-import { TESTNET_PASSPHRASE } from '../stellar/gateway.js';
 import type { ConsoleChain } from './chain.js';
 import { ApiError } from './errors.js';
 import { mapLimit } from './mandates.js';
-import { INCLUSION_FEE } from './txbuild.js';
 import type { TestWalletStore } from './wallets.js';
 
 /** Wallets looked at per round, so thousands of them never flood Horizon. */
@@ -83,19 +80,12 @@ export class Recycler {
   private async sweep(address: string): Promise<Swept | undefined> {
     const view = await this.o.chain.account(address, this.o.usdc);
     if (!view.exists || view.usdc === null || view.usdc <= 0n) return undefined;
-    const tx = new TransactionBuilder(await this.o.chain.loadAccount(address), {
-      fee: INCLUSION_FEE,
-      networkPassphrase: TESTNET_PASSPHRASE,
-    })
-      .addOperation(
-        Operation.payment({
-          destination: this.o.treasury,
-          asset: new Asset(this.o.usdc.code, this.o.usdc.issuer),
-          amount: formatUnits(view.usdc),
-        }),
-      )
-      .setTimeout(60)
-      .build();
+    const tx = paymentTx(await this.o.chain.loadAccount(address), {
+      destination: this.o.treasury,
+      asset: this.o.usdc,
+      amount: view.usdc,
+      timeoutSeconds: 60,
+    });
     if (!this.o.wallets.sign(address, tx)) return undefined;
     const sent = await this.o.chain.submit(tx);
     if (sent.status !== 'SUCCESS') {

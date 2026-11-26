@@ -17,8 +17,8 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { defaultRecipientRef, payoutIdFor } from '../src/ids.js';
-import { MandateClient } from '../src/mandate/client.js';
-import { TESTNET_PASSPHRASE } from '../src/stellar/gateway.js';
+import { MandateClient } from '../src/chain/stellar/mandate-client.js';
+import { TESTNET_PASSPHRASE } from '../src/chain/stellar/gateway.js';
 import {
   api,
   consoleSettings,

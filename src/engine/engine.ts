@@ -13,15 +13,10 @@
 
 import { z } from 'zod';
 
+import type { MandateContract, TxSigner } from '../chain/adapter.js';
+import { PAYOUT_STATUS, statusName, type PayoutEntry, type PayoutRequest } from '../chain/types.js';
 import { ContractRefusedError, EngineError } from '../errors.js';
 import { defaultRecipientRef, payoutIdFor, taskId, taskRefFor, type Hex32 } from '../ids.js';
-import type { MandateClient } from '../mandate/client.js';
-import {
-  PAYOUT_STATUS,
-  statusName,
-  type PayoutEntry,
-  type PayoutRequest,
-} from '../mandate/types.js';
 import { minorUnits } from '../money.js';
 import {
   PartialSettlementError,
@@ -39,7 +34,6 @@ import {
   type Receipt,
   type ReceiptLog,
 } from '../receipts/log.js';
-import type { TxSigner } from '../stellar/gateway.js';
 import { quote, type Quote, type QuoteFacts } from './quote.js';
 
 export const quoteInput = z.object({
@@ -61,7 +55,7 @@ export const listInput = z.object({
 });
 
 export interface EngineOptions {
-  readonly mandate: MandateClient;
+  readonly mandate: MandateContract;
   readonly agent: TxSigner;
   readonly rails: readonly PayoutRail[];
   readonly receipts: ReceiptLog;

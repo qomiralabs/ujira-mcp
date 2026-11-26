@@ -5,7 +5,8 @@
 // it must never become a free relay for anything else: one operation only,
 // and only the calls the console itself builds, against the factory, a
 // mandate the console created, the USDC contract into such a mandate, or a
-// USDC trustline.
+// USDC trustline. Every refusal is SIGNING_REQUEST_MISMATCH, with the
+// console's own code as its reason.
 
 import {
   Address,
@@ -17,8 +18,8 @@ import {
 } from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
-import { TESTNET_PASSPHRASE } from '../stellar/gateway.js';
-import { ApiError } from './errors.js';
+import { ChainError } from '../adapter.js';
+import { TESTNET_PASSPHRASE } from './gateway.js';
 
 /** The mandate calls a console owner can make. */
 export const MANDATE_METHODS = [
@@ -56,7 +57,11 @@ export interface AllowContext {
 }
 
 const notAllowed = (why: string) =>
-  new ApiError(400, 'tx_not_allowed', `This server only relays console transactions: ${why}`);
+  new ChainError(
+    'SIGNING_REQUEST_MISMATCH',
+    `This server only relays console transactions: ${why}`,
+    { reason: 'tx_not_allowed' },
+  );
 
 const createConfig = z.object({
   principal: z.string(),
@@ -66,12 +71,19 @@ const createConfig = z.object({
 });
 
 /** Parses a signed envelope for this network, or refuses it. */
-export function parseEnvelope(envelope: string): Transaction {
+export function parseEnvelope(
+  envelope: string,
+  passphrase: string = TESTNET_PASSPHRASE,
+): Transaction {
   let tx: Transaction | FeeBumpTransaction;
   try {
-    tx = TransactionBuilder.fromXdr(envelope, TESTNET_PASSPHRASE);
+    tx = TransactionBuilder.fromXdr(envelope, passphrase);
   } catch {
-    throw new ApiError(400, 'invalid_xdr', 'The transaction cannot be read as testnet XDR');
+    throw new ChainError(
+      'SIGNING_REQUEST_MISMATCH',
+      'The transaction cannot be read as testnet XDR',
+      { reason: 'invalid_xdr' },
+    );
   }
   if (tx instanceof FeeBumpTransaction) throw notAllowed('fee bump envelopes are not relayed');
   return tx;

@@ -11,21 +11,28 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import type { MandateContract, TxSigner } from './chain/adapter.js';
+import { StellarChainAdapter } from './chain/stellar/adapter.js';
+import { RpcGateway, TESTNET_RPC_URL, type SorobanGateway } from './chain/stellar/gateway.js';
+import { signerFromEnv } from './chain/stellar/keys.js';
+import {
+  StellarNetwork,
+  TESTNET_FRIENDBOT_URL,
+  TESTNET_HORIZON_URL,
+  type StellarNetworkPort,
+} from './chain/stellar/network.js';
+import {
+  TESTNET_FACTORY,
+  TESTNET_USDC_CONTRACT,
+  TESTNET_USDC_ISSUER,
+} from './chain/stellar/testnet.js';
 import { PayoutEngine } from './engine/engine.js';
 import { EngineError } from './errors.js';
 import { accountAddress, contractAddress, hex32, type Hex32 } from './ids.js';
-import { MandateClient } from './mandate/client.js';
 import type { PayoutRail } from './rails/rail.js';
 import { SdpClient, SdpRail } from './rails/sdp.js';
 import { UsdcRail } from './rails/usdc.js';
 import { ReceiptLog } from './receipts/log.js';
-import {
-  RpcGateway,
-  TESTNET_RPC_URL,
-  type SorobanGateway,
-  type TxSigner,
-} from './stellar/gateway.js';
-import { signerFromEnv } from './stellar/keys.js';
 
 export interface Settings {
   readonly network: 'testnet';
@@ -193,7 +200,7 @@ function sdpSettings(
   };
 }
 
-function sdpRail(settings: Settings, sdp: SdpSettings, mandate: MandateClient): SdpRail {
+function sdpRail(settings: Settings, sdp: SdpSettings, mandate: MandateContract): SdpRail {
   return new SdpRail({
     client: new SdpClient({
       baseUrl: sdp.url,
@@ -209,7 +216,9 @@ function sdpRail(settings: Settings, sdp: SdpSettings, mandate: MandateClient): 
 
 export interface Wiring {
   readonly engine: PayoutEngine;
-  readonly mandate: MandateClient;
+  readonly mandate: MandateContract;
+  readonly adapter: StellarChainAdapter;
+  /** Shared by every adapter in the process; only composition code builds on it. */
   readonly gateway: SorobanGateway;
   /** One log per process: its writes are serialized in memory, so a second one on the same file would race. */
   readonly receipts: ReceiptLog;
@@ -223,14 +232,27 @@ export function createEngine(
   settings: Settings,
   options: {
     gateway?: SorobanGateway;
-    extraRails?: (mandate: MandateClient) => readonly PayoutRail[];
+    network?: StellarNetworkPort;
+    extraRails?: (mandate: MandateContract) => readonly PayoutRail[];
     now?: () => Date;
   } = {},
 ): Wiring {
   const gateway =
     options.gateway ??
     new RpcGateway({ rpcUrl: settings.rpcUrl, readSource: settings.agent.publicKey });
-  const mandate = new MandateClient(gateway, settings.mandateId);
+  const adapter = new StellarChainAdapter({
+    gateway,
+    chain:
+      options.network ??
+      new StellarNetwork({
+        rpcUrl: settings.rpcUrl,
+        horizonUrl: TESTNET_HORIZON_URL,
+        friendbotUrl: TESTNET_FRIENDBOT_URL,
+      }),
+    factory: TESTNET_FACTORY,
+    asset: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
+  });
+  const mandate = adapter.mandate(settings.mandateId);
   const rails: PayoutRail[] = [new UsdcRail(mandate, settings.executor)];
   if (settings.sdp !== undefined) rails.push(sdpRail(settings, settings.sdp, mandate));
   rails.push(...(options.extraRails?.(mandate) ?? []));
@@ -245,5 +267,5 @@ export function createEngine(
     recipientRefs: settings.recipientRefs,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
-  return { engine, mandate, gateway, receipts };
+  return { engine, mandate, adapter, gateway, receipts };
 }

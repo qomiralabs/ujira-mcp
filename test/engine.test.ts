@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ContractRefusedError, EngineError } from '../src/errors.js';
 import { defaultRecipientRef, payoutIdFor } from '../src/ids.js';
-import { address, bytes32 } from '../src/mandate/codec.js';
+import { address, bytes32 } from '../src/chain/stellar/codec.js';
 import type { PayoutRail } from '../src/rails/rail.js';
 import { MANDATE, UNIT, approver, feeAddress, principal } from './fake-rpc.js';
 import { alice, bob, mallory, setup } from './helpers.js';

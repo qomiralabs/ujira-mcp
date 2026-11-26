@@ -69,6 +69,38 @@ describe('migrations', () => {
     expect(await appliedNames(database.url)).toEqual(before);
   });
 
+  it('runs every migration down to an empty database and back up', async () => {
+    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#empty`);
+    const schemaOf = async (): Promise<string | null> => {
+      const client = new pg.Client({ connectionString: fresh.url });
+      await client.connect();
+      try {
+        const found = await client.query<{ name: string | null }>(
+          `select to_regnamespace('ujira')::text as name`,
+        );
+        return found.rows[0]?.name ?? null;
+      } finally {
+        await client.end();
+      }
+    };
+    try {
+      const before = await appliedNames(fresh.url);
+      const down = await runMigrations({
+        databaseUrl: fresh.url,
+        direction: 'down',
+        count: before.length,
+      });
+      expect(down.names).toEqual([...before].reverse());
+      expect(await appliedNames(fresh.url)).toEqual([]);
+      expect(await schemaOf()).toBeNull();
+      const up = await runMigrations({ databaseUrl: fresh.url, direction: 'up' });
+      expect(up.names).toEqual(before);
+      expect(await schemaOf()).toBe('ujira');
+    } finally {
+      await fresh.drop();
+    }
+  }, 300_000);
+
   it('passes the tool output to a caller that asks for it', async () => {
     const lines: string[] = [];
     const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#logging`);

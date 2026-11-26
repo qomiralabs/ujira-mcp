@@ -89,30 +89,93 @@ describe('grants on ujira', () => {
     expect(found.rows.map((row) => row.rolname)).toEqual([...PLATFORM_ROLES].sort());
   });
 
-  it('gives every service role usage on the schema and nothing but reads of the reference data', async () => {
+  it('gives every service role usage on the schema and exactly the table rights its job needs', async () => {
     const all = await grants();
+    const REFERENCE = [
+      'chains',
+      'currencies',
+      'currency_scales',
+      'settlement_tokens',
+      'status_transitions',
+    ].map((table) => `relation ${table} SELECT`);
+    // The worker reads tenant rows only once a job table needs it. The sealed
+    // tables appear for no one.
+    const expected: Record<(typeof SERVICE_ROLES)[number], string[]> = {
+      ujira_app: [
+        ...REFERENCE,
+        'relation api_tokens INSERT',
+        'relation api_tokens SELECT',
+        'relation api_tokens UPDATE',
+        'relation principal_members SELECT',
+        'relation principals SELECT',
+        'relation principals UPDATE',
+        'relation projects INSERT',
+        'relation projects SELECT',
+        'relation projects UPDATE',
+      ],
+      ujira_worker: [...REFERENCE],
+      ujira_reader: [
+        ...REFERENCE,
+        'relation api_tokens SELECT',
+        'relation principal_members SELECT',
+        'relation principals SELECT',
+        'relation projects SELECT',
+      ],
+    };
     for (const role of SERVICE_ROLES) {
       const mine = all.filter((grant) => grant.grantee === role);
       expect(mine).toContainEqual({ object: 'schema ujira', grantee: role, privilege: 'USAGE' });
-      // No tenant table exists yet, so each role reads the reference tables
-      // and writes nothing. A migration that adds a table changes this.
-      const relations = mine.filter((grant) => grant.object.startsWith('relation '));
       expect(
-        relations.filter((grant) => grant.privilege !== 'SELECT'),
+        mine
+          .filter((grant) => grant.object.startsWith('relation '))
+          .map((grant) => `${grant.object} ${grant.privilege}`)
+          .sort(),
         role,
-      ).toEqual([]);
-      expect(relations.map((grant) => grant.object).sort(), role).toEqual([
-        'relation chains',
-        'relation currencies',
-        'relation currency_scales',
-        'relation settlement_tokens',
-        'relation status_transitions',
-      ]);
+      ).toEqual([...expected[role]].sort());
     }
   });
 
-  it('lets the service roles call the context functions, and nothing else', async () => {
+  it('lets the app change a membership role and status, and no other column', async () => {
+    const columns = await client.query<{ column_name: string }>(
+      `select column_name::text as column_name
+         from information_schema.column_privileges
+        where table_schema = 'ujira' and table_name = 'principal_members'
+          and grantee = 'ujira_app' and privilege_type = 'UPDATE'
+        order by 1`,
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(['role', 'status']);
+  });
+
+  it('lets each service role call the context functions and the entry points of its job, and nothing else', async () => {
     const all = await grants();
+    const CONTEXT = [
+      'function ujira.current_principal_id()',
+      'function ujira.current_project_id()',
+      'function ujira.project_scope_all()',
+    ];
+    const expected: Record<(typeof SERVICE_ROLES)[number], string[]> = {
+      ujira_app: [
+        ...CONTEXT,
+        'function ujira.add_member(text,text)',
+        'function ujira.auth_challenge_consume(uuid,text)',
+        'function ujira.auth_challenge_create(text,text,integer)',
+        'function ujira.authenticate_token(text)',
+        'function ujira.create_principal(text,text,text,text)',
+        'function ujira.session_create(bytea,text,integer,integer)',
+        'function ujira.session_principals(bytea)',
+        'function ujira.session_projects(bytea)',
+        'function ujira.session_resolve(bytea,uuid)',
+        'function ujira.session_revoke(bytea,text)',
+        'function ujira.session_touch(bytea,integer)',
+        'function ujira.take_rate_limit_tokens(text[],integer[],integer[])',
+      ],
+      ujira_worker: [
+        ...CONTEXT,
+        'function ujira.auth_challenges_delete_expired(integer)',
+        'function ujira.sessions_delete_expired(integer)',
+      ],
+      ujira_reader: [...CONTEXT],
+    };
     for (const role of SERVICE_ROLES) {
       expect(
         all
@@ -120,17 +183,13 @@ describe('grants on ujira', () => {
           .map((grant) => grant.object)
           .sort(),
         role,
-      ).toEqual([
-        'function ujira.current_principal_id()',
-        'function ujira.current_project_id()',
-        'function ujira.project_scope_all()',
-      ]);
+      ).toEqual([...expected[role]].sort());
     }
   });
 });
 
 describe('roles', () => {
-  it('creates exactly the owner, the migrator, the app, the worker and the reader', async () => {
+  it('creates exactly the owner, the logins and one role per group of definer functions', async () => {
     const roles = await client.query<{
       rolname: string;
       rolsuper: boolean;
@@ -144,6 +203,10 @@ describe('roles', () => {
     );
     expect(roles.rows.map((role) => role.rolname)).toEqual([
       'ujira_app',
+      'ujira_fn_principals',
+      'ujira_fn_rate_limits',
+      'ujira_fn_sessions',
+      'ujira_fn_tokens',
       'ujira_migrator',
       'ujira_owner',
       'ujira_reader',
@@ -154,7 +217,10 @@ describe('roles', () => {
       expect(role.rolbypassrls, role.rolname).toBe(false);
       expect(role.rolcreaterole, role.rolname).toBe(false);
       expect(role.rolcreatedb, role.rolname).toBe(false);
-      expect(role.rolcanlogin, role.rolname).toBe(role.rolname !== 'ujira_owner');
+      // The owner and the function roles never log in.
+      expect(role.rolcanlogin, role.rolname).toBe(
+        role.rolname !== 'ujira_owner' && !role.rolname.startsWith('ujira_fn_'),
+      );
     }
   });
 
@@ -184,13 +250,34 @@ describe('roles', () => {
     }
   });
 
-  it('has no security definer function yet, so nothing runs with the owner rights', async () => {
-    const definers = await client.query<{ fn: string }>(
-      `select p.oid::regprocedure::text as fn
+  it('runs every security definer function as its own narrow role, never as the owner', async () => {
+    const definers = await client.query<{ fn: string; owner: string; config: string[] | null }>(
+      `select p.oid::regprocedure::text as fn,
+              pg_get_userbyid(p.proowner) as owner,
+              p.proconfig as config
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'ujira' and p.prosecdef`,
+        where n.nspname = 'ujira' and p.prosecdef
+        order by 1`,
     );
-    expect(definers.rows).toEqual([]);
+    expect(Object.fromEntries(definers.rows.map((row) => [row.fn, row.owner]))).toEqual({
+      'ujira.add_member(text,text)': 'ujira_fn_principals',
+      'ujira.auth_challenge_consume(uuid,text)': 'ujira_fn_sessions',
+      'ujira.auth_challenge_create(text,text,integer)': 'ujira_fn_sessions',
+      'ujira.auth_challenges_delete_expired(integer)': 'ujira_fn_sessions',
+      'ujira.authenticate_token(text)': 'ujira_fn_tokens',
+      'ujira.create_principal(text,text,text,text)': 'ujira_fn_principals',
+      'ujira.session_create(bytea,text,integer,integer)': 'ujira_fn_sessions',
+      'ujira.session_principals(bytea)': 'ujira_fn_sessions',
+      'ujira.session_projects(bytea)': 'ujira_fn_sessions',
+      'ujira.session_resolve(bytea,uuid)': 'ujira_fn_sessions',
+      'ujira.session_revoke(bytea,text)': 'ujira_fn_sessions',
+      'ujira.session_touch(bytea,integer)': 'ujira_fn_sessions',
+      'ujira.sessions_delete_expired(integer)': 'ujira_fn_sessions',
+      'ujira.take_rate_limit_tokens(text[],integer[],integer[])': 'ujira_fn_rate_limits',
+    });
+    // A definer that searched the caller's path could be handed a look alike
+    // function or table by anyone able to create one.
+    for (const row of definers.rows) expect(row.config, row.fn).toEqual(['search_path=pg_catalog']);
   });
 
   it('the owner role owns the schema and everything in it', async () => {

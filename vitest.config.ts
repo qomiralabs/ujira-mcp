@@ -9,9 +9,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      // main.ts and http-main.ts only wire the real network to stdio or a
-      // port; the servers they start are covered in memory and over HTTP.
-      exclude: ['src/**/*.test.ts', 'src/mcp/main.ts', 'src/mcp/http-main.ts'],
+      // The entry points only wire the real network to stdio, a port or a
+      // signal; what they start is covered in memory and over HTTP, and
+      // test/server-process.test.ts runs src/server/main.ts as a child.
+      exclude: [
+        'src/**/*.test.ts',
+        'src/mcp/main.ts',
+        'src/mcp/http-main.ts',
+        'src/server/main.ts',
+      ],
       reporter: [['text', { skipFull: false }]],
     },
   },

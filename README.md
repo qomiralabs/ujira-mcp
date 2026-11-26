@@ -151,8 +151,10 @@ From a clone, use `"command": "node"` and `"args": ["/path/to/ujira-mcp/dist/mcp
 
 ```sh
 npm ci && npm run build
-UJIRA_MANDATE_FILE=/path/to/mandate.json UJIRA_AGENT_KEY_FILE=/path/to/agent.toml UJIRA_RECEIPTS_FILE=/path/to/receipts.json node dist/mcp/http-main.js
+UJIRA_MANDATE_FILE=/path/to/mandate.json UJIRA_AGENT_KEY_FILE=/path/to/agent.toml UJIRA_RECEIPTS_FILE=/path/to/receipts.json node dist/server/main.js
 ```
+
+`node dist/mcp/http-main.js` (the `ujira-mcp-http` command) still starts the web role on its own.
 
 Or with Docker. The image runs the server as the `node` user and keeps receipts in `/data`, so mount a volume there:
 
@@ -162,6 +164,21 @@ docker run --rm -p 8080:8080 -v ujira-data:/data   -e UJIRA_MANDATE_JSON="$(cat 
 ```
 
 `-e UJIRA_AGENT_SECRET` with no value passes the variable from your shell, so the key never appears on the command line.
+
+### Roles
+
+One image, and one entry point (`dist/server/main.js`, `npm start`), runs the roles named in `UJIRA_ROLES`:
+
+| `UJIRA_ROLES` | Runs |
+| --- | --- |
+| unset or empty | `web,worker`, both in one process. The Railway service runs this, so a deploy that does not set the variable serves exactly as before. |
+| `web` | The site, `/app`, `/api`, `/mcp`, `/m/<mandate>/mcp` and `/healthz`: everything the HTTP server has always served. |
+| `worker` | Queued jobs only, with no HTTP listener and none of the web settings. It has no tasks yet; it starts, stays up and stops cleanly. |
+| `web,worker` | Both. Order and spaces do not matter. |
+
+Anything else, such as a typo, an empty entry or a role named twice, refuses to start with exit code 1 and a message such as `ujira-server: UJIRA_ROLES must be web, worker or web,worker; "jobs" is not a role`.
+
+On SIGTERM or SIGINT the web role stops first: it stops taking connections at once, gives requests in flight up to 10 seconds, then closes the rest. The worker stops next. The whole stop has a 20 second budget; the process exits 0 when every role stopped in time and 1 when one did not, and a second signal while stopping changes nothing. The image's health check asks `/healthz` unless the container runs the worker role alone, which has no port; a host running a worker alone needs no HTTP health check either.
 
 ### Deploy on Railway
 
@@ -266,7 +283,26 @@ npm run format:check
 npm test
 ```
 
-The unit tests run the engine, the codec and every MCP tool against a fake RPC that holds an in-memory mandate, so they need no network.
+The unit tests run the engine, the codec and every MCP tool against a fake RPC that holds an in-memory mandate, so they need no network. `test/server-process.test.ts` runs `src/server/main.ts` as a child process to check the roles, the signals and the exit codes.
+
+### Local Postgres
+
+`docker-compose.yml` holds a Postgres 17 for local runs and the database tests, pinned by digest and published on `127.0.0.1` only:
+
+```sh
+docker compose up --detach --wait db   # start it and wait until it is healthy
+docker compose down                    # stop it; add --volumes to delete its data
+```
+
+Its login, password and database are all `ujira`, fixed local values that no real database uses, on port 54329 so it never clashes with another Postgres on 5432 (set `UJIRA_DB_PORT` to move it). Point the database settings at it:
+
+| Variable | Local value |
+| --- | --- |
+| `UJIRA_DB_MIGRATOR_URL` | `postgresql://ujira:ujira@127.0.0.1:54329/ujira` |
+| `UJIRA_DB_APP_URL` | `postgresql://ujira:ujira@127.0.0.1:54329/ujira` |
+| `UJIRA_DB_WORKER_URL` | `postgresql://ujira:ujira@127.0.0.1:54329/ujira` |
+
+The local server has no TLS certificate, so turn TLS off in the database settings when you point them at it. The `ujira` login owns the database and is a superuser, so it bypasses row level security: use it to migrate and to create the test databases, never to prove tenant isolation. The app connects as `ujira_app` (section 8.3 of `docs/adr/0001-product-base.md`), a login the migrations create without a password; give it a local password with `ALTER ROLE` and point `UJIRA_DB_APP_URL` at it, and do the same for the worker's login and `UJIRA_DB_WORKER_URL`. The `local-db` CI job starts this service and logs in from the host with the URL above.
 
 ## Dashes
 
@@ -297,7 +333,7 @@ Every pull request starts from `.github/pull_request_template.md`: the linked is
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `checks` job runs the pull request template check and its self test. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Its `server` job installs from the lockfile with no install scripts, then runs `tsc`, eslint with zero warnings, the prettier check, vitest with coverage and `npm audit --omit=dev`. Its `console` job does the same in `console/` (vitest without coverage), then the production `vite build`, the license allowlist and the production audit. Both run on Node 22, the line the image runs, at the exact version in `NODE_VERSION`. Once the install succeeds, every later step reports even when an earlier one fails. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `checks` job runs the pull request template check and its self test. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Its `server` job installs from the lockfile with no install scripts, then runs `tsc`, eslint with zero warnings, the prettier check, vitest with coverage and `npm audit --omit=dev`. Its `console` job does the same in `console/` (vitest without coverage), then the production `vite build`, the license allowlist and the production audit. Its `image` job builds the `Dockerfile` and runs `scripts/check-image.sh` against it, which starts the image with each value of `UJIRA_ROLES` and checks `/healthz`, the missing listener of the worker role, the refusal of an unknown role and a clean stop within 20 seconds, web first; it makes a throwaway unfunded key for the run and never prints it. Its `local-db` job starts the Postgres in `docker-compose.yml` and logs in from the host. Both run on Node 22, the line the image runs, at the exact version in `NODE_VERSION`. Once the install succeeds, every later step reports even when an earlier one fails. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
 
 ## Secret scanning
 

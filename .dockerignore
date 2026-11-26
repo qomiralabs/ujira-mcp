@@ -10,6 +10,7 @@ console/dist
 coverage
 docs
 evidence
+docker-compose.yml
 examples
 scripts
 test

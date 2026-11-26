@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Qomira Labs
 #
-# The public MCP server over HTTP, Stellar testnet only. Keys and the mandate
-# come from the environment at run time; nothing secret is baked in.
+# The UJIRA server, Stellar testnet only. One image runs the roles named in
+# UJIRA_ROLES: web, worker, or both when unset. Keys and the mandate come
+# from the environment at run time; nothing secret is baked in.
 
 # The console web app, built on its own so its dependencies never reach the
 # server image; only the static files in console/dist are copied over.
@@ -42,7 +43,9 @@ RUN chmod 0755 /usr/local/bin/ujira-entrypoint \
     && mkdir -p /data \
     && chown node:node /data
 EXPOSE 8080
+# The worker role alone has no port to ask, so its container counts as healthy
+# while the process runs; every role that serves HTTP must answer /healthz.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+  CMD ["node", "-e", "if((process.env.UJIRA_ROLES||'').trim()==='worker')process.exit(0);fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 ENTRYPOINT ["/usr/local/bin/ujira-entrypoint"]
-CMD ["node", "dist/mcp/http-main.js"]
+CMD ["node", "dist/server/main.js"]

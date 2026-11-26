@@ -20,9 +20,10 @@ import { defaultRecipientRef, payoutIdFor, taskId, taskRefFor, type Hex32 } from
 import { minorUnits } from '../money.js';
 import {
   PartialSettlementError,
-  RAIL_NAMES,
+  WALLET_RAIL,
+  railName,
   type PayoutRail,
-  type RailName,
+  type RailId,
   type RailPayment,
   type RailSettlement,
   type SettlementProgress,
@@ -40,7 +41,10 @@ export const quoteInput = z.object({
   task_id: taskId.optional(),
   recipient: z.string().min(1).max(256),
   amount: minorUnits,
-  rail: z.enum(RAIL_NAMES).default('usdc'),
+  // Old connectors still send usdc or sdp; they are read as the rails they meant.
+  rail: railName
+    .default(WALLET_RAIL)
+    .describe(`The payout rail; ${WALLET_RAIL} pays USDC to the recipient's own Stellar account`),
 });
 
 export const payoutInput = quoteInput.extend({ task_id: taskId });
@@ -74,7 +78,7 @@ export interface QuoteResult {
   readonly reason?: string;
   readonly amount: string;
   readonly asset: string;
-  readonly rail: RailName;
+  readonly rail: RailId;
   readonly destination: string;
   readonly headroom: Readonly<Record<keyof Quote['headroom'], string>>;
 }
@@ -183,7 +187,7 @@ export class PayoutEngine {
     return this.o.agent.publicKey;
   }
 
-  private rail(name: RailName): PayoutRail {
+  private rail(name: RailId): PayoutRail {
     const rail = this.o.rails.find((r) => r.name === name);
     if (rail === undefined) {
       throw new EngineError('rail_unavailable', `the ${name} rail is not available on this server`);
@@ -200,7 +204,7 @@ export class PayoutEngine {
     task_id: string;
     recipient: string;
     amount: bigint;
-    rail: RailName;
+    rail: RailId;
   }): Target {
     const rail = this.rail(input.rail);
     const destination = rail.destinationFor(input.recipient);

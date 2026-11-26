@@ -9,7 +9,8 @@
 // Settings come from the environment, as for the MCP server (see
 // docs/sdp-testnet.md): UJIRA_MANDATE_FILE, UJIRA_AGENT_KEY_FILE,
 // UJIRA_EXECUTOR_KEY_FILE, UJIRA_SDP_URL, UJIRA_SDP_API_KEY and
-// UJIRA_SDP_DISTRIBUTION. UJIRA_EVIDENCE_FILE names the evidence file.
+// UJIRA_SDP_DISTRIBUTION. UJIRA_EVIDENCE_FILE names the evidence file. The
+// SDP rail is a demo feature, so the run reads the demo settings directly.
 //
 // Task IDs are fixed, so running it again reports the same payouts instead of
 // paying them twice.
@@ -20,6 +21,7 @@ import { dirname } from 'node:path';
 import { z } from 'zod';
 
 import { createEngine, loadSettings } from '../src/config.js';
+import { createDemo } from '../src/demo/index.js';
 import { formatUnits, units } from '../src/money.js';
 
 const TASKS = [
@@ -51,12 +53,20 @@ async function readEvidence(path: string): Promise<z.output<typeof evidenceFile>
 
 async function main(): Promise<void> {
   const settings = loadSettings();
-  if (settings.sdp === undefined) throw new Error('set UJIRA_SDP_URL and the other SDP settings');
+  const demo = createDemo({
+    base: settings,
+    log: (line) => {
+      console.log(line);
+    },
+  });
+  if (demo.settings.sdp === undefined) {
+    throw new Error('set UJIRA_SDP_URL and the other SDP settings');
+  }
   const mandateFile = process.env['UJIRA_MANDATE_FILE'];
   if (mandateFile === undefined) throw new Error('set UJIRA_MANDATE_FILE');
   const facts = mandateFacts.parse(JSON.parse(await readFile(mandateFile, 'utf8')));
   const wallets = new Map(facts.recipients.map((r) => [r.name ?? r.destination, r.destination]));
-  const { engine } = createEngine(settings);
+  const { engine } = createEngine(settings, { extraRails: (mandate) => demo.rails(mandate) });
 
   const entries: Record<string, unknown>[] = [];
   for (const task of TASKS) {

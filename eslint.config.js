@@ -12,12 +12,25 @@ const FLOAT_BAN_MESSAGE =
 const CHAIN_BOUNDARY =
   'Reach the chain through the adapter in src/chain; only src/chain and src/demo import Stellar libraries.';
 
+const DEMO_BOUNDARY =
+  'Product code never depends on the testnet demo; only an entry point composes src/demo.';
+
 // A rule set in a later block replaces the same rule from an earlier one, so
-// the money folders below repeat this selector next to their own.
+// each block below lists every pattern and selector that applies to its files.
 const DYNAMIC_STELLAR_IMPORT = {
   selector: 'ImportExpression[source.value=/^@stellar/]',
   message: CHAIN_BOUNDARY,
 };
+const DYNAMIC_DEMO_IMPORT = {
+  // esquery ends a regex at the first slash, so the slashes are written as \x2F.
+  selector: 'ImportExpression[source.value=/(^|\\x2F)demo(\\x2F|$)/]',
+  message: DEMO_BOUNDARY,
+};
+const STELLAR_PATTERN = { group: ['@stellar/*', '@stellar/*/**'], message: CHAIN_BOUNDARY };
+const DEMO_PATTERN = { regex: '(^|/)demo(/|$)', message: DEMO_BOUNDARY };
+
+// The files that compose the server, and so may build the demo.
+const ENTRY_POINTS = ['src/mcp/main.ts', 'src/mcp/http-main.ts', 'src/server/**'];
 
 export default defineConfig(
   // The console web app has its own lint setup in console/. site/ is the
@@ -43,15 +56,32 @@ export default defineConfig(
   // that move money never depend on one chain library. The testnet demo may
   // use the library directly. Tests and examples play the wallet and the
   // network, so they may too.
+  //
+  // Nor does product code import the demo, so the demo can be deleted before
+  // mainnet as one folder. Only the entry points compose it, behind its flag.
   {
     files: ['src/**/*.ts'],
-    ignores: ['src/chain/**', 'src/demo/**'],
+    ignores: ['src/chain/**', 'src/demo/**', ...ENTRY_POINTS],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
-        { patterns: [{ group: ['@stellar/*', '@stellar/*/**'], message: CHAIN_BOUNDARY }] },
+        { patterns: [STELLAR_PATTERN, DEMO_PATTERN] },
       ],
+      'no-restricted-syntax': ['error', DYNAMIC_STELLAR_IMPORT, DYNAMIC_DEMO_IMPORT],
+    },
+  },
+  {
+    files: ENTRY_POINTS,
+    rules: {
+      '@typescript-eslint/no-restricted-imports': ['error', { patterns: [STELLAR_PATTERN] }],
       'no-restricted-syntax': ['error', DYNAMIC_STELLAR_IMPORT],
+    },
+  },
+  {
+    files: ['src/chain/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': ['error', { patterns: [DEMO_PATTERN] }],
+      'no-restricted-syntax': ['error', DYNAMIC_DEMO_IMPORT],
     },
   },
   // Amounts are bigint minor units. These are the usual ways a float gets
@@ -79,6 +109,7 @@ export default defineConfig(
         { selector: "CallExpression[callee.name='Number']", message: FLOAT_BAN_MESSAGE },
         { selector: "NewExpression[callee.name='Number']", message: FLOAT_BAN_MESSAGE },
         DYNAMIC_STELLAR_IMPORT,
+        DYNAMIC_DEMO_IMPORT,
       ],
     },
   },

@@ -5,14 +5,18 @@
 // Starts the public MCP server over HTTP. Configuration comes only from the
 // environment; see the README. Log lines never carry a key, a caller's
 // address or a request body.
+//
+// This is a composition root, one of the few files allowed to import
+// src/demo, and it builds the demo only when UJIRA_DEMO_FEATURES is on.
 
 import { accessSync, constants, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { createV1App } from '../api/app.js';
 import { nodeHandler } from '../api/node.js';
-import { createEngine, loadSettings } from '../config.js';
+import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
+import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from './http.js';
 import { loadHttpSettings } from './public.js';
@@ -41,28 +45,32 @@ function checkReceiptsWritable(path: string): void {
 }
 
 function main(): void {
+  // First, so a demo asked for on another network stops the server before anything else.
+  const withDemo = demoFeatures();
   const settings = loadSettings();
   const http = loadHttpSettings();
   checkReceiptsWritable(settings.receiptsPath);
-  const wiring = createEngine(settings);
-  const {
-    routes,
-    settings: consoleSettings,
-    recycler,
-  } = consoleFromEnv(settings, wiring, http, log);
+  const demo = withDemo ? createDemo({ base: settings, log }) : undefined;
+  const wiring = createEngine(
+    settings,
+    demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) },
+  );
+  const { routes } = consoleFromEnv({
+    base: settings,
+    wiring,
+    http,
+    log,
+    ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
+  });
   const server = createHttpServer({
-    engine: wiring.engine,
     settings: http,
-    assetCode: settings.assetCode,
-    recipients: [...settings.recipientRefs.keys()],
     log,
     extra: routes,
     v1: nodeHandler(createV1App({ log }).app),
+    ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
   });
-  log(
-    `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}, recycler ${recycler === undefined ? 'off' : `every ${String(consoleSettings.recycleIntervalSeconds)}s`}`,
-  );
-  recycler?.start(consoleSettings.recycleIntervalSeconds * 1000);
+  log(demo === undefined ? 'demo off' : demo.summary());
+  demo?.start();
   server.on('error', (error: NodeJS.ErrnoException) => {
     process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
     process.exit(1);
@@ -73,7 +81,7 @@ function main(): void {
     );
   });
   const stop = () => {
-    recycler?.stop();
+    demo?.stop();
     server.close();
     // Let a payout in flight finish, but not forever.
     setTimeout(() => process.exit(0), 10_000).unref();

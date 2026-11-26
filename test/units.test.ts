@@ -221,7 +221,7 @@ describe('settings', () => {
     const s = loadSettings({ UJIRA_MANDATE_JSON: json, UJIRA_AGENT_SECRET: kp.secret() });
     expect(s).toMatchObject({ mandateId: MANDATE, assetCode: 'UJTEST' });
     expect(s.recipientRefs.get(alice)).toBe('cd'.repeat(32));
-    expect(s.sdp).toBeUndefined();
+    expect(s.namedRecipients).toEqual({});
   });
 
   it.each([

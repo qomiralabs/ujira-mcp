@@ -3,14 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  WindowLimiter,
-  clientAddress,
-  loadHttpSettings,
-  publicGuard,
-  publicLimiters,
-  rateKey,
-} from '../src/mcp/public.js';
+import { WindowLimiter, clientAddress, loadHttpSettings, rateKey } from '../src/mcp/public.js';
 
 describe('WindowLimiter', () => {
   it('allows the limit per window and opens again when it ends', () => {
@@ -127,37 +120,5 @@ describe('loadHttpSettings', () => {
     [{ UJIRA_CLIENT_IP_HEADER: 'bad header' }, /UJIRA_CLIENT_IP_HEADER/],
   ])('refuses %o', (env, message) => {
     expect(() => loadHttpSettings(env)).toThrow(message);
-  });
-});
-
-describe('publicGuard', () => {
-  const limits = { maxAmount: 10n, payoutsPerHour: 1, toolCallsPerMinute: 100 };
-
-  it('lets small payouts through and counts only payout requests per address', () => {
-    const limiters = publicLimiters(limits, () => 0);
-    const guard = publicGuard({ limits, limiters, client: 'a', assetCode: 'USDC' });
-    expect(guard('quote_payout', { amount: 10n })).toBeUndefined();
-    expect(guard('payout_status', { task_id: 't' })).toBeUndefined();
-    expect(guard('request_payout', { task_id: 't', amount: 10n })).toBeUndefined();
-    expect(guard('request_payout', { task_id: 't', amount: 10n })).toMatchObject({
-      isError: true,
-    });
-  });
-
-  it('blocks over the cap without using up the address allowance', () => {
-    const limiters = publicLimiters(limits, () => 0);
-    const guard = publicGuard({ limits, limiters, client: 'a', assetCode: 'USDC' });
-    expect(guard('request_payout', { task_id: 't', amount: 11n })).toEqual({
-      answer: {
-        task_id: 't',
-        outcome: 'blocked',
-        reason: 'public_demo_limit',
-        amount: '11',
-        asset: 'USDC',
-        max_amount: '10',
-        detail: 'This shared public demo pays at most 0.000001 USDC per payout. Nothing was sent.',
-      },
-    });
-    expect(guard('request_payout', { task_id: 't', amount: 1n })).toBeUndefined();
   });
 });

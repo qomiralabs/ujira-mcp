@@ -9,15 +9,15 @@ import { inspect } from 'node:util';
 import { Account, TransactionBuilder, type Transaction } from '@stellar/stellar-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { waitWords } from '../src/console/app.js';
-import { ApiError } from '../src/console/errors.js';
-import { ConsoleRegistry, MAX_FAUCET_CLAIMS } from '../src/console/registry.js';
-import { Recycler } from '../src/console/recycler.js';
-import { loadConsoleSettings, testWalletsPath } from '../src/console/settings.js';
-import { TestWalletStore } from '../src/console/wallets.js';
-import { TESTNET_PASSPHRASE } from '../src/chain/stellar/gateway.js';
-import { FakeChain, keypair, treasury, treasuryKey } from './console-helpers.js';
-import { UNIT } from './fake-rpc.js';
+import { TESTNET_PASSPHRASE } from '../../src/chain/stellar/gateway.js';
+import { ApiError } from '../../src/console/errors.js';
+import { ConsoleRegistry, MAX_FAUCET_CLAIMS } from '../../src/console/registry.js';
+import { waitWords } from '../../src/demo/console.js';
+import { Recycler } from '../../src/demo/recycler.js';
+import { loadDemoSettings, testWalletsPath } from '../../src/demo/settings.js';
+import { TestWalletStore } from '../../src/demo/wallets.js';
+import { FakeChain, keypair, treasury, treasuryKey } from '../console-helpers.js';
+import { UNIT } from '../fake-rpc.js';
 
 const USDC = {
   code: 'USDC',
@@ -25,6 +25,8 @@ const USDC = {
 };
 const dir = () => mkdtempSync(join(tmpdir(), 'ujira-recycle-'));
 const SECRET = /S[A-Z2-7]{55}/;
+const NO_FACTS = { namedRecipients: {} };
+const demoSettings = (env: Record<string, string>) => loadDemoSettings(env, NO_FACTS);
 
 function paymentOf(tx: Transaction | undefined): [string, string, string] | null {
   const op = tx?.operations[0];
@@ -254,21 +256,21 @@ describe('faucet bookkeeping', () => {
   });
 
   it('reads the cooldown and recycle interval from the environment', () => {
-    const d = loadConsoleSettings({});
+    const d = demoSettings({});
     expect([d.faucetAmount, d.faucetCooldownSeconds, d.recycleIntervalSeconds]).toEqual([
       500_000_000n,
       600,
       300,
     ]);
-    const s = loadConsoleSettings({
+    const s = demoSettings({
       UJIRA_FAUCET_COOLDOWN_SECONDS: '0',
       UJIRA_RECYCLE_INTERVAL_SECONDS: '60',
     });
     expect([s.faucetCooldownSeconds, s.recycleIntervalSeconds]).toEqual([0, 60]);
-    expect(() => loadConsoleSettings({ UJIRA_RECYCLE_INTERVAL_SECONDS: '5' })).toThrow(
+    expect(() => demoSettings({ UJIRA_RECYCLE_INTERVAL_SECONDS: '5' })).toThrow(
       'UJIRA_RECYCLE_INTERVAL_SECONDS',
     );
-    expect(() => loadConsoleSettings({ UJIRA_FAUCET_COOLDOWN_SECONDS: '-1' })).toThrow(
+    expect(() => demoSettings({ UJIRA_FAUCET_COOLDOWN_SECONDS: '-1' })).toThrow(
       'UJIRA_FAUCET_COOLDOWN_SECONDS',
     );
   });

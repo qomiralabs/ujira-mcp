@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { EngineError } from '../errors.js';
-import type { RailPayment } from './rail.js';
+import type { RailPayment } from '../rails/rail.js';
 import {
   disbursementName,
   instructionsCsv,

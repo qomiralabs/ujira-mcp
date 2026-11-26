@@ -14,6 +14,7 @@ import { ApiError, toApiError } from '../src/console/errors.js';
 import { mapLimit, payoutStatus } from '../src/console/mandates.js';
 import { ConsoleRegistry, MAX_RECIPIENTS, defaultLabel } from '../src/console/registry.js';
 import { loadConsoleSettings } from '../src/console/settings.js';
+import { loadDemoSettings } from '../src/demo/settings.js';
 import { cleanPath, fileIn } from '../src/console/static.js';
 import { checkCreateParams, parseBuildRequest } from '../src/console/txbuild.js';
 import { isCanonicalHost, movedTo } from '../src/console/web.js';
@@ -63,6 +64,9 @@ function refusedCode(work: () => unknown): string | undefined {
   }
   return undefined;
 }
+
+/** Demo settings read nothing from a mandate file here. */
+const NO_FACTS = { namedRecipients: {} };
 
 describe('transaction builders', () => {
   it('encodes the factory config the demo mandate used, with the owner approving', () => {
@@ -311,19 +315,16 @@ describe('console helpers', () => {
     expect(isCanonicalHost('localhost:9090', 'localhost:8080')).toBe(false);
   });
 
-  it('reads the site folder, the canonical host and the proof link from the environment', () => {
+  it('reads the site folder and the canonical host from the environment', () => {
     const plain = loadConsoleSettings({});
     expect(plain.canonicalHost).toBeUndefined();
     expect(plain.siteDir.endsWith('/site')).toBe(true);
-    expect(plain.sdpProofUrl).toBe('/instaward');
     const set = loadConsoleSettings({
       UJIRA_CANONICAL_HOST: ' UJIRA.co ',
       UJIRA_SITE_DIR: '/srv/site',
-      UJIRA_SDP_PROOF_URL: 'https://proof.example/page',
     });
     expect(set.canonicalHost).toBe('ujira.co');
     expect(set.siteDir).toBe('/srv/site');
-    expect(set.sdpProofUrl).toBe('https://proof.example/page');
     expect(loadConsoleSettings({ UJIRA_CANONICAL_HOST: 'localhost:8080' }).canonicalHost).toBe(
       'localhost:8080',
     );
@@ -332,8 +333,15 @@ describe('console helpers', () => {
         'UJIRA_CANONICAL_HOST',
       );
     }
+  });
+
+  it('reads the demo proof link from the environment', () => {
+    expect(loadDemoSettings({}, NO_FACTS).sdpProofUrl).toBe('/instaward');
+    expect(
+      loadDemoSettings({ UJIRA_SDP_PROOF_URL: 'https://proof.example/page' }, NO_FACTS).sdpProofUrl,
+    ).toBe('https://proof.example/page');
     for (const bad of ['//evil.example', '/a\\b', '/a b', 'ftp://x']) {
-      expect(() => loadConsoleSettings({ UJIRA_SDP_PROOF_URL: bad }), bad).toThrow(
+      expect(() => loadDemoSettings({ UJIRA_SDP_PROOF_URL: bad }, NO_FACTS), bad).toThrow(
         'UJIRA_SDP_PROOF_URL',
       );
     }
@@ -343,28 +351,32 @@ describe('console helpers', () => {
     const s = loadConsoleSettings({
       UJIRA_RECEIPTS_FILE: '/data/receipts.json',
       UJIRA_PUBLIC_ORIGIN: 'https://ujira.example/',
-      UJIRA_FAUCET_AMOUNT: '100',
-      UJIRA_TREASURY_SECRET: owner.secret(),
     });
     expect(s.dataDir).toBe('/data');
     expect(s.publicOrigin).toBe('https://ujira.example');
-    expect(s.faucetAmount).toBe(100n);
-    expect(s.faucetFloor).toBe(200n);
-    expect(s.treasury?.publicKey).toBe(owner.publicKey());
     expect(s.limits.mandatePayoutsPerHour).toBe(30);
-    expect(loadConsoleSettings({ UJIRA_DATA_DIR: '/x' }).treasury).toBeUndefined();
-    expect(() => loadConsoleSettings({ UJIRA_FAUCET_AMOUNT: '1.5' })).toThrow(
-      'UJIRA_FAUCET_AMOUNT',
-    );
     expect(() => loadConsoleSettings({ UJIRA_HORIZON_URL: 'ftp://x' })).toThrow(
       'UJIRA_HORIZON_URL',
     );
     expect(() => loadConsoleSettings({ UJIRA_FACTORY: 'nope' })).toThrow('UJIRA_FACTORY');
-    expect(() => loadConsoleSettings({ UJIRA_FAUCET_PER_HOUR: '0' })).toThrow(
-      'UJIRA_FAUCET_PER_HOUR',
-    );
     expect(() => loadConsoleSettings({ UJIRA_PUBLIC_ORIGIN: 'not a url' })).toThrow(
       'UJIRA_PUBLIC_ORIGIN',
+    );
+  });
+
+  it('reads the faucet and its treasury only into the demo settings', () => {
+    const env = { UJIRA_FAUCET_AMOUNT: '100', UJIRA_TREASURY_SECRET: owner.secret() };
+    expect(loadConsoleSettings(env)).not.toHaveProperty('treasury');
+    const s = loadDemoSettings(env, NO_FACTS);
+    expect(s.faucetAmount).toBe(100n);
+    expect(s.faucetFloor).toBe(200n);
+    expect(s.treasury?.publicKey).toBe(owner.publicKey());
+    expect(loadDemoSettings({}, NO_FACTS).treasury).toBeUndefined();
+    expect(() => loadDemoSettings({ UJIRA_FAUCET_AMOUNT: '1.5' }, NO_FACTS)).toThrow(
+      'UJIRA_FAUCET_AMOUNT',
+    );
+    expect(() => loadDemoSettings({ UJIRA_FAUCET_PER_HOUR: '0' }, NO_FACTS)).toThrow(
+      'UJIRA_FAUCET_PER_HOUR',
     );
   });
 });

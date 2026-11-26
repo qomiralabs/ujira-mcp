@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { explorerTx, useApp } from '../app/context';
 import { formatAmount } from '../lib/money';
+import type { TokenAmount } from '../lib/v1Schemas';
 import { shortAddress } from '../lib/strkey';
 import type { Tone } from '../lib/words';
 
@@ -130,11 +131,21 @@ export function StatusPill({ tone, children }: { tone: Tone; children: ReactNode
   );
 }
 
-export function Amount({ minor, size = 'md' }: { minor: string; size?: 'md' | 'lg' | 'xl' }) {
+type AmountSize = 'md' | 'lg' | 'xl';
+
+/** An amount from minor units: a USDC string from /api, or a token amount from /v1. */
+export function Amount(
+  props: { minor: string; size?: AmountSize } | { token: TokenAmount; size?: AmountSize },
+) {
+  const size = props.size ?? 'md';
+  const [digits, code] =
+    'token' in props
+      ? [formatAmount(props.token.amount, { decimals: props.token.scale }), props.token.asset]
+      : [formatAmount(props.minor), 'USDC'];
   return (
     <span className={`amount amount-${size}`}>
-      {formatAmount(minor)}
-      <span className="amount-code"> USDC</span>
+      {digits}
+      <span className="amount-code"> {code}</span>
     </span>
   );
 }
@@ -176,10 +187,24 @@ export function Notice({
   );
 }
 
-export function ErrorNotice({ error, onRetry }: { error: string; onRetry?: () => void }) {
+export function ErrorNotice({
+  error,
+  onRetry,
+  requestId,
+}: {
+  error: string;
+  onRetry?: () => void;
+  /** The server's id for the failed request, to quote when asking for help. */
+  requestId?: string | null;
+}) {
   return (
     <Notice tone="blocked" title="That did not work">
       <p>{error}</p>
+      {requestId === undefined || requestId === null ? null : (
+        <p className="notice-ref">
+          Reference <span className="mono">{requestId}</span>
+        </p>
+      )}
       {onRetry === undefined ? null : (
         <button type="button" className="btn btn-small" onClick={onRetry}>
           Try again

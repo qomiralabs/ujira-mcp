@@ -3,12 +3,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
-import { errorMessage } from '../lib/api';
+import { errorMessage, errorRequestId } from '../lib/api';
 import { hrefFor, parsePath, type Route } from './routes';
 
 export interface Resource<T> {
   readonly data: T | undefined;
   readonly error: string | null;
+  /** The server's id for the failed request, when it gave one. */
+  readonly errorRequestId: string | null;
   readonly loading: boolean;
   /** Fetches again; the last good data stays on screen meanwhile. */
   reload: () => void;
@@ -24,7 +26,12 @@ export function useResource<T>(
   load: () => Promise<T>,
   pollMs?: number,
 ): Resource<T> {
-  const [state, setState] = useState<{ key: string | null; data?: T; error: string | null }>({
+  const [state, setState] = useState<{
+    key: string | null;
+    data?: T;
+    error: string | null;
+    errorRequestId?: string | null;
+  }>({
     key,
     error: null,
   });
@@ -44,7 +51,14 @@ export function useResource<T>(
         if (live) setState({ key, data, error: null });
       },
       (error: unknown) => {
-        if (live) setState((s) => ({ ...s, key, error: errorMessage(error) }));
+        if (live) {
+          setState((s) => ({
+            ...s,
+            key,
+            error: errorMessage(error),
+            errorRequestId: errorRequestId(error),
+          }));
+        }
       },
     );
     return () => {
@@ -69,6 +83,7 @@ export function useResource<T>(
   return {
     data: current ? state.data : undefined,
     error: current ? state.error : null,
+    errorRequestId: current && state.error !== null ? (state.errorRequestId ?? null) : null,
     loading: key !== null && (!current || (state.data === undefined && state.error === null)),
     reload,
   };

@@ -11,6 +11,9 @@ WORKDIR /console
 COPY console/package.json console/package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY console/ ./
+# The console screens that read /v1 instead of /api, such as "payouts,receipts"
+# or "all". Unset, every screen stays on /api.
+ARG VITE_V1_SCREENS=
 RUN npm run build
 
 FROM node:22-slim AS build

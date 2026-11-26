@@ -13,7 +13,23 @@
 //
 // Generated marks a column the database fills when an insert leaves it out.
 
-import type { Generated } from 'kysely';
+import type { ColumnType, Generated } from 'kysely';
+
+// bigint reads back as text and may be written from any integer form.
+type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+type NullableInt8 = ColumnType<
+  string | null,
+  bigint | number | string | null,
+  bigint | number | string | null
+>;
+// pg parses jsonb on the way out. On the way in it is sent as JSON text, so a
+// value is always serialised once, by the caller, and never guessed at.
+type Jsonb = ColumnType<unknown, string, string>;
+type Timestamp = ColumnType<Date, Date | string, Date | string>;
+type DefaultTimestamp = ColumnType<Date, Date | string | undefined, Date | string>;
+type NullableTimestamp = ColumnType<Date | null, Date | string | null, Date | string | null>;
+// Filled by the database only: an identity, or the writing transaction's id.
+type DatabaseOnly<T> = ColumnType<T, never, never>;
 
 export interface ChainsTable {
   readonly code: string;
@@ -118,6 +134,83 @@ export interface SessionsTable {
   readonly created_at: Generated<Date>;
 }
 
+export interface AuditMetadataKeysTable {
+  readonly key: string;
+}
+
+export interface AuditHeadsTable {
+  readonly principal_id: string;
+  readonly last_seq: Int8;
+  readonly last_hash: Buffer;
+}
+
+export interface AuditLogTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  // The chain trigger overwrites seq, prev_hash, row_hash and occurred_at.
+  readonly seq: Int8;
+  readonly action: string;
+  readonly actor_kind: string;
+  readonly actor_id: string | null;
+  readonly metadata: ColumnType<unknown, string | undefined, string>;
+  readonly occurred_at: DefaultTimestamp;
+  readonly prev_hash: Buffer;
+  readonly row_hash: Buffer;
+}
+
+export interface IdempotencyKeysTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly idempotency_key: string;
+  readonly request_sha256: Buffer;
+  readonly lease_id: string | null;
+  readonly lease_expires_at: NullableTimestamp;
+  readonly request_id: string | null;
+  readonly response_status: NullableInt8;
+  readonly response_body: string | null;
+  readonly created_at: DefaultTimestamp;
+  readonly expires_at: Timestamp;
+}
+
+export interface OutboxEventsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly seq: DatabaseOnly<string>;
+  readonly tx_id: DatabaseOnly<string>;
+  readonly event_type: string;
+  readonly payload: Jsonb;
+  readonly created_at: DefaultTimestamp;
+}
+
+export interface WebhookEndpointsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly url: string;
+  readonly secret_ref: string;
+  readonly event_types: string[];
+  readonly status: Generated<string>;
+  readonly created_at: DefaultTimestamp;
+  readonly updated_at: DefaultTimestamp;
+}
+
+export interface WebhookDeliveriesTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly endpoint_id: string;
+  readonly event_id: string;
+  readonly event_created_at: Timestamp;
+  readonly attempt: Int8;
+  readonly status: string;
+  readonly response_status: NullableInt8;
+  readonly error_code: string | null;
+  readonly created_at: DefaultTimestamp;
+}
+
 export interface Schema {
   'ujira.chains': ChainsTable;
   'ujira.currencies': CurrenciesTable;
@@ -132,6 +225,13 @@ export interface Schema {
   'ujira.rate_limit_buckets': RateLimitBucketsTable;
   'ujira.auth_challenges': AuthChallengesTable;
   'ujira.sessions': SessionsTable;
+  'ujira.audit_metadata_keys': AuditMetadataKeysTable;
+  'ujira.audit_heads': AuditHeadsTable;
+  'ujira.audit_log': AuditLogTable;
+  'ujira.idempotency_keys': IdempotencyKeysTable;
+  'ujira.outbox_events': OutboxEventsTable;
+  'ujira.webhook_endpoints': WebhookEndpointsTable;
+  'ujira.webhook_deliveries': WebhookDeliveriesTable;
 }
 
 // Every column above, by table, for the schema test. Checked against the
@@ -197,6 +297,69 @@ export const SCHEMA_COLUMNS = {
     absolute_expires_at: true,
     revoked_at: true,
     revoked_reason: true,
+    created_at: true,
+  },
+  'ujira.audit_metadata_keys': { key: true },
+  'ujira.audit_heads': { principal_id: true, last_seq: true, last_hash: true },
+  'ujira.audit_log': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    seq: true,
+    action: true,
+    actor_kind: true,
+    actor_id: true,
+    metadata: true,
+    occurred_at: true,
+    prev_hash: true,
+    row_hash: true,
+  },
+  'ujira.idempotency_keys': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    idempotency_key: true,
+    request_sha256: true,
+    lease_id: true,
+    lease_expires_at: true,
+    request_id: true,
+    response_status: true,
+    response_body: true,
+    created_at: true,
+    expires_at: true,
+  },
+  'ujira.outbox_events': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    seq: true,
+    tx_id: true,
+    event_type: true,
+    payload: true,
+    created_at: true,
+  },
+  'ujira.webhook_endpoints': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    url: true,
+    secret_ref: true,
+    event_types: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.webhook_deliveries': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    endpoint_id: true,
+    event_id: true,
+    event_created_at: true,
+    attempt: true,
+    status: true,
+    response_status: true,
+    error_code: true,
     created_at: true,
   },
 } as const satisfies { readonly [T in keyof Schema]: Record<keyof Schema[T], true> };

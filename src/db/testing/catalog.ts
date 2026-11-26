@@ -34,6 +34,8 @@ export const CATALOG_EXCEPTIONS: readonly string[] = [
   'ujira.currency_scales',
   'ujira.settlement_tokens',
   'ujira.status_transitions',
+  // The allowlist of audit metadata keys, which no tenant can write.
+  'ujira.audit_metadata_keys',
 ];
 
 // The sealed tables, each with why it belongs to no tenant.

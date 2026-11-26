@@ -5,7 +5,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 // During development the API runs on the server (ujira-mcp-http, port 8080 by
-// default); the dev server forwards /api to it so the browser sees one origin.
+// default); the dev server forwards /api and /v1 to it so the browser sees one
+// origin, which the session cookie needs.
 const apiTarget = process.env['UJIRA_API_URL'] ?? 'http://127.0.0.1:8080';
 
 // Served by the UJIRA server at /app; the marketing site owns the root.
@@ -31,7 +32,7 @@ export default defineConfig({
     },
   },
   server: {
-    proxy: { '/api': apiTarget, '/m/': apiTarget },
+    proxy: { '/api': apiTarget, '/v1': apiTarget, '/m/': apiTarget },
   },
   test: {
     environment: 'happy-dom',

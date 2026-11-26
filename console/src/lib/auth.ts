@@ -8,7 +8,10 @@
 
 import * as z from 'zod/mini';
 
-import { ApiError, NETWORK_ERROR } from './api';
+import { ApiError } from './api';
+import { createV1Transport, type Fetch, type V1Transport } from './v1';
+
+export { PROJECT_HEADER, v1ErrorSchema, v1ErrorText } from './v1';
 
 const id = z.string().check(z.minLength(1));
 
@@ -48,17 +51,6 @@ export const createdPrincipalSchema = z.looseObject({
   project: projectSchema,
 });
 
-/** The one error envelope every /v1 route uses. */
-export const v1ErrorSchema = z.looseObject({
-  error: z.looseObject({
-    code: z.string(),
-    message: z.string(),
-    requestId: z.optional(z.string()),
-  }),
-});
-
-export const PROJECT_HEADER = 'Ujira-Project';
-
 /** The longest organisation or project name the console sends. */
 export const NAME_MAX = 80;
 
@@ -80,130 +72,53 @@ export interface AuthApi {
   createProject: (principalId: string, name: string) => Promise<Project>;
   /** The project every later request names in the Ujira-Project header; null for none. */
   useProject: (projectId: string | null) => void;
-}
-
-// Sentences for the /v1 codes a person can meet while signing in.
-const V1_ERRORS: Record<string, string> = {
-  SESSION_INVALID: 'Your session has ended. Sign in again.',
-  SIGNATURE_INVALID: 'The wallet signature did not match. Sign in again.',
-  CHALLENGE_EXPIRED: 'The sign in message ran out of time. Sign in again.',
-  FORBIDDEN: 'Your role cannot do that here.',
-  ORIGIN_NOT_ALLOWED: 'This page is not allowed to sign you in. Open UJIRA from ujira.co.',
-  NOT_FOUND: 'We could not find that. Reload the page and try again.',
-  RATE_LIMITED: 'Too many tries in a short time. Wait a minute and try again.',
-  DB_UNAVAILABLE: 'UJIRA is busy for a moment. Try again shortly.',
-  INTERNAL: 'The UJIRA server had a problem. Try again in a moment.',
-};
-
-/** The sentence for a /v1 error code; the server's own words when we have none. */
-export function v1ErrorText(code: string, serverMessage: string): string {
-  return (
-    V1_ERRORS[code] ?? (serverMessage === '' ? 'That did not work. Try again.' : serverMessage)
-  );
+  /** Called whenever any /v1 call finds the session gone; returns the unsubscribe. */
+  onSessionLost: (listener: () => void) => () => void;
 }
 
 export function isSessionInvalid(error: unknown): boolean {
   return error instanceof ApiError && error.code === 'SESSION_INVALID';
 }
 
-type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
-
-async function readV1Error(res: Response): Promise<ApiError> {
-  let body: unknown = null;
-  try {
-    body = await res.json();
-  } catch {
-    // No JSON body: the status decides.
-  }
-  const parsed = v1ErrorSchema.safeParse(body);
-  if (parsed.success) {
-    const { code, message } = parsed.data.error;
-    return new ApiError(code, v1ErrorText(code, message), res.status);
-  }
-  if (res.status === 401)
-    return new ApiError('SESSION_INVALID', v1ErrorText('SESSION_INVALID', ''), 401);
-  if (res.status === 429) return new ApiError('RATE_LIMITED', v1ErrorText('RATE_LIMITED', ''), 429);
-  if (res.status >= 500) return new ApiError('INTERNAL', v1ErrorText('INTERNAL', ''), res.status);
-  return new ApiError(
-    'REQUEST_FAILED',
-    `The server refused the request (HTTP ${res.status}).`,
-    res.status,
-  );
-}
-
-/** The real client. Same origin, so the browser sends the cookie and the Origin itself. */
+/**
+ * The real client, on the shared /v1 transport, so the project it opens is
+ * the project every other /v1 call names. A bare fetch gets its own transport.
+ */
 export function createHttpAuthApi(
-  fetchImpl: Fetch = (i, init) => fetch(i, init),
+  transport: V1Transport | Fetch = createV1Transport(),
   base = '',
 ): AuthApi {
-  let project: string | null = null;
-
-  async function send(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown) {
-    const headers: Record<string, string> = { accept: 'application/json' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    if (project !== null) headers[PROJECT_HEADER] = project;
-    let res: Response;
-    try {
-      res = await fetchImpl(`${base}${path}`, {
-        method,
-        headers,
-        credentials: 'same-origin',
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-    } catch {
-      throw new ApiError('network', NETWORK_ERROR, 0);
-    }
-    if (!res.ok) throw await readV1Error(res);
-    return res;
-  }
-
-  async function call<S extends z.ZodMiniType>(
-    schema: S,
-    method: 'GET' | 'POST',
-    path: string,
-    body?: unknown,
-  ): Promise<z.infer<S>> {
-    const res = await send(method, path, body);
-    let json: unknown;
-    try {
-      json = await res.json();
-    } catch {
-      throw new ApiError(
-        'bad_response',
-        'The server sent an answer we could not read.',
-        res.status,
-      );
-    }
-    const parsed = schema.safeParse(json);
-    if (!parsed.success) {
-      throw new ApiError(
-        'bad_response',
-        'The server sent an answer in a shape we did not expect.',
-        res.status,
-      );
-    }
-    return parsed.data;
-  }
-
+  const t = typeof transport === 'function' ? createV1Transport(transport, base) : transport;
   return {
-    challenge: (address) => call(challengeSchema, 'POST', '/v1/auth/challenge', { address }),
-    startSession: (p) => call(sessionSchema, 'POST', '/v1/auth/session', p),
-    me: () => call(sessionSchema, 'GET', '/v1/me'),
+    challenge: (address) =>
+      t.json(challengeSchema, { method: 'POST', path: '/v1/auth/challenge', body: { address } }),
+    startSession: (p) =>
+      t.json(sessionSchema, { method: 'POST', path: '/v1/auth/session', body: p }),
+    me: () => t.json(sessionSchema, { method: 'GET', path: '/v1/me' }),
     endSession: async () => {
       try {
-        await send('DELETE', '/v1/auth/session');
+        await t.send({ method: 'DELETE', path: '/v1/auth/session' });
       } catch (error) {
         // Already gone is the outcome we wanted.
         if (!isSessionInvalid(error)) throw error;
       }
     },
-    createPrincipal: (name) => call(createdPrincipalSchema, 'POST', '/v1/principals', { name }),
-    projects: async () => (await call(projectListSchema, 'GET', '/v1/projects')).projects,
+    createPrincipal: (name) =>
+      t.json(createdPrincipalSchema, { method: 'POST', path: '/v1/principals', body: { name } }),
+    projects: async () =>
+      (await t.json(projectListSchema, { method: 'GET', path: '/v1/projects' })).projects,
     createProject: async (principalId, name) =>
-      (await call(createdProjectSchema, 'POST', '/v1/projects', { principalId, name })).project,
+      (
+        await t.json(createdProjectSchema, {
+          method: 'POST',
+          path: '/v1/projects',
+          body: { principalId, name },
+        })
+      ).project,
     useProject: (projectId) => {
-      project = projectId;
+      t.useProject(projectId);
     },
+    onSessionLost: (listener) => t.onSessionLost(listener),
   };
 }
 

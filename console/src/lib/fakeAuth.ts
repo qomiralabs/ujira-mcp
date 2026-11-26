@@ -11,7 +11,6 @@
 import { ApiError } from './api';
 import {
   checkName,
-  v1ErrorText,
   type AuthApi,
   type Challenge,
   type Member,
@@ -19,6 +18,7 @@ import {
   type Project,
   type SessionInfo,
 } from './auth';
+import { v1ErrorText } from './v1';
 
 const CHALLENGE_MS = 10 * 60 * 1000;
 export const FIRST_PROJECT_NAME = 'Main';
@@ -37,9 +37,26 @@ export interface FakeAuthOptions {
   readonly signedInAs?: string;
 }
 
+/** Who a fake /v1 route is serving: the member, and the project their header names. */
+export interface FakeTenant {
+  readonly memberId: string;
+  /** The wallet the member signed in with. */
+  readonly address: string;
+  readonly principalId: string;
+  readonly projectId: string;
+  readonly role: string;
+}
+
 export interface FakeAuthApi extends AuthApi {
   /** What the server would see; for tests only. */
   readonly inspect: () => { signedIn: boolean; project: string | null; challenges: number };
+  /**
+   * The check every other fake /v1 route runs first, as the server does: a
+   * session, a project header, and a project the member belongs to.
+   */
+  readonly tenant: () => FakeTenant;
+  /** Ends the session as the server would when it lapses, without the console asking. */
+  readonly expire: () => void;
 }
 
 interface Pending {
@@ -82,6 +99,7 @@ export function createFakeAuthApi(options: FakeAuthOptions = {}): FakeAuthApi {
   const challenges = new Map<string, Pending>();
   let session: string | null = null;
   let project: string | null = null;
+  const lostListeners = new Set<() => void>();
 
   function memberFor(address: string): Member {
     let m = members.get(address);
@@ -134,9 +152,41 @@ export function createFakeAuthApi(options: FakeAuthOptions = {}): FakeAuthApi {
     return { member: { ...m }, principals: principalsOf(m.id) };
   }
 
+  // Every 401 reaches the listeners, as every 401 from the real transport does.
+  function guarded<T>(fn: () => T): T {
+    try {
+      return fn();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        for (const listener of [...lostListeners]) listener();
+      }
+      throw error;
+    }
+  }
+
   async function step<T>(fn: () => T): Promise<T> {
     if (delayMs > 0) await sleep(delayMs);
-    return fn();
+    return guarded(fn);
+  }
+
+  function tenant(): FakeTenant {
+    return guarded(() => {
+      const m = current();
+      if (project === null) throw fail('INVALID_REQUEST', 400, 'Choose a project first.');
+      const p = projects.get(project);
+      const principal = p === undefined ? undefined : principals.get(p.principalId);
+      // Another tenant's project looks the same as no project.
+      if (p === undefined || principal === undefined || !principal.members.has(m.id)) {
+        throw fail('NOT_FOUND', 404);
+      }
+      return {
+        memberId: m.id,
+        address: m.address,
+        principalId: p.principalId,
+        projectId: p.id,
+        role: principal.role,
+      };
+    });
   }
 
   return {
@@ -197,6 +247,16 @@ export function createFakeAuthApi(options: FakeAuthOptions = {}): FakeAuthApi {
     useProject: (projectId) => {
       project = projectId;
     },
+    onSessionLost: (listener) => {
+      lostListeners.add(listener);
+      return () => {
+        lostListeners.delete(listener);
+      };
+    },
     inspect: () => ({ signedIn: session !== null, project, challenges: challenges.size }),
+    tenant,
+    expire: () => {
+      session = null;
+    },
   };
 }

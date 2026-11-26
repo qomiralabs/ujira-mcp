@@ -7,6 +7,7 @@ import {
   addMinor,
   compareMinor,
   formatAmount,
+  formatToken,
   formatUsdc,
   parseAmount,
   percentOf,
@@ -107,5 +108,19 @@ describe('integer helpers', () => {
     expect(percentOf('400000000', '400000000')).toBe(100);
     expect(percentOf('500000000', '400000000')).toBe(100);
     expect(percentOf('1', '0')).toBe(0);
+  });
+
+  it('formats bigint minor units the same as their digits', () => {
+    expect(formatAmount(125_000_000n)).toBe(formatAmount('125000000'));
+    expect(formatAmount(-5n)).toBe('-0.0000005');
+    expect(formatUsdc(10_000_000n)).toBe('1.00 USDC');
+    expect(formatAmount(2n ** 100n)).toBe(formatAmount((2n ** 100n).toString()));
+  });
+
+  it('formats a token amount in its own scale and asset', () => {
+    const token = { amount: 123_456n, asset: 'EURC', network: 'stellar:testnet', scale: 2 };
+    expect(formatToken(token)).toBe('1,234.56 EURC');
+    expect(formatToken(token, { grouping: false })).toBe('1234.56 EURC');
+    expect(formatToken({ ...token, amount: 0n, scale: 0 })).toBe('0 EURC');
   });
 });

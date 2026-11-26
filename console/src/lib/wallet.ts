@@ -18,6 +18,37 @@ export interface Wallet {
     xdr: string,
     options: { networkPassphrase: string; description?: string },
   ) => Promise<string>;
+  /**
+   * Signs a plain text message, such as the sign in challenge, exactly as
+   * given, and returns the SEP-53 signature as the wallet encodes it (base64
+   * or hex; the server reads both). Nothing is sent on chain.
+   */
+  signMessage: (message: string) => Promise<string>;
+}
+
+/** Base64 of raw bytes. */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+/** Freighter 6 returns base64; an older extension returns the raw bytes. */
+export function freighterSignature(signed: unknown): string | null {
+  if (typeof signed === 'string') return signed === '' ? null : signed;
+  if (signed instanceof Uint8Array) return signed.length === 0 ? null : bytesToBase64(signed);
+  return null;
+}
+
+/**
+ * The SEP-53 signature in an Albedo answer: `signedMessage`, 64 bytes in hex.
+ * Albedo's types do not declare it, so it is read with a check. Its
+ * `message_signature` is an older scheme the server refuses, so it is never used.
+ */
+export function albedoSignature(res: unknown): string | null {
+  if (typeof res !== 'object' || res === null || !('signedMessage' in res)) return null;
+  const signed = res.signedMessage;
+  return typeof signed === 'string' && /^[0-9a-fA-F]{128}$/.test(signed) ? signed : null;
 }
 
 export class WalletError extends Error {
@@ -61,6 +92,19 @@ function freighterWallet(api: FreighterApi, address: string): Wallet {
       if (message !== undefined) throw new WalletError(declined(message) ? DECLINED : message);
       if (res.signedTxXdr === '') throw new WalletError(DECLINED);
       return res.signedTxXdr;
+    },
+    // No network passphrase: the message names none, and a wallet on another
+    // network would otherwise hang on a "not possible" screen.
+    async signMessage(message) {
+      const res = await api.signMessage(message, { address });
+      const error = freighterMessage(res.error);
+      if (error !== undefined) throw new WalletError(declined(error) ? DECLINED : error);
+      if (res.signerAddress !== address) {
+        throw new WalletError('Freighter signed with another account. Switch back and try again.');
+      }
+      const signature = freighterSignature(res.signedMessage);
+      if (signature === null) throw new WalletError(DECLINED);
+      return signature;
     },
   };
 }
@@ -121,6 +165,24 @@ function albedoWallet(albedo: AlbedoApi, address: string): Wallet {
         throw albedoFailure(error);
       }
     },
+    async signMessage(message) {
+      let res: Awaited<ReturnType<AlbedoApi['signMessage']>>;
+      try {
+        res = await albedo.signMessage({ message, pubkey: address });
+      } catch (error) {
+        throw albedoFailure(error);
+      }
+      if (res.pubkey !== address) {
+        throw new WalletError(
+          'Albedo signed with another account. Pick the same one and try again.',
+        );
+      }
+      const signature = albedoSignature(res);
+      if (signature === null) {
+        throw new WalletError('Albedo did not return a signature we can use. Try Freighter.');
+      }
+      return signature;
+    },
   };
 }
 
@@ -149,6 +211,9 @@ export function mockWallet(address: string): Wallet {
     kind: 'mock',
     address,
     sign: (xdr) => Promise.resolve(xdr),
+    // Not a real signature: the fake sign in API only checks one is there.
+    signMessage: (message) =>
+      Promise.resolve(bytesToBase64(new TextEncoder().encode(`mock:${message.length}`))),
   };
 }
 
@@ -210,4 +275,11 @@ export async function restoreWallet(
   const network = await api.getNetworkDetails();
   if (network.networkPassphrase !== expectedPassphrase) return null;
   return freighterWallet(api, saved.address);
+}
+
+/** Connects the wallet a person picked. */
+export async function connectWallet(kind: WalletKind, expectedPassphrase: string): Promise<Wallet> {
+  if (kind === 'mock') return mockWallet(MOCK_WALLET);
+  if (kind === 'freighter') return connectFreighter(expectedPassphrase);
+  return connectAlbedo();
 }

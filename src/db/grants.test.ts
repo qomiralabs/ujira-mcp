@@ -98,11 +98,24 @@ describe('grants on ujira', () => {
       'settlement_tokens',
       'status_transitions',
     ].map((table) => `relation ${table} SELECT`);
-    // The worker reads tenant rows only once a job table needs it. The sealed
-    // tables appear for no one.
+    // The worker reads and writes tenant rows only where a job needs to: it
+    // appends the outbox events of the payouts it moves. The sealed tables
+    // appear for no one.
     const expected: Record<(typeof SERVICE_ROLES)[number], string[]> = {
       ujira_app: [
         ...REFERENCE,
+        'relation audit_heads SELECT',
+        'relation audit_log INSERT',
+        'relation audit_log SELECT',
+        'relation idempotency_keys INSERT',
+        'relation idempotency_keys SELECT',
+        'relation idempotency_keys UPDATE',
+        'relation outbox_events INSERT',
+        'relation outbox_events SELECT',
+        'relation webhook_deliveries INSERT',
+        'relation webhook_deliveries SELECT',
+        'relation webhook_endpoints INSERT',
+        'relation webhook_endpoints SELECT',
         'relation api_tokens INSERT',
         'relation api_tokens SELECT',
         'relation api_tokens UPDATE',
@@ -113,9 +126,17 @@ describe('grants on ujira', () => {
         'relation projects SELECT',
         'relation projects UPDATE',
       ],
-      ujira_worker: [...REFERENCE],
+      ujira_worker: [
+        ...REFERENCE,
+        'relation outbox_events INSERT',
+        'relation outbox_events SELECT',
+      ],
       ujira_reader: [
         ...REFERENCE,
+        'relation audit_heads SELECT',
+        'relation audit_log SELECT',
+        'relation outbox_events SELECT',
+        'relation webhook_deliveries SELECT',
         'relation api_tokens SELECT',
         'relation principal_members SELECT',
         'relation principals SELECT',
@@ -148,6 +169,10 @@ describe('grants on ujira', () => {
 
   it('lets each service role call the context functions and the entry points of its job, and nothing else', async () => {
     const all = await grants();
+    // The verifier recomputes hashes with the function the chain trigger uses,
+    // so whoever may verify may call it. The worker writes no audit rows.
+    const AUDIT_ROW_HASH =
+      'function ujira.audit_row_hash(bytea,uuid,uuid,bigint,text,text,uuid,jsonb,timestamp with time zone)';
     const CONTEXT = [
       'function ujira.current_principal_id()',
       'function ujira.current_project_id()',
@@ -157,6 +182,7 @@ describe('grants on ujira', () => {
       ujira_app: [
         ...CONTEXT,
         'function ujira.add_member(text,text)',
+        AUDIT_ROW_HASH,
         'function ujira.auth_challenge_consume(uuid,text)',
         'function ujira.auth_challenge_create(text,text,integer)',
         'function ujira.authenticate_token(text)',
@@ -174,7 +200,7 @@ describe('grants on ujira', () => {
         'function ujira.auth_challenges_delete_expired(integer)',
         'function ujira.sessions_delete_expired(integer)',
       ],
-      ujira_reader: [...CONTEXT],
+      ujira_reader: [...CONTEXT, AUDIT_ROW_HASH],
     };
     for (const role of SERVICE_ROLES) {
       expect(
@@ -189,7 +215,7 @@ describe('grants on ujira', () => {
 });
 
 describe('roles', () => {
-  it('creates exactly the owner, the logins and one role per group of definer functions', async () => {
+  it('creates exactly the owner, the logins, the definer roles and the retention role', async () => {
     const roles = await client.query<{
       rolname: string;
       rolsuper: boolean;
@@ -203,24 +229,27 @@ describe('roles', () => {
     );
     expect(roles.rows.map((role) => role.rolname)).toEqual([
       'ujira_app',
+      'ujira_fn_audit',
       'ujira_fn_principals',
       'ujira_fn_rate_limits',
       'ujira_fn_sessions',
       'ujira_fn_tokens',
       'ujira_migrator',
+      'ujira_ops',
       'ujira_owner',
       'ujira_reader',
+      'ujira_retention',
       'ujira_worker',
     ]);
+    // Only the logins a service connects with may log in. The rest hold rights
+    // that code borrows through a function they own, never a connection.
+    const logins = new Set(['ujira_app', 'ujira_migrator', 'ujira_reader', 'ujira_worker']);
     for (const role of roles.rows) {
       expect(role.rolsuper, role.rolname).toBe(false);
       expect(role.rolbypassrls, role.rolname).toBe(false);
       expect(role.rolcreaterole, role.rolname).toBe(false);
       expect(role.rolcreatedb, role.rolname).toBe(false);
-      // The owner and the function roles never log in.
-      expect(role.rolcanlogin, role.rolname).toBe(
-        role.rolname !== 'ujira_owner' && !role.rolname.startsWith('ujira_fn_'),
-      );
+      expect(role.rolcanlogin, role.rolname).toBe(logins.has(role.rolname));
     }
   });
 
@@ -256,11 +285,14 @@ describe('roles', () => {
               pg_get_userbyid(p.proowner) as owner,
               p.proconfig as config
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'ujira' and p.prosecdef
+        where n.nspname in ('ujira', 'ops') and p.prosecdef
         order by 1`,
     );
     expect(Object.fromEntries(definers.rows.map((row) => [row.fn, row.owner]))).toEqual({
+      'ops.delete_expired_security_events(integer)': 'ujira_ops',
+      'ops.record_security_event(text,bytea,text,bytea)': 'ujira_ops',
       'ujira.add_member(text,text)': 'ujira_fn_principals',
+      'ujira.audit_chain()': 'ujira_fn_audit',
       'ujira.auth_challenge_consume(uuid,text)': 'ujira_fn_sessions',
       'ujira.auth_challenge_create(text,text,integer)': 'ujira_fn_sessions',
       'ujira.auth_challenges_delete_expired(integer)': 'ujira_fn_sessions',

@@ -86,3 +86,40 @@ export {
   type RateLimitBucket,
   type RateLimitTaken,
 } from './repositories/rate-limits.js';
+export {
+  idempotencyKeys,
+  type FinishedRequest,
+  type NewReservation,
+  type Reservation,
+} from './repositories/idempotency.js';
+export {
+  audit,
+  AUDIT_ACTIONS,
+  AuditScopeError,
+  type AuditAction,
+  type AuditActor,
+  type AuditChainBreak,
+  type AuditEntry,
+  type AuditMetadata,
+  type AuditVerification,
+  type NewAuditEntry,
+} from './repositories/audit.js';
+export {
+  outbox,
+  webhookDeliveries,
+  webhookEndpoints,
+  type NewOutboxEvent,
+  type NewWebhookDelivery,
+  type NewWebhookEndpoint,
+  type OutboxEvent,
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+  type WebhookEndpoint,
+  type WebhookEndpointStatus,
+} from './repositories/outbox.js';
+export {
+  SECURITY_EVENT_KINDS,
+  securityEvents,
+  type NewSecurityEvent,
+  type SecurityEventKind,
+} from './repositories/security-events.js';

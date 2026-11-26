@@ -297,7 +297,7 @@ Every pull request starts from `.github/pull_request_template.md`: the linked is
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `checks` job runs the pull request template check and its self test. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `checks` job runs the pull request template check and its self test. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Its `server` job installs from the lockfile with no install scripts, then runs `tsc`, eslint with zero warnings, the prettier check, vitest with coverage and `npm audit --omit=dev`. Its `console` job does the same in `console/` (vitest without coverage), then the production `vite build`, the license allowlist and the production audit. Both run on Node 22, the line the image runs, at the exact version in `NODE_VERSION`. Once the install succeeds, every later step reports even when an earlier one fails. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
 
 ## Secret scanning
 

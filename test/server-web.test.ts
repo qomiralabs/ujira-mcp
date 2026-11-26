@@ -116,7 +116,7 @@ describe('startWeb', () => {
     };
   }
 
-  it('serves /healthz and /mcp as the HTTP server always has, and stops listening on stop', async () => {
+  it('serves /healthz, /mcp and /v1/ping, and stops listening on stop', async () => {
     const vars = await env();
     const port = Number(vars['PORT']);
     const lines: string[] = [];
@@ -127,6 +127,9 @@ describe('startWeb', () => {
     expect(await get(port, '/healthz')).toEqual({ status: 200, body: '{"status":"ok"}' });
     const mcp = await get(port, '/mcp');
     expect(mcp.status).toBe(405);
+    const ping = await get(port, '/v1/ping');
+    expect(ping.status).toBe(200);
+    expect(JSON.parse(ping.body)).toEqual({ status: 'ok' });
     expect(lines).toEqual(
       expect.arrayContaining([
         'console: faucet off, sdp off, recycler off',

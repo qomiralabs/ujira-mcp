@@ -4,7 +4,7 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
-import { catalogProblems } from './testing/catalog.js';
+import { CATALOG_EXCEPTIONS, catalogProblems, SEALED_TABLES } from './testing/catalog.js';
 import { createTestDatabase, type TestDatabase } from './testing/harness.js';
 
 const adminUrl = inject('dbAdminUrl');
@@ -161,5 +161,79 @@ describe('catalog', () => {
         (problem) => !named.some((table) => problem.startsWith(`ujira.${table}:`)),
       ),
     ).toEqual([]);
+  });
+});
+
+// Built after the fixtures above were read, so the tenant rules never see them.
+const SEALED = `
+  set role ujira_owner;
+  create table ujira.fixture_sealed (id bigint);
+  alter table ujira.fixture_sealed enable row level security;
+  alter table ujira.fixture_sealed force row level security;
+  create table ujira.fixture_sealed_granted (id bigint);
+  alter table ujira.fixture_sealed_granted enable row level security;
+  alter table ujira.fixture_sealed_granted force row level security;
+  grant select on ujira.fixture_sealed_granted to ujira_reader;
+  create table ujira.fixture_sealed_column (id bigint);
+  alter table ujira.fixture_sealed_column enable row level security;
+  alter table ujira.fixture_sealed_column force row level security;
+  grant update (id) on ujira.fixture_sealed_column to ujira_app;
+  create table ujira.fixture_sealed_open (id bigint);
+  reset role;
+`;
+
+describe('sealed tables', () => {
+  let sealedProblems: string[];
+
+  beforeAll(async () => {
+    await fixtureClient.query(SEALED);
+    sealedProblems = await catalogProblems(fixtureClient, CATALOG_EXCEPTIONS, [
+      'ujira.fixture_sealed',
+      'ujira.fixture_sealed_granted',
+      'ujira.fixture_sealed_column',
+      'ujira.fixture_sealed_open',
+    ]);
+  });
+
+  function sealedProblemsOf(table: string): string[] {
+    return sealedProblems.filter((problem) => problem.startsWith(`ujira.${table}:`));
+  }
+
+  it('passes a sealed table no service role can reach, with no tenant columns', () => {
+    expect(sealedProblemsOf('fixture_sealed')).toEqual([]);
+  });
+
+  it('fails a sealed table that grants a service role anything, on the table or a column', () => {
+    expect(sealedProblemsOf('fixture_sealed_granted')).toEqual([
+      'ujira.fixture_sealed_granted: is sealed, and ujira_reader holds a right on it',
+    ]);
+    expect(sealedProblemsOf('fixture_sealed_column')).toEqual([
+      'ujira.fixture_sealed_column: is sealed, and ujira_app holds a right on it',
+    ]);
+  });
+
+  it('fails a sealed table without forced row level security', () => {
+    expect(sealedProblemsOf('fixture_sealed_open')).toEqual([
+      'ujira.fixture_sealed_open: row level security is not enabled',
+      'ujira.fixture_sealed_open: row level security is not forced',
+    ]);
+  });
+
+  it('gives every sealed table of the migrations a reason, and each one exists', async () => {
+    const client = new pg.Client({ connectionString: migrated.url });
+    await client.connect();
+    try {
+      const found = await client.query<{ name: string }>(
+        `select format('%I.%I', n.nspname, c.relname) as name
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where format('%I.%I', n.nspname, c.relname) = any($1::text[]) and c.relkind in ('r', 'p')
+          order by 1`,
+        [Object.keys(SEALED_TABLES)],
+      );
+      expect(found.rows.map((row) => row.name)).toEqual(Object.keys(SEALED_TABLES).sort());
+      for (const reason of Object.values(SEALED_TABLES)) expect(reason.length).toBeGreaterThan(0);
+    } finally {
+      await client.end();
+    }
   });
 });

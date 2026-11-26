@@ -43,6 +43,16 @@ export interface Submitted {
   readonly reason?: string;
 }
 
+export interface LedgerEntriesRead {
+  readonly latestLedger: number;
+  readonly entries: readonly {
+    readonly key: xdr.LedgerKey;
+    readonly val: xdr.LedgerEntryData;
+    /** Testnet RPC answers 0 for an archived entry; a missing value reads the same. */
+    readonly liveUntilLedgerSeq: number;
+  }[];
+}
+
 /** The network as the adapter and the console use it; tests answer it from memory. */
 export interface StellarNetworkPort {
   account(address: string, usdc: { code: string; issuer: string }): Promise<AccountView>;
@@ -312,6 +322,27 @@ export class StellarNetwork implements StellarNetworkPort {
       'friendbot_failed',
       `Friendbot could not fund the account (HTTP ${res.status})`,
     );
+  }
+
+  /** Entries by key, archived ones included; a key the network never held is left out. */
+  async ledgerEntries(keys: readonly xdr.LedgerKey[]): Promise<LedgerEntriesRead> {
+    try {
+      const got = await withTimeout(
+        this.server.getLedgerEntries(...keys),
+        this.timeoutMs,
+        'read ledger entries',
+      );
+      return {
+        latestLedger: got.latestLedger,
+        entries: got.entries.map((e) => ({
+          key: e.key,
+          val: e.val,
+          liveUntilLedgerSeq: e.liveUntilLedgerSeq ?? 0,
+        })),
+      };
+    } catch (error) {
+      throw unavailable('read ledger entries', error);
+    }
   }
 
   async latestLedger(): Promise<number> {

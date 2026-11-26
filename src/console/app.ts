@@ -41,6 +41,7 @@ import { TOOLS, type GuardAnswer, type ToolGuard, type ToolName } from '../mcp/s
 import { formatUnits } from '../money.js';
 import { RAIL_NAMES } from '../rails/rail.js';
 import type { ReceiptLog } from '../receipts/log.js';
+import type { MandateWarning } from '../worker/keep-alive.js';
 import type { ConsoleChain } from './chain.js';
 import { ApiError, toApiError } from './errors.js';
 import {
@@ -84,6 +85,8 @@ export interface ConsoleOptions {
   readonly wallets?: TestWalletStore;
   /** For tests: the keypair a test recipient gets. */
   readonly newKeypair?: () => Keypair;
+  /** What the keep alive runs found wrong with a mandate's ledger entries. */
+  readonly warnings?: (contract: string) => readonly MandateWarning[];
 }
 
 const addressBody = z.object({ address: accountAddress }).strict();
@@ -605,6 +608,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       mcpUrl: `${origin(req)}/m/${id}/mcp`,
       sdpAvailable: o.sdp !== undefined,
       explorerContractUrl: `${EXPLORER_CONTRACT}${id}`,
+      warnings: o.warnings?.(id) ?? [],
     };
   }
 

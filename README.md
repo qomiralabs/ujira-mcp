@@ -165,7 +165,7 @@ docker run --rm -p 8080:8080 -v ujira-data:/data   -e UJIRA_MANDATE_JSON="$(cat 
 
 ### Deploy on Railway
 
-`railway.json` builds the `Dockerfile`, checks `/healthz` before a deploy goes live and restarts the server if it fails. Railway sets `PORT`, which the server listens on.
+`.railway/railway.ts` is the service's Railway configuration as code: it builds the `Dockerfile`, checks `/healthz` (60 second timeout) before a deploy goes live, restarts the server on failure up to 10 times, mounts the volume at `/data` and serves `ujira.co` and `www.ujira.co` on port 8080. Variables, which hold the keys and the mandate, are left unmanaged and stay in Railway. It replaced `railway.json`, which Railway stops reading on 2026-12-01. After `npm ci`, preview a change with `railway config plan` and apply it with `railway config apply`; for your own deployment, change the project, volume and domain names in that file first. The server listens on `PORT`, 8080 in the image.
 
 ```sh
 railway init

@@ -3,3 +3,5 @@ coverage/
 node_modules/
 package-lock.json
 THIRD_PARTY_NOTICES.md
+e2e/results/
+e2e/screenshots/

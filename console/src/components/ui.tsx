@@ -49,6 +49,7 @@ const LINE_ICONS = {
   more: 'M4 6h12M4 10h12M4 14h12',
   close: 'M5 5l10 10M15 5 5 15',
   power: 'M10 3v6.5M6 5.6a6 6 0 1 0 8 0',
+  chevron: 'M6 8l4 4 4-4',
 } as const;
 
 export type IconName = keyof typeof LINE_ICONS;

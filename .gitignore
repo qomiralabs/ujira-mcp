@@ -26,6 +26,10 @@ CLAUDE.md
 node_modules/
 dist/
 coverage/
+
+# Browser flow output: screenshots are CI artifacts, not sources
+console/e2e/results/
+console/e2e/screenshots/
 *.tsbuildinfo
 .eslintcache
 *.tgz

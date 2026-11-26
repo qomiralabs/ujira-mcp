@@ -24,6 +24,8 @@ export const configSchema = z.looseObject({
   agent: z.optional(z.string()),
   executor: z.optional(z.string()),
   sdpAvailable: z.boolean(),
+  // Sent as true once the server answers the /v1 sign in routes.
+  signIn: z.optional(z.boolean()),
   sdpProofUrl: z.optional(z.string()),
   faucet: z.optional(
     z.looseObject({

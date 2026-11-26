@@ -7,6 +7,7 @@ import { Shell } from '../components/Shell';
 import { ErrorNotice, Skeleton } from '../components/ui';
 import type { ConsoleApi } from '../lib/api';
 import type { AuthApi } from '../lib/auth';
+import type { V1Api } from '../lib/v1';
 import { rememberWallet, rememberedWallet, restoreWallet, type Wallet } from '../lib/wallet';
 import { ActivityPage, LocalCurrencyPage, NotFoundPage, TeamPage } from '../screens/Coming';
 import { CreateMandate } from '../screens/CreateMandate';
@@ -20,6 +21,9 @@ import { useResource, useRoute } from './hooks';
 import { PORTFOLIO_POLL_MS, PortfolioContext, loadPortfolio } from './portfolio';
 import type { Route } from './routes';
 import { SessionGate } from './session';
+import type { V1Screen } from './switch';
+
+const NO_SCREENS: ReadonlySet<V1Screen> = new Set();
 
 const TITLES: Record<Exclude<Route['name'], 'mandate'>, string> = {
   overview: 'Overview',
@@ -84,7 +88,20 @@ function Toast({ message }: { message: string | null }) {
  * The console. With `auth`, every page sits behind wallet sign in: always in
  * mock mode, and on a live server once its config says sign in is on.
  */
-export function App({ api, auth, mock }: { api: ConsoleApi; auth?: AuthApi; mock: boolean }) {
+export function App({
+  api,
+  auth,
+  v1 = null,
+  v1Screens = NO_SCREENS,
+  mock,
+}: {
+  api: ConsoleApi;
+  auth?: AuthApi;
+  /** The /v1 client the screens named in `v1Screens` use once signed in. */
+  v1?: V1Api | null;
+  v1Screens?: ReadonlySet<V1Screen>;
+  mock: boolean;
+}) {
   const config = useResource('config', () => api.config());
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [toast, setToast] = useState<{ message: string; n: number } | null>(null);
@@ -137,8 +154,8 @@ export function App({ api, auth, mock }: { api: ConsoleApi; auth?: AuthApi; mock
     () =>
       config.data === undefined
         ? null
-        : { api, config: config.data, mock, wallet, setWallet, notify },
-    [api, config.data, mock, wallet, notify],
+        : { api, v1, v1Screens, config: config.data, mock, wallet, setWallet, notify },
+    [api, v1, v1Screens, config.data, mock, wallet, notify],
   );
 
   if (state === null) {
@@ -147,7 +164,11 @@ export function App({ api, auth, mock }: { api: ConsoleApi; auth?: AuthApi; mock
         {config.error === null ? (
           <Skeleton lines={4} label="Loading the UJIRA dashboard" />
         ) : (
-          <ErrorNotice error={config.error} onRetry={config.reload} />
+          <ErrorNotice
+            error={config.error}
+            onRetry={config.reload}
+            requestId={config.errorRequestId}
+          />
         )}
       </main>
     );

@@ -1486,6 +1486,13 @@ input.mono {
   font-weight: 600;
 }
 
+/* The request id under an error, for a person to quote when asking for help. */
+.notice-ref {
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .notice-paid {
   background: var(--paid-tint);
 }

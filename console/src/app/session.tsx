@@ -80,6 +80,7 @@ export function SessionGate({ auth, children }: { auth: AuthApi; children: React
   const [phase, setPhase] = useState<Phase>({ kind: 'checking' });
   // A new session gets a fresh tree, so nothing loaded for the last one survives.
   const [generation, setGeneration] = useState(0);
+  const phaseKind = useRef<Phase['kind']>('checking');
   const live = useRef(true);
   const focusShell = useRef(false);
   // Only the newest load may move the screen on; an older answer is dropped.
@@ -93,7 +94,9 @@ export function SessionGate({ auth, children }: { auth: AuthApi; children: React
   }, []);
 
   const set = useCallback((p: Phase) => {
-    if (live.current) setPhase(p);
+    if (!live.current) return;
+    phaseKind.current = p.kind;
+    setPhase(p);
   }, []);
 
   const lost = useCallback(
@@ -171,6 +174,16 @@ export function SessionGate({ auth, children }: { auth: AuthApi; children: React
       set({ kind: 'signed-out', notice });
     },
     [auth, set, setWallet],
+  );
+
+  // A 401 from any page, not only from sign in, means the session is gone.
+  // Before the dashboard opens, the step that asked handles its own 401.
+  useEffect(
+    () =>
+      auth.onSessionLost(() => {
+        if (phaseKind.current === 'ready') forget(ENDED);
+      }),
+    [auth, forget],
   );
 
   const signOut = useCallback(async () => {

@@ -12,7 +12,7 @@ converted with string arithmetic, never floats.
 
 ```sh
 npm ci
-npm run dev          # http://localhost:5173/app/, forwards /api and /m/ to UJIRA_API_URL (default http://127.0.0.1:8080)
+npm run dev          # http://localhost:5173/app/, forwards /api, /v1 and /m/ to UJIRA_API_URL (default http://127.0.0.1:8080)
 npm run build        # writes dist/, which the server serves
 ```
 
@@ -47,6 +47,32 @@ that keeps the same rules: single use challenges that lapse after 10 minutes, th
 the address that asked, a session for everything else. On a live server sign in stays off until
 `/api/config` sends `"signIn": true`, which the server does once it serves the `/v1` routes.
 
+## Moving to /v1
+
+`src/lib/v1.ts` is the typed client for the public API under `/v1`. Sign in (`src/lib/auth.ts`)
+and every data route share one transport: same origin, so the browser sends the session cookie;
+the open project in the `Ujira-Project` header; and one error envelope,
+`{ "error": { "code", "message", "requestId" } }`. Every answer is checked against its schema in
+`src/lib/v1Schemas.ts`. An answer in the wrong shape shows the error state with the request id,
+never the data. Amounts arrive as strings of minor units and become `bigint` at the edge, and
+`formatToken` in `src/lib/money.ts` is the one formatter for them. A 401 from any route sends the
+person to sign in; a 429 says how long to wait, from `Retry-After`.
+
+Screens move from `/api` to `/v1` one at a time, behind a build flag. `VITE_V1_SCREENS` names the
+ones that have moved, as a comma list (`payouts,receipts`) or `all`; a screen calls
+`useV1('payouts')` and gets the client only when the flag names it and someone is signed in,
+otherwise `null`, which means stay on `/api`. With the flag unset every screen reads `/api`, as
+ujira.co does today.
+
+```sh
+VITE_V1_SCREENS=payouts,receipts npx vite build
+```
+
+Mock mode serves the same routes from `src/lib/fakeV1.ts`, which runs the fake sign in's tenant
+check on every call and keeps the server's money rules: idempotency keys replay or refuse, a task
+pays once per mandate, a refused payout is a `blocked` record with the rule's name. The tests replay
+answers recorded from each route in `src/test/v1Recorded.ts`.
+
 ## Checks
 
 ```sh
@@ -68,7 +94,7 @@ npm run e2e
 
 ## Layout
 
-- `src/lib`: the API client and its schemas, the `/v1` sign in client and its fake, amount maths,
+- `src/lib`: the API client and its schemas, the `/v1` client, its sign in and their fakes, amount maths,
   address checks, wallets, the mock API.
 - `src/app`: the app shell state, the session gate, routes under `/app`, and the portfolio (every mandate of the
   connected wallet with its payouts and receipts, shared by all pages).

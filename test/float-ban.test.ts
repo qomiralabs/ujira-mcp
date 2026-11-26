@@ -15,8 +15,15 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const SCOPED_DIRS = ['src/money', 'src/payouts', 'src/receipts', 'src/api', 'src/db'];
 
 // Files that exist today, so the type aware parser can open them. One per
-// scoped folder that has code, plus the old money entry point.
-const SCOPED_FILES = ['src/money.ts', 'src/payouts/status.ts', 'src/receipts/log.ts'];
+// scoped folder that has code, plus the old money entry point and a test,
+// where the database fence also sets no-restricted-syntax.
+const SCOPED_FILES = [
+  'src/money.ts',
+  'src/payouts/status.ts',
+  'src/receipts/log.ts',
+  'src/db/database.ts',
+  'src/db/tenant.test.ts',
+];
 const OUTSIDE_FILE = 'src/console/app.ts';
 
 const BAN_RULES = new Set([

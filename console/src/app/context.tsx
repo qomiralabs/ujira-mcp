@@ -5,10 +5,16 @@ import { createContext, useContext } from 'react';
 
 import type { ConsoleApi } from '../lib/api';
 import type { Config } from '../lib/schemas';
+import type { V1Api } from '../lib/v1';
 import type { Wallet } from '../lib/wallet';
+import type { V1Screen } from './switch';
 
 export interface AppState {
   readonly api: ConsoleApi;
+  /** The /v1 client; null when the console runs without one. */
+  readonly v1: V1Api | null;
+  /** The screens this build moved to /v1; see useV1. */
+  readonly v1Screens: ReadonlySet<V1Screen>;
   readonly config: Config;
   readonly mock: boolean;
   readonly wallet: Wallet | null;

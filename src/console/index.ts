@@ -10,27 +10,38 @@ import { signerFromEnv } from '../chain/stellar/keys.js';
 import { TESTNET_FACTORY } from '../chain/stellar/testnet.js';
 import { StellarEntryKeeper } from '../chain/stellar/ttl.js';
 import type { Settings, Wiring } from '../config.js';
-import { EngineError } from '../errors.js';
 import type { ExtraRoutes } from '../mcp/http.js';
 import type { HttpSettings } from '../mcp/public.js';
-import { SdpClient } from '../rails/sdp.js';
 import { MandateKeepAlive, loadKeepAliveSettings } from '../worker/keep-alive.js';
 import { createConsole } from './app.js';
-import { StellarConsoleChain } from './chain.js';
-import { Recycler } from './recycler.js';
+import { StellarConsoleChain, type ConsoleChain } from './chain.js';
+import type { ConsoleExtension } from './extension.js';
 import { ConsoleRegistry } from './registry.js';
-import {
-  loadConsoleSettings,
-  registryPath,
-  testWalletsPath,
-  type ConsoleSettings,
-} from './settings.js';
-import { TestWalletStore } from './wallets.js';
+import { loadConsoleSettings, registryPath, type ConsoleSettings } from './settings.js';
 
 export { createConsole } from './app.js';
+export type { ConsoleExtension } from './extension.js';
 export { loadConsoleSettings } from './settings.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
+
+/** What the console is built on, for whoever extends it. */
+export interface ConsoleParts {
+  readonly settings: ConsoleSettings;
+  readonly http: HttpSettings;
+  readonly chain: ConsoleChain;
+  readonly registry: ConsoleRegistry;
+}
+
+export interface ConsoleFromEnv {
+  readonly base: Settings;
+  readonly wiring: Wiring;
+  readonly http: HttpSettings;
+  readonly log: (line: string) => void;
+  readonly env?: Env;
+  /** Builds the extension once the console's chain and registry exist. */
+  readonly extend?: (parts: ConsoleParts) => ConsoleExtension;
+}
 
 /**
  * The demo mandate and every console mandate, kept alive through the console's
@@ -78,79 +89,40 @@ function keepAliveFrom(
   });
 }
 
-export function consoleFromEnv(
-  base: Settings,
-  wiring: Wiring,
-  http: HttpSettings,
-  log: (line: string) => void,
-  env: Env = process.env,
-): {
+export function consoleFromEnv(o: ConsoleFromEnv): {
   routes: ExtraRoutes;
   settings: ConsoleSettings;
-  recycler?: Recycler;
   keepAlive?: MandateKeepAlive;
 } {
+  const env = o.env ?? process.env;
   const settings = loadConsoleSettings(env);
-  const sdp = base.sdp;
-  if (sdp !== undefined && sdp.assetIssuer !== settings.usdc.issuer) {
-    throw new EngineError(
-      'config_invalid',
-      'the SDP asset issuer must be the USDC issuer the console uses (UJIRA_USDC_ISSUER)',
-    );
-  }
   const chain = new StellarConsoleChain({
-    rpcUrl: base.rpcUrl,
+    rpcUrl: o.base.rpcUrl,
     horizonUrl: settings.horizonUrl,
     friendbotUrl: settings.friendbotUrl,
   });
   // The console's mandates use its own factory and USDC, over the one gateway the demo uses.
   const adapter = new StellarChainAdapter({
-    gateway: wiring.gateway,
+    gateway: o.wiring.gateway,
     chain: chain.network,
     factory: settings.factory,
     asset: settings.usdc,
   });
   const registry = ConsoleRegistry.open(registryPath(settings));
-  const keepAlive = keepAliveFrom(base, settings, registry, adapter, chain, log, env);
-  // Test wallets are only worth keeping when there is a treasury to send their money back to.
-  const wallets =
-    settings.treasury === undefined ? undefined : TestWalletStore.open(testWalletsPath(settings));
+  const keepAlive = keepAliveFrom(o.base, settings, registry, adapter, chain, o.log, env);
+  const extension = o.extend?.({ settings, http: o.http, chain, registry });
   const routes = createConsole({
     settings,
-    http,
-    agent: base.agent,
-    executor: base.executor,
+    http: o.http,
+    agent: o.base.agent,
+    executor: o.base.executor,
     adapter,
-    receipts: wiring.receipts,
+    receipts: o.wiring.receipts,
     registry,
     chain,
-    ...(wallets === undefined ? {} : { wallets }),
+    ...(extension === undefined ? {} : { extension }),
     ...(keepAlive === undefined ? {} : { warnings: (id: string) => keepAlive.warningsFor(id) }),
-    ...(sdp === undefined
-      ? {}
-      : {
-          sdp: {
-            client: new SdpClient({
-              baseUrl: sdp.url,
-              auth: { kind: 'api_key', apiKey: sdp.apiKey },
-              ...(sdp.tenant === undefined ? {} : { tenant: sdp.tenant }),
-            }),
-            distributionAccount: sdp.distributionAccount,
-            assetIssuer: sdp.assetIssuer,
-          },
-        }),
-    log,
+    log: o.log,
   });
-  const extras = keepAlive === undefined ? {} : { keepAlive };
-  if (wallets === undefined || settings.treasury === undefined) {
-    return { routes, settings, ...extras };
-  }
-  const recycler = new Recycler({
-    wallets,
-    chain,
-    usdc: settings.usdc,
-    treasury: settings.treasury.publicKey,
-    log,
-  });
-  return { routes, settings, recycler, ...extras };
+  return { routes, settings, ...(keepAlive === undefined ? {} : { keepAlive }) };
 }

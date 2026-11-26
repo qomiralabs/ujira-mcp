@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// Console settings, from the environment only. The treasury key is read
-// here into a signer and goes nowhere else.
+// Console settings, from the environment only. The demo's faucet and SDP
+// settings are read in src/demo, and only when the demo runs.
 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { z } from 'zod';
 
-import type { TxSigner } from '../chain/adapter.js';
 import { TESTNET_RPC_URL } from '../chain/stellar/gateway.js';
-import { signerFromEnv } from '../chain/stellar/keys.js';
 import { TESTNET_FRIENDBOT_URL, TESTNET_HORIZON_URL } from '../chain/stellar/network.js';
 import {
   TESTNET_FACTORY,
@@ -28,16 +26,8 @@ export {
   TESTNET_USDC_ISSUER,
 } from '../chain/stellar/testnet.js';
 export { TESTNET_FRIENDBOT_URL, TESTNET_HORIZON_URL } from '../chain/stellar/network.js';
-/** The proof page is served by this same server, so a path keeps visitors on its origin. */
-export const SDP_PROOF_URL = '/instaward';
 
 export interface ConsoleLimits {
-  /** Faucet claims an hour from one caller address. */
-  readonly faucetPerHour: number;
-  /** Test recipient wallets an hour from one caller address. */
-  readonly testRecipientsPerHour: number;
-  /** Friendbot calls an hour from one caller address. */
-  readonly friendbotPerHour: number;
   /** API calls a minute from one caller address. */
   readonly apiCallsPerMinute: number;
   /** Payout requests an hour on one mandate, from the console and its MCP URL together. */
@@ -59,27 +49,17 @@ export interface ConsoleSettings {
   readonly publicRpcUrl: string;
   readonly factory: string;
   readonly usdc: { readonly code: 'USDC'; readonly issuer: string; readonly contract: string };
-  readonly treasury?: TxSigner;
-  /** The faucet tops a wallet up to this many minor units. */
-  readonly faucetAmount: bigint;
-  /** The least time between two top ups of one wallet. */
-  readonly faucetCooldownSeconds: number;
-  /** How often test recipients send what they received back to the treasury. */
-  readonly recycleIntervalSeconds: number;
-  /** The faucet stops once the treasury would drop below this. */
-  readonly faucetFloor: bigint;
-  readonly sdpProofUrl: string;
   readonly limits: ConsoleLimits;
 }
 
-type Env = Readonly<Record<string, string | undefined>>;
+export type Env = Readonly<Record<string, string | undefined>>;
 
-function value(env: Env, name: string): string | undefined {
+export function value(env: Env, name: string): string | undefined {
   const v = env[name]?.trim();
   return v === undefined || v === '' ? undefined : v;
 }
 
-function whole(env: Env, name: string, fallback: number, min: number, max: number): number {
+export function whole(env: Env, name: string, fallback: number, min: number, max: number): number {
   const raw = value(env, name);
   if (raw === undefined) return fallback;
   const parsed = z
@@ -94,7 +74,7 @@ function whole(env: Env, name: string, fallback: number, min: number, max: numbe
   return parsed.data;
 }
 
-function amount(env: Env, name: string, fallback: bigint): bigint {
+export function amount(env: Env, name: string, fallback: bigint): bigint {
   const raw = value(env, name);
   if (raw === undefined) return fallback;
   const parsed = minorUnits.safeParse(raw);
@@ -127,7 +107,7 @@ function strkey(env: Env, name: string, fallback: string, schema: z.ZodType<stri
 }
 
 /** An absolute http(s) URL, or a path on this server such as /instaward. */
-function urlOrPath(env: Env, name: string, fallback: string): string {
+export function urlOrPath(env: Env, name: string, fallback: string): string {
   const raw = value(env, name) ?? fallback;
   // Two slashes would be another host, and a backslash reads as one in browsers.
   if (raw.startsWith('/')) {
@@ -175,8 +155,6 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
       );
     }
   }
-  const treasury = signerFromEnv(env, 'UJIRA_TREASURY');
-  const faucetAmount = amount(env, 'UJIRA_FAUCET_AMOUNT', 500_000_000n);
   const canonicalHost = host(env, 'UJIRA_CANONICAL_HOST');
   return {
     dataDir,
@@ -193,17 +171,7 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
       issuer: strkey(env, 'UJIRA_USDC_ISSUER', TESTNET_USDC_ISSUER, accountAddress),
       contract: strkey(env, 'UJIRA_USDC_CONTRACT', TESTNET_USDC_CONTRACT, contractAddress),
     },
-    ...(treasury === undefined ? {} : { treasury }),
-    faucetAmount,
-    faucetCooldownSeconds: whole(env, 'UJIRA_FAUCET_COOLDOWN_SECONDS', 600, 0, 7 * 86_400),
-    recycleIntervalSeconds: whole(env, 'UJIRA_RECYCLE_INTERVAL_SECONDS', 300, 10, 86_400),
-    // Two claims' worth stays back by default, so a drained faucet still leaves the operator's own demos funded.
-    faucetFloor: amount(env, 'UJIRA_FAUCET_FLOOR', faucetAmount * 2n),
-    sdpProofUrl: urlOrPath(env, 'UJIRA_SDP_PROOF_URL', SDP_PROOF_URL),
     limits: {
-      faucetPerHour: whole(env, 'UJIRA_FAUCET_PER_HOUR', 3, 1, 10_000),
-      testRecipientsPerHour: whole(env, 'UJIRA_TEST_RECIPIENTS_PER_HOUR', 10, 1, 10_000),
-      friendbotPerHour: whole(env, 'UJIRA_FRIENDBOT_PER_HOUR', 10, 1, 10_000),
       apiCallsPerMinute: whole(env, 'UJIRA_API_CALLS_PER_MINUTE', 240, 1, 100_000),
       mandatePayoutsPerHour: whole(env, 'UJIRA_MANDATE_PAYOUTS_PER_HOUR', 30, 1, 10_000),
     },
@@ -213,9 +181,4 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
 /** Where the registry lives inside the data directory. */
 export function registryPath(settings: Pick<ConsoleSettings, 'dataDir'>): string {
   return join(settings.dataDir, 'console-registry.json');
-}
-
-/** The test recipients' keys, kept apart from the registry. */
-export function testWalletsPath(settings: Pick<ConsoleSettings, 'dataDir'>): string {
-  return join(settings.dataDir, 'test-wallets.json');
 }

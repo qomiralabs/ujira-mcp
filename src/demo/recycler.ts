@@ -12,9 +12,9 @@
 
 import { paymentTx } from '../chain/stellar/txbuild.js';
 import { formatUnits } from '../money.js';
-import type { ConsoleChain } from './chain.js';
-import { ApiError } from './errors.js';
-import { mapLimit } from './mandates.js';
+import type { ConsoleChain } from '../console/chain.js';
+import { ApiError } from '../console/errors.js';
+import { mapLimit } from '../console/mandates.js';
 import type { TestWalletStore } from './wallets.js';
 
 /** Wallets looked at per round, so thousands of them never flood Horizon. */

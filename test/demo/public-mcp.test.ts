@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
+// The public demo MCP at /mcp, over HTTP: the shared demo mandate anyone can
+// call, with its amount cap and rate limits, and the server around it.
+
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
@@ -9,10 +12,11 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createHttpServer } from '../src/mcp/http.js';
-import { DEFAULT_MAX_AMOUNT, type HttpSettings, type PublicLimits } from '../src/mcp/public.js';
-import { MANDATE, UNIT } from './fake-rpc.js';
-import { alice, bob, setup } from './helpers.js';
+import { publicGuard, publicLimiters, publicMcp } from '../../src/demo/public-mcp.js';
+import { createHttpServer } from '../../src/mcp/http.js';
+import { DEFAULT_MAX_AMOUNT, type HttpSettings, type PublicLimits } from '../../src/mcp/public.js';
+import { MANDATE, UNIT } from '../fake-rpc.js';
+import { alice, bob, setup } from '../helpers.js';
 
 const usdc = (n: bigint) => (n * UNIT).toString();
 
@@ -56,10 +60,13 @@ afterEach(async () => {
 async function start(s: HttpSettings = settings(), world = setup()) {
   const lines: string[] = [];
   const server = createHttpServer({
-    engine: world.engine,
     settings: s,
-    assetCode: 'USDC',
-    recipients: [alice, bob],
+    publicMcp: publicMcp({
+      engine: world.engine,
+      http: s,
+      assetCode: 'USDC',
+      recipients: [alice, bob],
+    }),
     log: (line) => lines.push(line),
   });
   open.push(server);
@@ -269,7 +276,7 @@ describe('HTTP server', () => {
     const client = await connect(base);
     const sdp = await call(client, 'quote_payout', { recipient: alice, amount: '1', rail: 'sdp' });
     expect(sdp).toMatchObject({ isError: true });
-    expect(sdp.body).toBe('rail_unavailable: the sdp rail is not available on this server');
+    expect(sdp.body).toBe('rail_unavailable: the demo.sdp rail is not available on this server');
     world.rpc.read = () => Promise.reject(new TypeError('socket detail that should stay inside'));
     const broken = await call(client, 'payout_status', { task_id: 'z' });
     expect(broken).toMatchObject({
@@ -278,5 +285,37 @@ describe('HTTP server', () => {
     });
     expect(lines).toContain('internal error (TypeError)');
     expect(lines.join('\n')).not.toContain('socket detail');
+  });
+});
+
+describe('publicGuard', () => {
+  const limits = { maxAmount: 10n, payoutsPerHour: 1, toolCallsPerMinute: 100 };
+
+  it('lets small payouts through and counts only payout requests per address', () => {
+    const limiters = publicLimiters(limits, () => 0);
+    const guard = publicGuard({ limits, limiters, client: 'a', assetCode: 'USDC' });
+    expect(guard('quote_payout', { amount: 10n })).toBeUndefined();
+    expect(guard('payout_status', { task_id: 't' })).toBeUndefined();
+    expect(guard('request_payout', { task_id: 't', amount: 10n })).toBeUndefined();
+    expect(guard('request_payout', { task_id: 't', amount: 10n })).toMatchObject({
+      isError: true,
+    });
+  });
+
+  it('blocks over the cap without using up the address allowance', () => {
+    const limiters = publicLimiters(limits, () => 0);
+    const guard = publicGuard({ limits, limiters, client: 'a', assetCode: 'USDC' });
+    expect(guard('request_payout', { task_id: 't', amount: 11n })).toEqual({
+      answer: {
+        task_id: 't',
+        outcome: 'blocked',
+        reason: 'public_demo_limit',
+        amount: '11',
+        asset: 'USDC',
+        max_amount: '10',
+        detail: 'This shared public demo pays at most 0.000001 USDC per payout. Nothing was sent.',
+      },
+    });
+    expect(guard('request_payout', { task_id: 't', amount: 1n })).toBeUndefined();
   });
 });

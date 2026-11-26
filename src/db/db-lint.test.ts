@@ -169,7 +169,7 @@ describe('alongside the float ban and the chain boundary', () => {
   const IN_PAYOUTS = path.join(REPO_ROOT, 'src/payouts/status.ts');
   const IN_PAYOUTS_TEST = path.join(REPO_ROOT, 'src/payouts/status.test.ts');
   const IN_CHAIN = path.join(REPO_ROOT, 'src/chain/stellar/adapter.ts');
-  const IN_SRC_TEST = path.join(REPO_ROOT, 'src/rails/sdp.test.ts');
+  const IN_SRC_TEST = path.join(REPO_ROOT, 'src/worker/keep-alive.test.ts');
   const messages = (errors: string[]): string => errors.join('\n');
 
   it('still refuses the db bans in src/chain, which the chain boundary skips', async () => {

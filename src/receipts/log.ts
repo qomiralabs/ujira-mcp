@@ -13,7 +13,7 @@ import { z } from 'zod';
 
 import { EngineError } from '../errors.js';
 import { hex32 } from '../ids.js';
-import { RAIL_NAMES } from '../rails/rail.js';
+import { legacyRailName, railName } from '../rails/rail.js';
 
 /**
  * `settling` means the mandate paid but the rail has not finished, such as
@@ -43,7 +43,7 @@ const receiptSchema = z.object({
     .regex(/^[0-9]+$/)
     .transform((s) => BigInt(s)),
   asset: z.string(),
-  rail: z.enum(RAIL_NAMES),
+  rail: railName,
   outcome: z.enum(OUTCOMES),
   reason: z.string().optional(),
   /** How a block was decided: by the quote alone, or by the contract itself. */
@@ -111,7 +111,11 @@ export class ReceiptLog {
   private async save(receipts: readonly Receipt[]): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${String(process.pid)}.tmp`;
-    const body = { version: 1, receipts: receipts.map(receiptToJson) };
+    // Rails keep their old names in the file, so an older build rolled back to can still read it.
+    const body = {
+      version: 1,
+      receipts: receipts.map((r) => ({ ...receiptToJson(r), rail: legacyRailName(r.rail) })),
+    };
     await writeFile(tmp, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
     await rename(tmp, this.path);
   }

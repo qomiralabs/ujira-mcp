@@ -30,8 +30,7 @@ import { PayoutEngine } from './engine/engine.js';
 import { EngineError } from './errors.js';
 import { accountAddress, contractAddress, hex32, type Hex32 } from './ids.js';
 import type { PayoutRail } from './rails/rail.js';
-import { SdpClient, SdpRail } from './rails/sdp.js';
-import { UsdcRail } from './rails/usdc.js';
+import { WalletRail } from './rails/wallet.js';
 import { ReceiptLog } from './receipts/log.js';
 
 export interface Settings {
@@ -43,18 +42,10 @@ export interface Settings {
   readonly agent: TxSigner;
   readonly executor: TxSigner;
   readonly receiptsPath: string;
-  /** Set when UJIRA_SDP_URL is: the SDP rail is then offered next to USDC. */
-  readonly sdp?: SdpSettings;
-}
-
-export interface SdpSettings {
-  readonly url: string;
-  readonly apiKey: string;
-  readonly tenant?: string;
-  readonly distributionAccount: string;
-  readonly assetIssuer: string;
-  /** Handle to wallet, from the mandate file's named recipients. */
-  readonly recipients: Readonly<Record<string, string>>;
+  /** The asset issuer the mandate file names, if it names one. */
+  readonly assetIssuer?: string;
+  /** Recipient names to wallets, from the mandate file's named recipients. */
+  readonly namedRecipients: Readonly<Record<string, string>>;
 }
 
 /** The parts of a mandate file this package reads; anything else in it is ignored. */
@@ -146,8 +137,12 @@ export function loadSettings(env: Env = process.env): Settings {
   const executor = signerFromEnv(env, 'UJIRA_EXECUTOR') ?? agent;
 
   const recipientRefs = new Map<string, Hex32>();
-  for (const r of fromFile?.recipients ?? []) recipientRefs.set(r.destination, r.recipient_ref);
-  const sdp = sdpSettings(env, fromFile);
+  const namedRecipients: Record<string, string> = {};
+  for (const r of fromFile?.recipients ?? []) {
+    recipientRefs.set(r.destination, r.recipient_ref);
+    if (r.name !== undefined) namedRecipients[r.name] = r.destination;
+  }
+  const assetIssuer = fromFile?.asset?.issuer;
 
   return {
     network: 'testnet',
@@ -160,58 +155,30 @@ export function loadSettings(env: Env = process.env): Settings {
     receiptsPath:
       set(env, 'UJIRA_RECEIPTS_FILE') ??
       join(set(env, 'UJIRA_DATA_DIR') ?? join(homedir(), '.ujira-mcp'), 'receipts.json'),
-    ...(sdp === undefined ? {} : { sdp }),
+    ...(assetIssuer === undefined ? {} : { assetIssuer }),
+    namedRecipients,
   };
 }
 
-function sdpSettings(
-  env: Env,
-  fromFile: z.output<typeof mandateFile> | undefined,
-): SdpSettings | undefined {
-  const url = set(env, 'UJIRA_SDP_URL');
-  if (url === undefined) return undefined;
-  const apiKey = set(env, 'UJIRA_SDP_API_KEY');
-  const distributionAccount = set(env, 'UJIRA_SDP_DISTRIBUTION');
-  const assetIssuer = set(env, 'UJIRA_SDP_ASSET_ISSUER') ?? fromFile?.asset?.issuer;
-  if (apiKey === undefined) {
-    throw new EngineError('config_invalid', 'UJIRA_SDP_URL is set, so set UJIRA_SDP_API_KEY too');
+/**
+ * Whether the testnet demo runs in this process: the faucet, test
+ * recipients, the recycler, the public demo MCP and the SDP rail. Off unless
+ * asked for, and never on a network other than testnet, since the demo pays
+ * from keys and accounts UJIRA itself holds.
+ */
+export function demoFeatures(env: Env = process.env): boolean {
+  const flag = set(env, 'UJIRA_DEMO_FEATURES') ?? 'off';
+  if (flag !== 'on' && flag !== 'off') {
+    throw new EngineError('config_invalid', 'UJIRA_DEMO_FEATURES must be on or off');
   }
-  if (distributionAccount === undefined || !accountAddress.safeParse(distributionAccount).success) {
-    throw new EngineError('config_invalid', 'set UJIRA_SDP_DISTRIBUTION to the SDP account (G...)');
-  }
-  if (assetIssuer === undefined) {
+  if (flag === 'off') return false;
+  if (set(env, 'UJIRA_NETWORK') !== 'testnet') {
     throw new EngineError(
       'config_invalid',
-      'set UJIRA_SDP_ASSET_ISSUER, or name the asset issuer in the mandate file',
+      'UJIRA_DEMO_FEATURES=on runs only with UJIRA_NETWORK=testnet',
     );
   }
-  const recipients: Record<string, string> = {};
-  for (const r of fromFile?.recipients ?? []) {
-    if (r.name !== undefined) recipients[r.name] = r.destination;
-  }
-  const tenant = set(env, 'UJIRA_SDP_TENANT');
-  return {
-    url,
-    apiKey,
-    distributionAccount,
-    assetIssuer,
-    recipients,
-    ...(tenant === undefined ? {} : { tenant }),
-  };
-}
-
-function sdpRail(settings: Settings, sdp: SdpSettings, mandate: MandateContract): SdpRail {
-  return new SdpRail({
-    client: new SdpClient({
-      baseUrl: sdp.url,
-      auth: { kind: 'api_key', apiKey: sdp.apiKey },
-      ...(sdp.tenant === undefined ? {} : { tenant: sdp.tenant }),
-    }),
-    distributionAccount: sdp.distributionAccount,
-    asset: { code: settings.assetCode, issuer: sdp.assetIssuer },
-    recipients: sdp.recipients,
-    payToDistribution: (p) => mandate.execute(settings.executor, p.payoutId),
-  });
+  return true;
 }
 
 export interface Wiring {
@@ -225,8 +192,8 @@ export interface Wiring {
 }
 
 /**
- * Builds the engine from settings. USDC is always there, SDP when the
- * settings name one, and any other rail is passed in by whoever builds it.
+ * Builds the engine from settings. The wallet rail is always there; any
+ * other rail, such as the demo's, is passed in by whoever builds it.
  */
 export function createEngine(
   settings: Settings,
@@ -253,8 +220,7 @@ export function createEngine(
     asset: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
   });
   const mandate = adapter.mandate(settings.mandateId);
-  const rails: PayoutRail[] = [new UsdcRail(mandate, settings.executor)];
-  if (settings.sdp !== undefined) rails.push(sdpRail(settings, settings.sdp, mandate));
+  const rails: PayoutRail[] = [new WalletRail(mandate, settings.executor)];
   rails.push(...(options.extraRails?.(mandate) ?? []));
   const receipts = new ReceiptLog(settings.receiptsPath);
   const engine = new PayoutEngine({

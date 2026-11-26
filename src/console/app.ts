@@ -3,9 +3,10 @@
 
 // The console API: what a person with their own testnet wallet needs to try
 // UJIRA end to end without a terminal. The server builds unsigned
-// transactions for the wallet, relays the signed ones it built, pays test
-// USDC from a treasury, and acts as the agent on mandates the console
-// created, through the same engine, rails and receipts as the demo.
+// transactions for the wallet, relays the signed ones it built, and acts as
+// the agent on mandates the console created, through the same engine, rails
+// and receipts as the demo. The faucet, test recipients and the SDP rail are
+// the demo's, added through a ConsoleExtension when the demo runs.
 //
 // It is public and has no login, so every write is either signed by the
 // caller's own wallet or bounded by a rate limit, and every body is checked
@@ -25,43 +26,29 @@ import {
 } from '../chain/stellar/allowlist.js';
 import { address, bytes32, encodeAllowEntries, i128, nativeOf } from '../chain/stellar/codec.js';
 import { TESTNET_PASSPHRASE } from '../chain/stellar/gateway.js';
-import { randomKeypair, type Keypair } from '../chain/stellar/keys.js';
 import type { Account, Transaction } from '../chain/stellar/network.js';
-import {
-  MAX_ALLOW_ENTRIES,
-  createArgs,
-  invokeTx,
-  paymentTx,
-  trustlineTx,
-} from '../chain/stellar/txbuild.js';
+import { MAX_ALLOW_ENTRIES, createArgs, invokeTx } from '../chain/stellar/txbuild.js';
 import { accountAddress, defaultRecipientRef, taskId } from '../ids.js';
-import { BodyTooLarge, readBody, send, type ExtraRoutes, type McpBinding } from '../mcp/http.js';
+import { send, type ExtraRoutes, type McpBinding } from '../mcp/http.js';
 import { WindowLimiter, type HttpSettings } from '../mcp/public.js';
 import { TOOLS, type GuardAnswer, type ToolGuard, type ToolName } from '../mcp/server.js';
-import { formatUnits } from '../money.js';
-import { RAIL_NAMES } from '../rails/rail.js';
+import { WALLET_RAIL, legacyRailName, railName } from '../rails/rail.js';
 import type { ReceiptLog } from '../receipts/log.js';
 import type { MandateWarning } from '../worker/keep-alive.js';
 import type { ConsoleChain } from './chain.js';
 import { ApiError, toApiError } from './errors.js';
-import {
-  engineFor,
-  mandateView,
-  payoutsOf,
-  type ConsoleSdp,
-  type MandateServices,
-} from './mandates.js';
+import type { ApiRoute, ConsoleExtension } from './extension.js';
+import { engineFor, mandateView, payoutsOf, type MandateServices } from './mandates.js';
 import { defaultLabel, type ConsoleRegistry, type MandateEntry } from './registry.js';
+import { jsonBody, parse, take } from './request.js';
 import type { ConsoleSettings } from './settings.js';
 import {
   checkCreateParams,
   describe,
   describeCreate,
-  issues,
   parseBuildRequest,
   type BuildRequest,
 } from './txbuild.js';
-import type { TestWalletStore } from './wallets.js';
 import { createWeb } from './web.js';
 
 export const EXPLORER_TX = 'https://stellar.expert/explorer/testnet/tx/';
@@ -78,38 +65,26 @@ export interface ConsoleOptions {
   readonly receipts: ReceiptLog;
   readonly registry: ConsoleRegistry;
   readonly chain: ConsoleChain;
-  readonly sdp?: ConsoleSdp;
+  /** The demo's routes, rails and config, when the demo runs. */
+  readonly extension?: ConsoleExtension;
   readonly now?: () => number;
   readonly log?: (line: string) => void;
-  /** Where test recipients' keys are kept for recycling; without it they are discarded. */
-  readonly wallets?: TestWalletStore;
-  /** For tests: the keypair a test recipient gets. */
-  readonly newKeypair?: () => Keypair;
   /** What the keep alive runs found wrong with a mandate's ledger entries. */
   readonly warnings?: (contract: string) => readonly MandateWarning[];
 }
 
-const addressBody = z.object({ address: accountAddress }).strict();
-const emptyBody = z.object({}).strict();
 const submitBody = z.object({ xdr: z.string().min(1).max(60_000) }).strict();
 const recipientField = z.string().min(1).max(256);
 const quoteBody = z
   .object({
     recipient: recipientField,
     amount: z.string().min(1).max(40),
-    rail: z.enum(RAIL_NAMES).default('usdc'),
+    // The dashboard sends the rails' old names; railName reads both.
+    rail: railName.default(WALLET_RAIL),
     taskId: taskId.optional(),
   })
   .strict();
 const requestBody = quoteBody.extend({ taskId });
-
-function parse<T extends z.ZodType>(schema: T, raw: unknown): z.output<T> {
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ApiError(400, 'invalid_request', `The request was refused: ${issues(parsed.error)}`);
-  }
-  return parsed.data;
-}
 
 /** A contract's return value as one string, for display. */
 function returnText(value: unknown): string | null {
@@ -121,29 +96,27 @@ function returnText(value: unknown): string | null {
   return JSON.stringify(value, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v));
 }
 
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-/** A wait in words: "45 seconds", "1 minute", "7 minutes". */
-export function waitWords(seconds: number): string {
-  if (seconds < 60) return seconds === 1 ? '1 second' : `${String(seconds)} seconds`;
-  const minutes = Math.ceil(seconds / 60);
-  return minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+/**
+ * The dashboard knows rails by their old names, so answers to it carry
+ * those: a quote or a receipt, or a list of receipts.
+ */
+function withLegacyRails(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  if (typeof out['rail'] === 'string') out['rail'] = legacyRailName(out['rail']);
+  const receipts = out['receipts'];
+  if (Array.isArray(receipts)) out['receipts'] = receipts.map(withLegacyRails);
+  return out;
 }
 
 export function createConsole(o: ConsoleOptions): ExtraRoutes {
-  const { settings, registry, chain } = o;
+  const { settings, registry, chain, extension } = o;
   const now = o.now ?? Date.now;
   const log = o.log ?? (() => undefined);
-  const newKeypair = o.newKeypair ?? randomKeypair;
   const lim = settings.limits;
+  const shared = extension?.sharedDestinations ?? [];
   const limiters = {
     api: new WindowLimiter(lim.apiCallsPerMinute, 60_000, now),
-    faucet: new WindowLimiter(lim.faucetPerHour, HOUR, now),
-    recipients: new WindowLimiter(lim.testRecipientsPerHour, HOUR, now),
-    friendbot: new WindowLimiter(lim.friendbotPerHour, HOUR, now),
     payouts: new WindowLimiter(lim.mandatePayoutsPerHour, HOUR, now),
     toolCalls: new WindowLimiter(o.http.limits.toolCallsPerMinute, 60_000, now),
   };
@@ -152,7 +125,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     receipts: o.receipts,
     agent: o.agent,
     executor: o.executor,
-    ...(o.sdp === undefined ? {} : { sdp: o.sdp }),
+    ...(extension === undefined ? {} : { extension }),
     now: () => new Date(now()),
   };
   const pages = createWeb({
@@ -162,7 +135,6 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
   });
   /** Labels typed for an allow_recipients transaction that has not landed yet. */
   const pendingLabels = new Map<string, Map<string, string>>();
-  const faucetBusy = new Set<string>();
   const allowCtx = {
     factory: settings.factory,
     usdc: settings.usdc,
@@ -170,16 +142,6 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     executor: o.executor.publicKey,
     isRegistered: (id: string) => registry.mandate(id) !== undefined,
   };
-
-  function take(limiter: WindowLimiter, key: string, what: string): void {
-    const hit = limiter.take(key);
-    if (!hit.ok) {
-      const minutes = Math.max(1, Math.ceil(hit.retryAfterMs / 60_000));
-      throw new ApiError(429, 'rate_limited', `Too many ${what}; try again in ${minutes} minutes`, {
-        retryAfterSeconds: Math.max(1, Math.ceil(hit.retryAfterMs / 1000)),
-      });
-    }
-  }
 
   function origin(req: IncomingMessage): string {
     if (settings.publicOrigin !== undefined) return settings.publicOrigin;
@@ -203,23 +165,6 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     return entry;
   }
 
-  async function body(req: IncomingMessage): Promise<unknown> {
-    let raw: Buffer;
-    try {
-      raw = await readBody(req, o.http.maxBodyBytes);
-    } catch (error) {
-      if (!(error instanceof BodyTooLarge)) throw error;
-      req.resume();
-      throw new ApiError(413, 'body_too_large', 'The request body is too large');
-    }
-    if (raw.length === 0) return {};
-    try {
-      return JSON.parse(raw.toString('utf8')) as unknown;
-    } catch {
-      throw new ApiError(400, 'invalid_json', 'The request body is not valid JSON');
-    }
-  }
-
   // Routes.
 
   function config() {
@@ -238,15 +183,10 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       },
       agent: o.agent.publicKey,
       executor: o.executor.publicKey,
-      sdpAvailable: o.sdp !== undefined,
-      sdpProofUrl: settings.sdpProofUrl,
-      faucet: {
-        // amount is kept for pages built before top ups; it is the target.
-        amount: settings.faucetAmount.toString(),
-        target: settings.faucetAmount.toString(),
-        cooldownSeconds: settings.faucetCooldownSeconds,
-        enabled: settings.treasury !== undefined,
-      },
+      sdpAvailable: false,
+      // The dashboard offers the faucet unless told it is off.
+      faucet: { amount: '0', enabled: false },
+      ...extension?.config(),
     };
   }
 
@@ -259,140 +199,6 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       xlm: view.xlm,
       usdc: view.usdc === null ? null : view.usdc.toString(),
     };
-  }
-
-  async function onboardXlm(raw: unknown, client: string) {
-    const { address: addr } = parse(addressBody, raw);
-    const view = await chain.account(addr, settings.usdc);
-    if (view.exists) return { ok: true };
-    take(limiters.friendbot, client, 'test XLM requests from your address');
-    await chain.friendbot(addr);
-    return { ok: true };
-  }
-
-  async function onboardTrustline(raw: unknown) {
-    const { address: addr } = parse(addressBody, raw);
-    const tx = trustlineTx(await chain.loadAccount(addr), settings.usdc);
-    return {
-      xdr: tx.toXdr(),
-      description: `Add a USDC trustline (issuer ${settings.usdc.issuer}) so this wallet can hold test USDC`,
-    };
-  }
-
-  async function faucet(raw: unknown, client: string) {
-    const treasury = settings.treasury;
-    if (treasury === undefined) {
-      throw new ApiError(
-        503,
-        'faucet_disabled',
-        'The test USDC faucet is not set up on this server',
-      );
-    }
-    const { address: addr } = parse(addressBody, raw);
-    if (faucetBusy.has(addr)) {
-      throw new ApiError(409, 'faucet_busy', 'Test USDC for this wallet is already on its way');
-    }
-    // Checked before any network call, so a caller hammering one wallet costs nothing.
-    const last = registry.faucetClaim(addr);
-    const waitMs =
-      last === undefined ? 0 : Date.parse(last.at) + settings.faucetCooldownSeconds * 1000 - now();
-    if (waitMs > 0) {
-      const seconds = Math.ceil(waitMs / 1000);
-      throw new ApiError(
-        429,
-        'faucet_cooldown',
-        `This wallet was topped up a moment ago; try again in ${waitWords(seconds)}`,
-        { retryAfterSeconds: seconds },
-      );
-    }
-    const target = settings.faucetAmount;
-    faucetBusy.add(addr);
-    try {
-      const wallet = await chain.account(addr, settings.usdc);
-      if (!wallet.exists) {
-        throw new ApiError(400, 'account_not_found', 'Get test XLM first, so the wallet exists');
-      }
-      if (wallet.usdc === null) {
-        throw new ApiError(400, 'trustline_missing', 'Add the USDC trustline first');
-      }
-      if (wallet.usdc >= target) {
-        throw new ApiError(
-          409,
-          'faucet_not_needed',
-          `This wallet already holds ${formatUnits(wallet.usdc)} USDC, at or above the ${formatUnits(target)} USDC the faucet tops up to`,
-        );
-      }
-      const amount = target - wallet.usdc;
-      const held = (await chain.account(treasury.publicKey, settings.usdc)).usdc ?? 0n;
-      if (held < settings.faucetFloor + amount) {
-        throw new ApiError(503, 'faucet_empty', 'The test USDC faucet is empty for now');
-      }
-      take(limiters.faucet, client, 'faucet top ups from your address');
-      const tx = paymentTx(await chain.loadAccount(treasury.publicKey), {
-        destination: addr,
-        asset: settings.usdc,
-        amount,
-        timeoutSeconds: 60,
-      });
-      treasury.sign(tx);
-      const sent = await chain.submit(tx);
-      if (sent.status !== 'SUCCESS') {
-        throw new ApiError(502, 'faucet_failed', `The faucet payment failed (${sent.hash})`);
-      }
-      await registry.recordFaucet({
-        address: addr,
-        hash: sent.hash,
-        at: new Date(now()).toISOString(),
-      });
-      return {
-        hash: sent.hash,
-        amount: amount.toString(),
-        balance: target.toString(),
-        target: target.toString(),
-        cooldownSeconds: settings.faucetCooldownSeconds,
-      };
-    } finally {
-      faucetBusy.delete(addr);
-    }
-  }
-
-  async function loadWithRetry(addr: string): Promise<Account> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await chain.loadAccount(addr);
-      } catch (error) {
-        // RPC can trail friendbot by a ledger.
-        if (attempt >= 4 || !(error instanceof ApiError && error.code === 'account_not_found')) {
-          throw error;
-        }
-        await sleep(2_000);
-      }
-    }
-  }
-
-  async function testRecipient(raw: unknown, client: string) {
-    parse(emptyBody, raw);
-    take(limiters.recipients, client, 'test recipients from your address');
-    const keypair = newKeypair();
-    const addr = keypair.publicKey();
-    await chain.friendbot(addr);
-    const tx = trustlineTx(await loadWithRetry(addr), settings.usdc);
-    tx.sign(keypair);
-    const sent = await chain.submit(tx);
-    if (sent.status !== 'SUCCESS') {
-      throw new ApiError(
-        502,
-        'recipient_failed',
-        `The test wallet's trustline failed (${sent.hash})`,
-      );
-    }
-    // Kept only so the recycler can send what this wallet is paid back to the
-    // faucet. Without a store the key goes out of scope here, never written.
-    if (o.wallets !== undefined) {
-      await o.wallets.add(keypair, new Date(now()).toISOString());
-      log(`test recipient ${addr} created, recycled to the faucet`);
-    }
-    return { address: addr, hash: sent.hash };
   }
 
   /** The allowlist entries to send, after dropping pairs already on chain. */
@@ -427,8 +233,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         );
       }
     }
-    const destinations = (addr: string) =>
-      o.sdp === undefined ? [addr] : [addr, o.sdp.distributionAccount];
+    const destinations = (addr: string) => [addr, ...shared];
     const wanted = list.flatMap((r) =>
       destinations(r.address).map((destination) => ({
         recipientRef: defaultRecipientRef(r.address),
@@ -465,7 +270,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       throw new ApiError(
         400,
         'too_many_recipients',
-        `Add at most ${o.sdp === undefined ? MAX_ALLOW_ENTRIES : MAX_ALLOW_ENTRIES / 2} recipients at a time`,
+        `Add at most ${Math.floor(MAX_ALLOW_ENTRIES / (1 + shared.length))} recipients at a time`,
       );
     }
     const pending = pendingLabels.get(entry.id) ?? new Map<string, string>();
@@ -606,7 +411,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     return {
       ...view,
       mcpUrl: `${origin(req)}/m/${id}/mcp`,
-      sdpAvailable: o.sdp !== undefined,
+      sdpAvailable: config().sdpAvailable,
       explorerContractUrl: `${EXPLORER_CONTRACT}${id}`,
       warnings: o.warnings?.(id) ?? [],
     };
@@ -615,7 +420,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
   async function tool(name: ToolName, entry: MandateEntry, args: Record<string, unknown>) {
     const t = TOOLS.find((x) => x.name === name);
     if (t === undefined) throw new ApiError(500, 'internal_error', 'Missing tool');
-    return t.run(engineFor(entry, services), args);
+    return withLegacyRails(await t.run(engineFor(entry, services), args));
   }
 
   async function agent(id: string, which: 'quote' | 'request', raw: unknown) {
@@ -639,19 +444,13 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     });
   }
 
-  type Handler = (req: IncomingMessage, client: string, url: URL) => Promise<unknown>;
+  type Handler = Exclude<ApiRoute, 'wrong_method' | undefined>;
+  const body = (req: IncomingMessage) => jsonBody(req, o.http.maxBodyBytes);
 
-  function routeOf(method: string, path: string): Handler | 'wrong_method' | undefined {
+  function routeOf(method: string, path: string): ApiRoute {
     const one = (m: string, h: Handler) => (method === m ? h : 'wrong_method');
     const fixed: Record<string, () => Handler | 'wrong_method'> = {
       '/api/config': () => one('GET', () => Promise.resolve(config())),
-      '/api/onboard/xlm': () =>
-        one('POST', async (req, client) => onboardXlm(await body(req), client)),
-      '/api/onboard/trustline': () => one('POST', async (req) => onboardTrustline(await body(req))),
-      '/api/onboard/usdc': () =>
-        one('POST', async (req, client) => faucet(await body(req), client)),
-      '/api/recipients/test': () =>
-        one('POST', async (req, client) => testRecipient(await body(req), client)),
       '/api/tx/build': () => one('POST', async (req) => build(await body(req))),
       '/api/tx/submit': () => one('POST', async (req) => submit(await body(req))),
       '/api/mandates': () => one('GET', (_req, _client, url) => Promise.resolve(mandates(url))),
@@ -661,7 +460,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     const acct = /^\/api\/accounts\/([^/]+)$/.exec(path)?.[1];
     if (acct !== undefined) return one('GET', () => account(acct));
     const m = /^\/api\/mandates\/(C[A-Z2-7]{55})(\/[a-z/]+)?$/.exec(path);
-    if (m?.[1] === undefined) return undefined;
+    if (m?.[1] === undefined) return extension?.route(method, path);
     const id = m[1];
     switch (m[2]) {
       case undefined:

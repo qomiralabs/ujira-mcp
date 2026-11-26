@@ -15,6 +15,10 @@
 // One payout is one disbursement, named after the payout ID. SDP refuses a
 // second disbursement with the same name, which is what keeps a retry from
 // paying the person twice even if the engine loses track of a first attempt.
+//
+// This rail is a testnet demo only. Between the two transactions the money
+// sits in a distribution account UJIRA controls, which a non-custodial
+// product must not do, so it never runs outside src/demo.
 
 import { z } from 'zod';
 
@@ -27,7 +31,10 @@ import {
   type RailPayment,
   type RailSettlement,
   type SettlementProgress,
-} from './rail.js';
+} from '../rails/rail.js';
+
+/** The demo SDP rail's id; its old name, sdp, still reads as it. */
+export const SDP_RAIL = 'demo.sdp';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
@@ -400,7 +407,7 @@ const PAYMENT_FAILED = new Set(['FAILED', 'CANCELED']);
 const DISBURSEMENT_RUNNING = new Set(['STARTED', 'COMPLETED']);
 
 export class SdpRail implements PayoutRail {
-  readonly name = 'sdp' as const;
+  readonly name = SDP_RAIL;
   private readonly client: SdpClient;
   private readonly payToDistribution: SdpRailOptions['payToDistribution'];
   private readonly distributionAccount: string;

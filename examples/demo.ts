@@ -24,6 +24,7 @@ import {
   EngineError,
   createEngine,
   formatUnits,
+  legacyRailName,
   loadSettings,
   payoutIdFor,
   receiptToJson,
@@ -77,7 +78,7 @@ interface EvidencePayout {
   recipient: string;
   amount: string;
   asset: string;
-  rail: 'usdc' | 'sdp';
+  rail: string;
   outcome: string;
   reason?: string;
   payout_id?: string;
@@ -212,7 +213,8 @@ async function main(): Promise<void> {
       recipient: receipt.recipient,
       amount: String(j['amount']),
       asset: receipt.asset,
-      rail: receipt.rail,
+      // The evidence file keeps the rail names it was first written with.
+      rail: legacyRailName(receipt.rail),
       outcome: receipt.outcome,
       ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
       ...(receipt.payout_id === undefined ? {} : { payout_id: receipt.payout_id }),

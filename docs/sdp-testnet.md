@@ -1,10 +1,16 @@
 # Running the Stellar Disbursement Platform on testnet
 
-The `sdp` rail pays through the Stellar Disbursement Platform (SDP). There is
-no public hosted SDP on testnet that we may use, so we run the upstream SDP
-backend locally in Docker against the public Stellar testnet. No money is
-spent: every account is funded by friendbot and the USDC is Circle's testnet
-USDC.
+The `demo.sdp` rail (formerly `sdp`, a name still accepted) pays through the
+Stellar Disbursement Platform (SDP). There is no public hosted SDP on testnet
+that we may use, so we run the upstream SDP backend locally in Docker against
+the public Stellar testnet. No money is spent: every account is funded by
+friendbot and the USDC is Circle's testnet USDC.
+
+The rail holds the money in a distribution account UJIRA controls between
+its two transfers, which a non-custodial product must not do. So it is a
+testnet demo feature only: it lives in `src/demo`, runs only with
+`UJIRA_DEMO_FEATURES=on` (which itself needs `UJIRA_NETWORK=testnet`), and is
+removed before mainnet.
 
 ## How a payout flows
 
@@ -293,7 +299,7 @@ least one special character. `tenants ensure-default` logs the tenant ID
 that `add-user` needs. Remove the temporary variables when the job has
 succeeded.
 
-Then log in through the public URL and create the rail's API key as in step 6. The rail is configured with `UJIRA_SDP_URL` (the public URL),
+Then log in through the public URL and create the rail's API key as in step 6. The rail is configured with `UJIRA_DEMO_FEATURES=on`, `UJIRA_SDP_URL` (the public URL),
 `UJIRA_SDP_API_KEY`, `UJIRA_SDP_DISTRIBUTION` and `UJIRA_SDP_ASSET_ISSUER`;
 `UJIRA_SDP_TENANT` is not needed in single tenant mode. Waiting for SDP to
 pay can take longer than the default HTTP timeout, so the hosted console sets

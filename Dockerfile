@@ -25,9 +25,13 @@ COPY src ./src
 RUN npm run build
 
 FROM node:22-slim
+# This image is the testnet server behind ujira.co, which runs the demo (the
+# faucet, the public /mcp and the SDP rail). A host that wants the product
+# alone sets UJIRA_DEMO_FEATURES=off; a mainnet image must not set it at all.
 ENV NODE_ENV=production \
     PORT=8080 \
     UJIRA_NETWORK=testnet \
+    UJIRA_DEMO_FEATURES=on \
     UJIRA_RECEIPTS_FILE=/data/receipts.json \
     UJIRA_CONSOLE_DIR=/app/console/dist
 WORKDIR /app

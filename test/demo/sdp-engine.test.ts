@@ -11,18 +11,21 @@ import { join } from 'node:path';
 import { Keypair } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 
-import { createEngine, loadSettings } from '../src/config.js';
-import { EngineError } from '../src/errors.js';
-import { defaultRecipientRef } from '../src/ids.js';
-import type { MandateClient } from '../src/chain/stellar/mandate-client.js';
+import { createEngine, loadSettings } from '../../src/config.js';
+import { createDemo } from '../../src/demo/index.js';
+import { SDP_RAIL } from '../../src/demo/sdp.js';
+import { loadDemoSettings } from '../../src/demo/settings.js';
+import { EngineError } from '../../src/errors.js';
+import { defaultRecipientRef } from '../../src/ids.js';
+import type { MandateClient } from '../../src/chain/stellar/mandate-client.js';
 import {
   PartialSettlementError,
   type PayoutRail,
   type RailPayment,
   type RailSettlement,
-} from '../src/rails/rail.js';
-import { FakeMandateRpc, MANDATE, UNIT, executor, testSigner } from './fake-rpc.js';
-import { alice, bob, setup } from './helpers.js';
+} from '../../src/rails/rail.js';
+import { FakeMandateRpc, MANDATE, UNIT, executor, testSigner } from '../fake-rpc.js';
+import { alice, bob, setup } from '../helpers.js';
 
 const DIST = testSigner('sdp-distribution').publicKey;
 const SDP_TX = 'cd'.repeat(32);
@@ -30,7 +33,7 @@ const usdc = (n: bigint) => (n * UNIT).toString();
 
 /** A two step rail: the mandate pays DIST, then a second leg pays the person. */
 class TwoStepRail implements PayoutRail {
-  readonly name = 'sdp' as const;
+  readonly name = SDP_RAIL;
   failSecondLeg = 0;
   readonly resumed: string[] = [];
   private readonly wallets = new Map([
@@ -107,7 +110,7 @@ describe('a rail with a shared destination', () => {
 
     expect(r).toMatchObject({
       outcome: 'paid',
-      rail: 'sdp',
+      rail: SDP_RAIL,
       destination: DIST,
       sdp_disbursement_id: 'disb-1',
       sdp_payment_id: 'pay-1',
@@ -213,9 +216,12 @@ describe('SDP settings', () => {
     UJIRA_SDP_DISTRIBUTION: DIST,
   };
 
+  const sdpOf = (env: Record<string, string>) => loadDemoSettings(env, loadSettings(env)).sdp;
+
   it('offers the SDP rail when its settings are present', async () => {
-    const s = loadSettings({ ...base, UJIRA_SDP_TENANT: 'default' });
-    expect(s.sdp).toMatchObject({
+    const env = { ...base, UJIRA_SDP_TENANT: 'default' };
+    const s = loadSettings(env);
+    expect(sdpOf(env)).toMatchObject({
       url: 'http://localhost:8000',
       tenant: 'default',
       distributionAccount: DIST,
@@ -225,34 +231,45 @@ describe('SDP settings', () => {
     const rpc = new FakeMandateRpc();
     rpc.agents = [kp.publicKey()];
     rpc.allowRecipient('ab'.repeat(32), DIST);
+    const demo = createDemo({ base: s, env, log: () => undefined });
     const { engine } = createEngine(s, {
       gateway: rpc,
+      extraRails: (mandate) => demo.rails(mandate),
       now: () => new Date(Number(rpc.now) * 1000),
     });
+    // sdp is the rail's old name; connectors set up before the rename still send it.
     const q = await engine.quotePayout({ recipient: 'recipient-1', amount: '10', rail: 'sdp' });
-    expect(q).toMatchObject({ decision: 'allowed', rail: 'sdp', destination: DIST });
+    expect(q).toMatchObject({ decision: 'allowed', rail: SDP_RAIL, destination: DIST });
+    const named = await engine.quotePayout({
+      recipient: 'recipient-1',
+      amount: '10',
+      rail: SDP_RAIL,
+    });
+    expect(named).toEqual(q);
   });
 
-  it('leaves SDP out without a URL', () => {
-    expect(loadSettings({ ...base, UJIRA_SDP_URL: '' }).sdp).toBeUndefined();
+  it('leaves SDP out without a URL, or without the demo', async () => {
+    expect(sdpOf({ ...base, UJIRA_SDP_URL: '' })).toBeUndefined();
+    // The product engine is built without the demo, so the SDP rail is not there at all.
+    const { engine } = createEngine(loadSettings(base), { gateway: new FakeMandateRpc() });
+    await expect(
+      engine.quotePayout({ recipient: 'recipient-1', amount: '10', rail: 'sdp' }),
+    ).rejects.toThrow(/the demo\.sdp rail is not available/);
   });
 
   it.each([
     ['UJIRA_SDP_API_KEY', /UJIRA_SDP_API_KEY/],
     ['UJIRA_SDP_DISTRIBUTION', /UJIRA_SDP_DISTRIBUTION/],
   ])('refuses SDP settings without %s', (name, message) => {
-    expect(() => loadSettings({ ...base, [name]: '' })).toThrow(message);
+    expect(() => sdpOf({ ...base, [name]: '' })).toThrow(message);
   });
 
   it('needs an asset issuer from the environment or the mandate file', () => {
     const bare = join(mkdtempSync(join(tmpdir(), 'ujira-mcp-')), 'm.json');
     writeFileSync(bare, JSON.stringify({ mandate: MANDATE }));
-    expect(() => loadSettings({ ...base, UJIRA_MANDATE_FILE: bare })).toThrow(
-      /UJIRA_SDP_ASSET_ISSUER/,
-    );
+    expect(() => sdpOf({ ...base, UJIRA_MANDATE_FILE: bare })).toThrow(/UJIRA_SDP_ASSET_ISSUER/);
     expect(
-      loadSettings({ ...base, UJIRA_MANDATE_FILE: bare, UJIRA_SDP_ASSET_ISSUER: DIST }).sdp
-        ?.assetIssuer,
+      sdpOf({ ...base, UJIRA_MANDATE_FILE: bare, UJIRA_SDP_ASSET_ISSUER: DIST })?.assetIssuer,
     ).toBe(DIST);
   });
 });

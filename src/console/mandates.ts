@@ -11,24 +11,19 @@ import { isAccountAddress } from '../chain/stellar/addresses.js';
 import type { StellarChainAdapter } from '../chain/stellar/adapter.js';
 import { PAYOUT_STATUS, type PayoutEntry } from '../chain/types.js';
 import { PayoutEngine } from '../engine/engine.js';
-import type { PayoutRail } from '../rails/rail.js';
-import { SdpRail, type SdpClient } from '../rails/sdp.js';
-import { UsdcRail } from '../rails/usdc.js';
+import { legacyRailName, type PayoutRail } from '../rails/rail.js';
+import { WalletRail } from '../rails/wallet.js';
 import type { Receipt, ReceiptLog } from '../receipts/log.js';
+import type { ConsoleExtension } from './extension.js';
 import type { MandateEntry } from './registry.js';
-
-export interface ConsoleSdp {
-  readonly client: SdpClient;
-  readonly distributionAccount: string;
-  readonly assetIssuer: string;
-}
 
 export interface MandateServices {
   readonly adapter: StellarChainAdapter;
   readonly receipts: ReceiptLog;
   readonly agent: TxSigner;
   readonly executor: TxSigner;
-  readonly sdp?: ConsoleSdp;
+  /** Rails beyond the wallet rail come only from here. */
+  readonly extension?: Pick<ConsoleExtension, 'rails'>;
   readonly now?: () => Date;
 }
 
@@ -40,18 +35,10 @@ export function namesOf(entry: MandateEntry): Record<string, string> {
 export function engineFor(entry: MandateEntry, s: MandateServices): PayoutEngine {
   const mandate = s.adapter.mandate(entry.id);
   const names = namesOf(entry);
-  const rails: PayoutRail[] = [new UsdcRail(mandate, s.executor, names)];
-  if (s.sdp !== undefined) {
-    rails.push(
-      new SdpRail({
-        client: s.sdp.client,
-        distributionAccount: s.sdp.distributionAccount,
-        asset: { code: 'USDC', issuer: s.sdp.assetIssuer },
-        recipients: names,
-        payToDistribution: (p) => mandate.execute(s.executor, p.payoutId),
-      }),
-    );
-  }
+  const rails: PayoutRail[] = [
+    new WalletRail(mandate, s.executor, names),
+    ...(s.extension?.rails(mandate, names) ?? []),
+  ];
   return new PayoutEngine({
     mandate,
     agent: s.agent,
@@ -72,6 +59,7 @@ export interface PayoutView {
   readonly recipient: string;
   readonly recipientLabel: string | null;
   readonly amount: string;
+  /** The rail's old name, which is what the dashboard reads. */
   readonly rail: string;
   readonly status: PayoutStatus;
   readonly reason?: string;
@@ -154,7 +142,7 @@ export async function payoutsOf(
       recipient,
       recipientLabel: labelOf.get(recipient) ?? null,
       amount: r.amount.toString(),
-      rail: r.rail,
+      rail: legacyRailName(r.rail),
       status,
       ...(r.reason === undefined || status !== 'blocked' ? {} : { reason: r.reason }),
       ...(r.request_tx_hash === undefined ? {} : { requestTx: r.request_tx_hash }),

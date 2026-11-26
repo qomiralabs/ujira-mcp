@@ -1,0 +1,42 @@
+{
+  "name": "@ujira/embed",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The UJIRA recipient onboarding widget: one script tag and one custom element that saves a recipient's Stellar wallet and has the wallet prove it.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build && node scripts/size.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "size": "node scripts/size.ts",
+    "e2e": "playwright test",
+    "screenshots": "node tools/screenshots.ts",
+    "licenses": "node scripts/check-licenses.mjs"
+  },
+  "dependencies": {
+    "@stellar/freighter-api": "6.0.1",
+    "lit": "3.3.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.2",
+    "eslint": "10.15.0",
+    "globals": "17.13.0",
+    "happy-dom": "21.0.4",
+    "playwright-core": "1.63.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.73.0",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

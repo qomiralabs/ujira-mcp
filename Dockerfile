@@ -17,6 +17,16 @@ COPY console/ ./
 ARG VITE_V1_SCREENS=
 RUN npm run build
 
+# The embed widget, the same way: only embed/dist is copied over, the main
+# ujira-embed.js and the Albedo chunk it loads on demand. Its build fails
+# when the files are over their size budget.
+FROM node:22-slim AS embed
+WORKDIR /embed
+COPY embed/package.json embed/package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY embed/ ./
+RUN npm run build
+
 FROM node:22-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -34,13 +44,15 @@ ENV NODE_ENV=production \
     UJIRA_NETWORK=testnet \
     UJIRA_DEMO_FEATURES=on \
     UJIRA_RECEIPTS_FILE=/data/receipts.json \
-    UJIRA_CONSOLE_DIR=/app/console/dist
+    UJIRA_CONSOLE_DIR=/app/console/dist \
+    UJIRA_EMBED_DIR=/app/embed/dist
 WORKDIR /app
 COPY package.json package-lock.json LICENSE ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=console /console/dist ./console/dist
+COPY --from=embed /embed/dist ./embed/dist
 COPY site ./site
 COPY docker/entrypoint.sh /usr/local/bin/ujira-entrypoint
 # setpriv is how the entrypoint drops to the node user; fail the build if the

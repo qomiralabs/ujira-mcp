@@ -34,6 +34,10 @@ console/e2e/screenshots/
 .eslintcache
 *.tgz
 
+# Browser test output
+playwright-report/
+test-results/
+
 # Python bytecode from running the repository scripts
 __pycache__/
 *.pyc

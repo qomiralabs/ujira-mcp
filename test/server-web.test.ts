@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { Agent, createServer, request, type IncomingMessage, type Server } from 'node:http';
 import { createServer as createTcpServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -36,6 +36,24 @@ function get(port: number, path: string, agent?: Agent): Promise<{ status: numbe
         });
       },
     );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function getWithHeaders(
+  port: number,
+  path: string,
+): Promise<{ status: number; body: string; headers: IncomingMessage['headers'] }> {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port, path, agent: false }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => (body += chunk));
+      res.on('end', () => {
+        resolve({ status: res.statusCode ?? 0, body, headers: res.headers });
+      });
+    });
     req.on('error', reject);
     req.end();
   });
@@ -149,6 +167,29 @@ describe('startWeb', () => {
     await web.stop();
     expect(await tryConnect(port)).toBe('ECONNREFUSED');
     expect(keepStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves the embed widget and its Albedo chunk under /embed/v1/ to any page', async () => {
+    const vars = await env();
+    const embedDir = join(vars['UJIRA_DATA_DIR'] ?? '', 'embed');
+    mkdirSync(embedDir);
+    writeFileSync(join(embedDir, 'ujira-embed.js'), 'customElements.define("ujira-onboarding")');
+    writeFileSync(join(embedDir, 'ujira-embed-albedo-0f3a9c.js'), 'export {}');
+    const port = Number(vars['PORT']);
+    const web = await startWeb({ ...vars, UJIRA_EMBED_DIR: embedDir }, () => undefined, 1_000);
+    cleanup.push(() => web.stop());
+
+    const main = await getWithHeaders(port, '/embed/v1/ujira-embed.js');
+    expect(main.status).toBe(200);
+    expect(main.body).toBe('customElements.define("ujira-onboarding")');
+    expect(main.headers['access-control-allow-origin']).toBe('*');
+    expect(main.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(main.headers['cache-control']).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800',
+    );
+    expect((await get(port, '/embed/v1/ujira-embed-albedo-0f3a9c.js')).status).toBe(200);
+    expect((await get(port, '/embed/v1/Ujira-Embed.js')).status).toBe(404);
+    expect((await get(port, '/embed/v2/ujira-embed.js')).status).toBe(404);
   });
 
   it('with the demo on, serves the public /mcp and runs the recycler until stop', async () => {

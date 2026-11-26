@@ -12,3 +12,6 @@ site/
 console/THIRD_PARTY_NOTICES.md
 console/e2e/results/
 console/e2e/screenshots/
+embed/THIRD_PARTY_NOTICES.md
+playwright-report/
+test-results/

@@ -131,6 +131,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
   const pages = createWeb({
     siteDir: settings.siteDir,
     appDir: settings.consoleDir,
+    embedDir: settings.embedDir,
     ...(settings.canonicalHost === undefined ? {} : { canonicalHost: settings.canonicalHost }),
   });
   /** Labels typed for an allow_recipients transaction that has not landed yet. */

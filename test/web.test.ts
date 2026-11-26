@@ -13,6 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { loadConsoleSettings } from '../src/console/settings.js';
 import { consoleSettings, startConsole, stop, type World } from './console-helpers.js';
 import { MANDATE } from './fake-rpc.js';
 
@@ -206,6 +207,62 @@ describe('one domain: pages', () => {
     const post = await raw(base, '/', { method: 'POST' });
     expect(post.status).toBe(404);
     expect(JSON.parse(post.body)).toEqual({ error: 'not found' });
+  });
+});
+
+describe('one domain: the embed widget', () => {
+  it('serves the widget at a versioned path, cached long and loadable from any page', async () => {
+    const { base } = await start();
+    const script = await raw(base, '/embed/v1/ujira-embed.js');
+    expect(script.status).toBe(200);
+    expect(script.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect(script.headers['cache-control']).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800',
+    );
+    // A module script from another origin needs CORS, and the page that
+    // loads it is never ours.
+    expect(script.headers['access-control-allow-origin']).toBe('*');
+    expect(script.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(script.headers['x-content-type-options']).toBe('nosniff');
+    expect(script.body).toContain('ujira-onboarding');
+    const head = await raw(base, '/embed/v1/ujira-embed.js', { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(head.body).toBe('');
+  });
+
+  it('answers any other embed path with the 404 page', async () => {
+    const { base } = await start();
+    for (const path of [
+      '/embed',
+      '/embed/',
+      '/embed/v1',
+      '/embed/v1/',
+      '/embed/v2/ujira-embed.js',
+      '/embed/ujira-embed.js',
+      '/embed/v1/missing.js',
+      '/embed/v1/../v1/ujira-embed.js',
+      '/embed/v1/%2e%2e/%2e%2e/secret.txt',
+      '/embed/v1/.hidden.js',
+    ]) {
+      const res = await raw(base, path);
+      expect(res.status, path).toBe(404);
+      expect(res.body, path).not.toContain('ujira-onboarding');
+      expect(res.body, path).not.toContain('outside the console');
+    }
+  });
+
+  it('serves the widget on every host, never through a redirect', async () => {
+    const { base } = await start('ujira.co');
+    const script = await raw(base, '/embed/v1/ujira-embed.js', { host: 'old.example' });
+    expect(script.status).toBe(200);
+    expect(script.body).toContain('ujira-onboarding');
+    const page = await raw(base, '/', { host: 'old.example' });
+    expect(page.status).toBe(301);
+  });
+
+  it('reads the widget folder from the environment', () => {
+    expect(loadConsoleSettings({}).embedDir.endsWith('/embed/dist')).toBe(true);
+    expect(loadConsoleSettings({ UJIRA_EMBED_DIR: '/srv/embed' }).embedDir).toBe('/srv/embed');
   });
 });
 

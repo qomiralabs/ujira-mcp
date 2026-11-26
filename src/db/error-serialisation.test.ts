@@ -41,7 +41,16 @@ describe("the runner's error serialiser", () => {
     // pg's own protection: not enumerable, so not in a log of the client.
     expect(Object.keys(client)).not.toContain('password');
     expect(Object.getOwnPropertyNames(client)).toContain('password');
-    expect(printed(failingWith({ client }))).toContain(PROBE);
+    // The walk reads every getter on the client, two of which pg deprecates
+    // and announces on first read. Only this probe reads them, so the notice
+    // is held back for this one walk rather than printed into the run.
+    const silencedBefore = process.noDeprecation === true;
+    process.noDeprecation = true;
+    try {
+      expect(printed(failingWith({ client }))).toContain(PROBE);
+    } finally {
+      process.noDeprecation = silencedBefore;
+    }
   });
 
   it('honours toJSON before walking anything, wherever the secret is held', () => {

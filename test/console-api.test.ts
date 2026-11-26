@@ -416,6 +416,18 @@ describe('console API: mandate, agent, payouts and receipts', () => {
     });
     expect(String(proxied.json['mcpUrl'])).toMatch(/^https:\/\//);
     expect((await api(base, `/api/mandates/${OTHER}`)).status).toBe(404);
+    expect(json['warnings']).toEqual([]);
+  });
+
+  it('warns on a mandate whose ledger entries the keep alive run found archived', async () => {
+    const warning = {
+      code: 'ledger_entries_archived' as const,
+      message: 'archived',
+      kinds: ['allowed' as const],
+    };
+    const { base } = await start({ warnings: (id) => (id === MANDATE ? [warning] : []) });
+    const { json } = await api(base, `/api/mandates/${MANDATE}`);
+    expect(json['warnings']).toEqual([warning]);
   });
 
   it('runs the whole agent story: pay, approve, pay now, pause blocks', async () => {

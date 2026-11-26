@@ -55,7 +55,7 @@ function main(): void {
     settings,
     demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) },
   );
-  const { routes } = consoleFromEnv({
+  const { routes, keepAlive } = consoleFromEnv({
     base: settings,
     wiring,
     http,
@@ -71,6 +71,8 @@ function main(): void {
   });
   log(demo === undefined ? 'demo off' : demo.summary());
   demo?.start();
+  log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
+  keepAlive?.start();
   server.on('error', (error: NodeJS.ErrnoException) => {
     process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
     process.exit(1);
@@ -82,6 +84,7 @@ function main(): void {
   });
   const stop = () => {
     demo?.stop();
+    keepAlive?.stop();
     server.close();
     // Let a payout in flight finish, but not forever.
     setTimeout(() => process.exit(0), 10_000).unref();

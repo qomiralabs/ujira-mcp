@@ -34,6 +34,7 @@ import { WindowLimiter, type HttpSettings } from '../mcp/public.js';
 import { TOOLS, type GuardAnswer, type ToolGuard, type ToolName } from '../mcp/server.js';
 import { WALLET_RAIL, legacyRailName, railName } from '../rails/rail.js';
 import type { ReceiptLog } from '../receipts/log.js';
+import type { MandateWarning } from '../worker/keep-alive.js';
 import type { ConsoleChain } from './chain.js';
 import { ApiError, toApiError } from './errors.js';
 import type { ApiRoute, ConsoleExtension } from './extension.js';
@@ -68,6 +69,8 @@ export interface ConsoleOptions {
   readonly extension?: ConsoleExtension;
   readonly now?: () => number;
   readonly log?: (line: string) => void;
+  /** What the keep alive runs found wrong with a mandate's ledger entries. */
+  readonly warnings?: (contract: string) => readonly MandateWarning[];
 }
 
 const submitBody = z.object({ xdr: z.string().min(1).max(60_000) }).strict();
@@ -410,6 +413,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       mcpUrl: `${origin(req)}/m/${id}/mcp`,
       sdpAvailable: config().sdpAvailable,
       explorerContractUrl: `${EXPLORER_CONTRACT}${id}`,
+      warnings: o.warnings?.(id) ?? [],
     };
   }
 

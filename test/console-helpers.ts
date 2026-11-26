@@ -25,7 +25,7 @@ import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
 import { TESTNET_PASSPHRASE, type TxSigner } from '../src/chain/stellar/gateway.js';
 import { signerFrom } from '../src/chain/stellar/keys.js';
 import type { AccountFacts, StellarNetworkPort } from '../src/chain/stellar/network.js';
-import { createConsole } from '../src/console/app.js';
+import { createConsole, type ConsoleOptions } from '../src/console/app.js';
 import type { AccountView, ConsoleChain, Submitted } from '../src/console/chain.js';
 import { ApiError } from '../src/console/errors.js';
 import { ConsoleRegistry } from '../src/console/registry.js';
@@ -200,6 +200,7 @@ export async function startConsole(
     keypairs?: Keypair[];
     /** false runs without a test wallet store, as a server without a treasury does. */
     wallets?: boolean;
+    warnings?: ConsoleOptions['warnings'];
   } = {},
 ): Promise<World> {
   const world = setup();
@@ -257,6 +258,7 @@ export async function startConsole(
     registry,
     chain,
     ...(extension === undefined ? {} : { extension }),
+    ...(options.warnings === undefined ? {} : { warnings: options.warnings }),
     now,
     log,
   });

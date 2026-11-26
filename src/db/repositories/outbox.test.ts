@@ -163,15 +163,21 @@ describe('the outbox', () => {
     await db
       .tenant(tenant)
       .transaction(async (tx) => outbox.append(tx, { eventType: 'payout.held', payload: {} }));
-    for (const statement of [
-      `update ujira.outbox_events set event_type = 'payout.paid'`,
-      'delete from ujira.outbox_events',
-      'truncate ujira.outbox_events',
-    ]) {
+    // A truncate of the events is refused before the trigger is reached, by the
+    // deliveries' foreign key, so the trigger is shown on the deliveries.
+    for (const [statement, code] of [
+      [`update ujira.outbox_events set event_type = 'payout.paid'`, 'UJ002'],
+      ['delete from ujira.outbox_events', 'UJ002'],
+      ['truncate ujira.outbox_events', '0A000'],
+      ['truncate ujira.webhook_deliveries', 'UJ002'],
+    ] as const) {
       await admin.query('begin');
-      await admin.query('set local role ujira_owner');
-      expect(await codeOf(admin.query(statement)), statement).toBe('UJ002');
-      await admin.query('rollback');
+      try {
+        await admin.query('set local role ujira_owner');
+        expect(await codeOf(admin.query(statement)), statement).toBe(code);
+      } finally {
+        await admin.query('rollback');
+      }
     }
   });
 });

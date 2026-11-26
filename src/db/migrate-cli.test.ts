@@ -4,17 +4,23 @@
 // The command line, run in process against an empty database, the way
 // `npm run db:migrate -- up` and `down` run against a fresh Postgres.
 
+import { readdirSync } from 'node:fs';
+
 import pg from 'pg';
 import { afterEach, describe, expect, inject, it } from 'vitest';
 
 import { main, type CliOutput } from './migrate-cli.js';
-import { MIGRATIONS_TABLE } from './migrate.js';
+import { MIGRATIONS_DIR, MIGRATIONS_TABLE } from './migrate.js';
 import { createTestDatabase, roleUrl, withDatabase, type TestDatabase } from './testing/harness.js';
 
 const adminUrl = inject('dbAdminUrl');
 const roleUrls = inject('dbRoleUrls');
 
 const databases: TestDatabase[] = [];
+
+// Every committed migration, so a run from empty is checked against the
+// folder rather than against a count that each new migration would break.
+const ALL = String(readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith('.sql')).length);
 
 afterEach(async () => {
   await Promise.all(databases.splice(0).map((database) => database.drop()));
@@ -86,7 +92,9 @@ describe('npm run db:migrate', () => {
     const up = capture();
     expect(await main(['up'], env, up)).toBe(0);
     expect(up.errors).toEqual([]);
-    expect(up.lines.at(-1)).toMatch(/^db:migrate: up applied 2 migration\(s\) recorded in /);
+    expect(up.lines.at(-1)).toMatch(
+      new RegExp(String.raw`^db:migrate: up applied ${ALL} migration\(s\) recorded in `),
+    );
     expect(await schemaExists(database.url)).toBe(true);
 
     const again = capture();
@@ -94,7 +102,7 @@ describe('npm run db:migrate', () => {
     expect(again.lines.at(-1)).toBe(`db:migrate: nothing to do, ${MIGRATIONS_TABLE} is up to date`);
 
     const down = capture();
-    expect(await main(['down', '2'], env, down)).toBe(0);
+    expect(await main(['down', ALL], env, down)).toBe(0);
     expect(down.errors).toEqual([]);
     expect(await schemaExists(database.url)).toBe(false);
   });
@@ -110,7 +118,7 @@ describe('npm run db:migrate', () => {
     expect(up.errors).toEqual([]);
     expect(await schemaExists(database.url)).toBe(true);
     const down = capture();
-    expect(await main(['down', '2'], env, down)).toBe(0);
+    expect(await main(['down', ALL], env, down)).toBe(0);
     expect(down.errors).toEqual([]);
     expect(await schemaExists(database.url)).toBe(false);
   });

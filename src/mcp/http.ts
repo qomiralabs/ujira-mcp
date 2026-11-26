@@ -9,11 +9,15 @@
 // Every answer this file writes itself is a fixed message. Nothing a caller
 // sends, and nothing from an internal error, is echoed back or logged.
 
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { REQUEST_ID_HEADER } from '../api/context.js';
+import { envelope } from '../api/errors.js';
+import type { V1Handler } from '../api/node.js';
 import type { PayoutEngine } from '../engine/engine.js';
 import {
   clientAddress,
@@ -53,6 +57,8 @@ export interface HttpServerOptions {
   readonly log?: (line: string) => void;
   readonly now?: () => number;
   readonly extra?: ExtraRoutes;
+  /** The public API under /v1. Unset, /v1 is a plain 404 like any unknown path. */
+  readonly v1?: V1Handler;
 }
 
 export class BodyTooLarge extends Error {}
@@ -111,16 +117,21 @@ export function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
 /** /m/<mandate>/mcp, the per mandate connector URL. */
 const MANDATE_MCP = /^\/m\/(C[A-Z2-7]{55})\/mcp$/;
 
+function isV1(path: string): boolean {
+  return path === '/v1' || path.startsWith('/v1/');
+}
+
 /** The path label a log line carries: a route, never an address. */
 function routeLabel(path: string): string {
   if (path === '/mcp' || path === '/healthz') return path;
+  if (isV1(path)) return '/v1';
   if (MANDATE_MCP.test(path)) return '/m/:id/mcp';
   if (path.startsWith('/api/')) return '/api';
   return 'other';
 }
 
 export function createHttpServer(options: HttpServerOptions): Server {
-  const { engine, settings, assetCode, extra } = options;
+  const { engine, settings, assetCode, extra, v1 } = options;
   const log = options.log ?? (() => undefined);
   const now = options.now ?? Date.now;
   const limiters = publicLimiters(settings.limits, now);
@@ -197,7 +208,19 @@ export function createHttpServer(options: HttpServerOptions): Server {
     },
   });
 
-  async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+  const clientOf = (req: IncomingMessage) =>
+    rateKey(clientAddress(req.headers, req.socket.remoteAddress, settings.clientIp));
+
+  async function route(
+    req: IncomingMessage,
+    res: ServerResponse,
+    path: string,
+    requestId: string | undefined,
+  ): Promise<void> {
+    if (v1 !== undefined && requestId !== undefined) {
+      await v1(req, res, { requestId, client: clientOf(req) });
+      return;
+    }
     if (path === '/healthz') {
       if (req.method === 'GET' || req.method === 'HEAD') send(res, 200, { status: 'ok' });
       else send(res, 405, { error: 'method not allowed' }, { allow: 'GET' });
@@ -213,17 +236,26 @@ export function createHttpServer(options: HttpServerOptions): Server {
         await mcp(req, res, path, (client) => extra.mandateMcp(id, client));
         return;
       }
-      const client = rateKey(
-        clientAddress(req.headers, req.socket.remoteAddress, settings.clientIp),
-      );
-      if (await extra.handle(req, res, path, client)) return;
+      if (await extra.handle(req, res, path, clientOf(req))) return;
     }
     send(res, 404, { error: 'not found' });
   }
 
-  /** The API answers in its own error shape; everything else is JSON-RPC. */
-  function failure(res: ServerResponse, path: string, status: number, message: string) {
-    if (path.startsWith('/api/')) {
+  /** Each API answers in its own error shape; everything else is JSON-RPC. */
+  function failure(
+    res: ServerResponse,
+    path: string,
+    requestId: string | undefined,
+    status: number,
+    message: string,
+  ) {
+    if (requestId !== undefined) {
+      // /v1 has no timeout code of its own; the status tells a client it may retry.
+      send(res, status, envelope('INTERNAL', message, requestId), {
+        [REQUEST_ID_HEADER]: requestId,
+        'cache-control': 'no-store',
+      });
+    } else if (path.startsWith('/api/')) {
       send(res, status, {
         error: { code: status === 504 ? 'timeout' : 'internal_error', message },
       });
@@ -236,17 +268,21 @@ export function createHttpServer(options: HttpServerOptions): Server {
     const started = now();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
     const known = routeLabel(path);
+    // /v1 names every request so a caller can quote it; the id is made here
+    // so even an answer this layer writes, such as a timeout, carries it.
+    const requestId = v1 !== undefined && isV1(path) ? randomUUID() : undefined;
     // A payout waits for the ledger, so the limit is generous, but nothing waits forever.
     const deadline = setTimeout(() => {
-      failure(res, path, 504, 'The request took too long');
+      failure(res, path, requestId, 504, 'The request took too long');
     }, settings.requestTimeoutMs);
     res.on('close', () => {
       clearTimeout(deadline);
-      log(`${req.method ?? '?'} ${known} ${res.statusCode} ${now() - started}ms`);
+      const id = requestId === undefined ? '' : ` ${requestId}`;
+      log(`${req.method ?? '?'} ${known} ${res.statusCode} ${now() - started}ms${id}`);
     });
-    route(req, res, path).catch((error: unknown) => {
+    route(req, res, path, requestId).catch((error: unknown) => {
       log(`request failed (${error instanceof Error ? error.name : 'NonError'})`);
-      failure(res, path, 500, 'Internal error');
+      failure(res, path, requestId, 500, 'Internal error');
     });
   });
   // Receiving the request is bounded separately from answering it, so a slow

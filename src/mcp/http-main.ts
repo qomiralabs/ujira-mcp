@@ -9,6 +9,8 @@
 import { accessSync, constants, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { createV1App } from '../api/app.js';
+import { nodeHandler } from '../api/node.js';
 import { createEngine, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
 import { EngineError } from '../errors.js';
@@ -55,6 +57,7 @@ function main(): void {
     recipients: [...settings.recipientRefs.keys()],
     log,
     extra: routes,
+    v1: nodeHandler(createV1App({ log }).app),
   });
   log(
     `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}, recycler ${recycler === undefined ? 'off' : `every ${String(consoleSettings.recycleIntervalSeconds)}s`}`,

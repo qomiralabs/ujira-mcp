@@ -133,6 +133,11 @@ export class ConsoleRegistry {
     return this.byId.get(id);
   }
 
+  /** Every mandate, oldest first, so a round robin over them keeps its place as new ones arrive. */
+  all(): readonly MandateEntry[] {
+    return this.data.mandates;
+  }
+
   /** A principal's mandates, newest first. */
   mandatesOf(principal: string): MandateEntry[] {
     return this.data.mandates

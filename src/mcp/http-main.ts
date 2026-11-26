@@ -49,6 +49,7 @@ function main(): void {
     routes,
     settings: consoleSettings,
     recycler,
+    keepAlive,
   } = consoleFromEnv(settings, wiring, http, log);
   const server = createHttpServer({
     engine: wiring.engine,
@@ -63,6 +64,8 @@ function main(): void {
     `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}, recycler ${recycler === undefined ? 'off' : `every ${String(consoleSettings.recycleIntervalSeconds)}s`}`,
   );
   recycler?.start(consoleSettings.recycleIntervalSeconds * 1000);
+  log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
+  keepAlive?.start();
   server.on('error', (error: NodeJS.ErrnoException) => {
     process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
     process.exit(1);
@@ -74,6 +77,7 @@ function main(): void {
   });
   const stop = () => {
     recycler?.stop();
+    keepAlive?.stop();
     server.close();
     // Let a payout in flight finish, but not forever.
     setTimeout(() => process.exit(0), 10_000).unref();

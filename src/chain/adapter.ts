@@ -258,3 +258,54 @@ export interface MandateContract {
     entries: readonly AllowEntry[],
   ): Promise<{ readonly txHash: string }>;
 }
+
+/**
+ * What a contract's ledger entries hold. A mandate is unusable at the normal
+ * fee once its instance, its code or the asset's record of its balance lapse,
+ * and its rules for a recipient sit in the allowlist and day usage entries.
+ */
+export type KeptEntryKind = 'instance' | 'code' | 'balance' | 'allowed' | 'daily';
+
+export interface KeptEntry {
+  readonly kind: KeptEntryKind;
+  /** Opaque to the caller; handed back to extend or restore this entry. */
+  readonly id: string;
+  /** Missing means the chain never held it, such as day usage before a first payout. */
+  readonly state: 'live' | 'archived' | 'missing';
+  /** Ledgers until it archives; 0 unless live. */
+  readonly ledgersLeft: number;
+}
+
+export interface KeepAliveTarget {
+  readonly contract: string;
+  /** The asset contract whose balance entry for `contract` matters; null for a factory. */
+  readonly asset: string | null;
+  /** Allowlist pairs whose entries and day usage are kept too. */
+  readonly recipients: readonly AllowEntry[];
+}
+
+/**
+ * Keeps contract entries from archiving. Extending only ever raises an
+ * entry's time to live, so sending one twice costs a fee and nothing else.
+ */
+export interface EntryKeeper {
+  /** The most ledgers ahead the network lets an entry be extended. */
+  readonly maxExtendLedgers: number;
+  entries(
+    target: KeepAliveTarget,
+    o: CallOptions,
+  ): Promise<{ readonly latestLedger: number; readonly entries: readonly KeptEntry[] }>;
+  /** Extends live entries to `ledgers` ahead of now, paid by `payer`. */
+  extend(
+    ids: readonly string[],
+    ledgers: number,
+    payer: TxSigner,
+    o: CallOptions,
+  ): Promise<{ readonly txHash: string }>;
+  /** Brings archived entries back, paid by `payer`; they come back at the network minimum. */
+  restore(
+    ids: readonly string[],
+    payer: TxSigner,
+    o: CallOptions,
+  ): Promise<{ readonly txHash: string }>;
+}

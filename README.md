@@ -223,6 +223,23 @@ The same server hosts the UJIRA dashboard (the console): a web app where anyone 
 | `UJIRA_HORIZON_URL`, `UJIRA_FRIENDBOT_URL`, `UJIRA_PUBLIC_RPC_URL` | the public testnet ones | Network endpoints; the public RPC URL is the one browsers are told about. |
 | `UJIRA_FACTORY`, `UJIRA_USDC_ISSUER`, `UJIRA_USDC_CONTRACT` | the testnet deployment | The mandate factory and the USDC the console uses. |
 
+#### Keeping mandate entries alive
+
+Soroban storage lives a set number of ledgers and is then archived, and the next transaction that touches an archived entry pays to restore it first. A mandate's money sits in the USDC contract's balance entry for the mandate, with its own lifetime, and the mandate never extends its allowlist or day usage entries itself. So the server runs a keep alive pass a minute after start and then every interval: for the demo mandate, every console mandate that is not revoked or expired, and the factory, it reads the live time to live of the instance, the code, the balance entry, and the allowlist and day usage entries of the recipients it knows, extends only those under the threshold, and restores any that are archived. Payout records are left to archive once their payout is over. Each run logs `event=mandate_entry_archived`, `event=mandate_entry_restored`, `event=mandate_entry_extended` with the transaction hash, and a closing `event=mandate_keepalive_run` line. While an entry stays archived, `GET /api/mandates/<mandate>` carries a `ledger_entries_archived` warning. A run reads before it sends, so a repeated run sends nothing.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `UJIRA_FEE_SPONSOR_SECRET` or `UJIRA_FEE_SPONSOR_KEY_FILE` | none | The account that pays for extensions and restores, as the transaction's source. Without it the pass only reads, logs and warns. |
+| `UJIRA_KEEPALIVE` | `on` | `off` stops the pass. |
+| `UJIRA_KEEPALIVE_THRESHOLD_LEDGERS` | `345600` (20 days) | An entry with fewer ledgers left is extended. |
+| `UJIRA_KEEPALIVE_EXTEND_TO_LEDGERS` | `1036800` (60 days) | How far ahead an extended entry then lives. Above the threshold and below the network's 3110400. |
+| `UJIRA_KEEPALIVE_INTERVAL_SECONDS` | `86400` | Time between passes. |
+| `UJIRA_KEEPALIVE_MANDATES_PER_RUN` | `200` | Mandates read in one pass; the rest get their turn on the next, round robin. |
+| `UJIRA_KEEPALIVE_TRANSACTIONS_PER_RUN` | `50` | Transactions one pass may send; what is left waits for the next. |
+| `UJIRA_KEEPALIVE_KEYS_PER_TRANSACTION` | `25` | Entries in one transaction. |
+
+`UJIRA_TESTNET=1 npx vitest run test/keep-alive.testnet.test.ts` prints the live numbers for the demo mandate and the factory; add `UJIRA_TESTNET_KEEPALIVE_SEND=1` and a fee sponsor key to run one paid pass.
+
 Every page of the product is served from this one server:
 
 | Path | Serves |

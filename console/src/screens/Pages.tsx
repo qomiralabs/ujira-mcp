@@ -28,6 +28,7 @@ import { formatUsdc } from '../lib/money';
 import type { Mandate, Receipt } from '../lib/schemas';
 import { shortAddress } from '../lib/strkey';
 import { MandatesV1 } from './MandatesV1';
+import { PayoutsV1 } from './PayoutsV1';
 
 /** Shows the page once a wallet is connected, else asks for one. */
 function WithPortfolio({
@@ -135,6 +136,15 @@ function RulesAtAGlance({ m }: { m: Mandate }) {
 }
 
 export function PayoutsPage() {
+  const v1 = useV1('payouts');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <PayoutsV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
+  return <PayoutsOnApi />;
+}
+
+function PayoutsOnApi() {
   const chooserId = useId();
   const [chosen, setChosen] = useState<string | null>(null);
   return (

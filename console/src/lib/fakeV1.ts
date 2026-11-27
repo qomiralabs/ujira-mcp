@@ -50,6 +50,8 @@ const PAGE_MAX = 200;
 const SIGNING_MS = 10 * 60 * 1000;
 const STELLAR_ACCOUNT = /^G[A-Z2-7]{55}$/;
 const STELLAR_CONTRACT = /^C[A-Z2-7]{55}$/;
+// The same set the server takes in the Idempotency-Key header.
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,255}$/;
 
 export interface FakeV1Options {
   readonly delayMs?: number;
@@ -733,7 +735,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       }),
     createPayout: (input, idempotencyKey) =>
       step((t, d) => {
-        if (!/^[\x21-\x7e]{1,255}$/.test(idempotencyKey)) {
+        if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
           throw fail('IDEMPOTENCY_KEY_INVALID', 400, 'The Idempotency-Key header is not valid.');
         }
         const body = bodyKey(input);

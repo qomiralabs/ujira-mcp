@@ -2425,8 +2425,9 @@ input.mono {
   }
 
   /* On a phone each table row becomes a two column card line: who and how
-     much, when and the status, then the task and the transaction. */
-  .ledger thead {
+     much, when and the status, then the task and the transaction. The
+     payouts table keeps one line per row and scrolls sideways instead. */
+  .ledger:not(.payout-table) thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2434,7 +2435,7 @@ input.mono {
     clip: rect(0 0 0 0);
   }
 
-  .ledger tbody tr {
+  .ledger:not(.payout-table) tbody tr {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -2446,62 +2447,62 @@ input.mono {
     border-bottom: 1px solid var(--line);
   }
 
-  .ledger tbody tr:last-child {
+  .ledger:not(.payout-table) tbody tr:last-child {
     border-bottom: 0;
   }
 
-  .ledger td,
-  .ledger td:first-child,
-  .ledger td:last-child {
+  .ledger:not(.payout-table) td,
+  .ledger:not(.payout-table) td:first-child,
+  .ledger:not(.payout-table) td:last-child {
     display: block;
     padding: 0;
     border: 0;
     min-width: 0;
   }
 
-  .ledger .c-to {
+  .ledger:not(.payout-table) .c-to {
     grid-area: to;
     max-width: none;
   }
 
-  .ledger .c-amount {
+  .ledger:not(.payout-table) .c-amount {
     grid-area: amount;
   }
 
-  .ledger .c-when {
+  .ledger:not(.payout-table) .c-when {
     grid-area: when;
     font-size: 14px;
   }
 
-  .ledger .c-status {
+  .ledger:not(.payout-table) .c-status {
     grid-area: status;
     justify-self: end;
   }
 
-  .ledger .c-task {
+  .ledger:not(.payout-table) .c-task {
     grid-area: task;
   }
 
-  .ledger .c-tx {
+  .ledger:not(.payout-table) .c-tx {
     grid-area: tx;
     justify-self: end;
   }
 
-  .ledger .c-mandate,
-  .ledger .c-method {
+  .ledger:not(.payout-table) .c-mandate,
+  .ledger:not(.payout-table) .c-method {
     display: none;
   }
 
-  .ledger .c-task {
+  .ledger:not(.payout-table) .c-task {
     overflow: hidden;
   }
 
-  .ledger .c-task .id-text {
+  .ledger:not(.payout-table) .c-task .id-text {
     display: flex;
     min-width: 0;
   }
 
-  .ledger .c-task .cut {
+  .ledger:not(.payout-table) .c-task .cut {
     flex: 0 1 auto;
     min-width: 0;
     max-width: none;
@@ -2847,5 +2848,472 @@ input.mono {
     width: 28px;
     height: 28px;
     font-size: 12px;
+  }
+}
+
+/* Payouts on /v1: filters, the long table and the side sheet */
+
+.title-count {
+  font: 500 14px/1 var(--sans);
+  letter-spacing: 0;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.payout-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 24px 16px;
+}
+
+.pf {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pf label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.pf select,
+.pf input {
+  height: 38px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.pf select[disabled] {
+  opacity: 0.6;
+}
+
+.card-flush > .notice-info {
+  margin: 0 24px 14px;
+}
+
+/* Positioned, so screen reader text in the cells scrolls and clips with them. */
+.payout-scroll {
+  position: relative;
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--line);
+}
+
+.payout-scroll:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+.payout-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.payout-table td {
+  height: 52px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.payout-table .prow {
+  cursor: pointer;
+}
+
+.payout-table .prow-open {
+  background: var(--surface-2);
+}
+
+.payout-table .vt-pad td {
+  height: auto;
+  padding: 0;
+  border: 0;
+}
+
+.payout-table .c-to {
+  max-width: 200px;
+}
+
+.payout-table .c-mandate .cut {
+  max-width: 170px;
+}
+
+.table-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.table-link:hover {
+  text-decoration: underline;
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.th-sort .icon {
+  opacity: 0;
+  transition:
+    opacity 0.2s var(--ease),
+    transform 0.2s var(--ease);
+}
+
+.th-sort:hover .icon,
+.th-sort-on .icon {
+  opacity: 1;
+}
+
+.th-sort-on {
+  color: var(--text);
+}
+
+.th-sort-asc .icon {
+  transform: rotate(180deg);
+}
+
+.row-open {
+  padding: 4px 6px;
+  margin: -4px -2px -4px -6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.row-open:hover {
+  background: var(--surface-2);
+  text-decoration: underline;
+}
+
+/* The sheet comes in from the right edge and leaves the table as it was. */
+.sheet {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(520px, 100vw);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-card) 0 0 var(--r-card);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: sheet-in 0.32s var(--ease);
+}
+
+.sheet::backdrop {
+  background: rgba(10, 31, 38, 0.38);
+  backdrop-filter: blur(2px);
+  animation: sheet-fade 0.32s var(--ease);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.sheet-inner {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  min-height: 100%;
+  padding: 20px 24px 32px;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sheet-head h2 {
+  font-size: 20px;
+}
+
+.sheet-close {
+  margin-left: auto;
+}
+
+.sheet-hero {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.sheet-amount .amount {
+  color: var(--text);
+}
+
+.sheet-to {
+  font-size: 17px;
+  color: var(--text-2);
+}
+
+.sheet-to strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sheet-reason {
+  font-size: 15px;
+  color: var(--block-fg);
+}
+
+.sheet-cta {
+  justify-self: start;
+}
+
+.sheet-facts dd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Money moves left to right, so the path does too. */
+.timeline {
+  list-style: none;
+  padding: 0;
+  display: flex;
+}
+
+.tl {
+  position: relative;
+  flex: 1 1 0;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  min-width: 0;
+  padding-right: 8px;
+  font-size: 13px;
+}
+
+.tl::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 30px;
+  right: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.tl:last-child::before {
+  display: none;
+}
+
+.tl-done::before {
+  background: var(--paid-fg);
+}
+
+.tl-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--row-bg);
+  color: var(--text-3);
+}
+
+.tl-mark svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tl-done .tl-mark {
+  background: var(--paid-tint);
+  color: var(--paid-fg);
+}
+
+.tl-now .tl-mark {
+  background: var(--wait-tint);
+  color: var(--wait-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wait-fg) 18%, transparent);
+}
+
+.tl-stopped .tl-mark {
+  background: var(--block-tint);
+  color: var(--block-fg);
+}
+
+.tl-label {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.tl-later .tl-label {
+  color: var(--text-3);
+}
+
+.tl-at {
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The perforation: the dotted rule with notches that parts the amount from the details. */
+.perf {
+  position: relative;
+  height: 0;
+  margin: 2px -24px;
+  border-top: 2px dotted var(--line-2);
+}
+
+.perf::before,
+.perf::after {
+  content: '';
+  position: absolute;
+  top: -9px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.perf::before {
+  left: -8px;
+}
+
+.perf::after {
+  right: -8px;
+}
+
+.legs {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.leg {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'n main amount amount'
+    'n pill pill tx';
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-row);
+  background: var(--row-bg);
+}
+
+.leg-n {
+  grid-area: n;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.leg-main {
+  grid-area: main;
+  display: grid;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.leg-main .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leg > .amount {
+  grid-area: amount;
+  justify-self: end;
+  font-weight: 600;
+}
+
+.leg > .pill {
+  grid-area: pill;
+  justify-self: start;
+}
+
+.leg-tx {
+  grid-area: tx;
+  justify-self: end;
+}
+
+@media (max-width: 1080px) {
+  .payout-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .payout-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0 16px 14px;
+  }
+
+  .card-flush > .notice-info {
+    margin: 0 16px 14px;
+  }
+
+  .payout-table .c-method,
+  .payout-table .c-settled {
+    display: none;
+  }
+
+  .sheet {
+    width: 100vw;
+    border-radius: 0;
+  }
+
+  .sheet-inner {
+    padding: 16px 16px 28px;
+  }
+
+  .perf {
+    margin: 2px -16px;
   }
 }

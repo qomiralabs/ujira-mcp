@@ -310,8 +310,9 @@ describe('recipients as the web role serves them', () => {
 });
 
 describe('payout reads as the web role serves them', () => {
+  // Nothing here reaches the chain, so each owner takes a contract of its own.
   it('serves the list and the detail to a session and a key holding payouts:read', async () => {
-    const alice = await owner();
+    const alice = await owner(testContract());
     const bySession = await request('GET', '/v1/payouts', {
       cookie: alice.cookie,
       project: alice.projectId,
@@ -332,7 +333,7 @@ describe('payout reads as the web role serves them', () => {
   });
 
   it('serves the approvals queue to a session only', async () => {
-    const alice = await owner();
+    const alice = await owner(testContract());
     const bySession = await request('GET', '/v1/approvals', {
       cookie: alice.cookie,
       project: alice.projectId,

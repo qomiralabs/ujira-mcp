@@ -295,9 +295,17 @@ const cases: Record<string, () => Promise<void>> = {
       );
       expect(filtered.items).toEqual([]);
     }
+    // Every payout of A's first project and nothing else, read past the
+    // policies. The payouts.create case adds one, and the cases share rows.
+    const stored = await admin.query<{ id: string }>(
+      'select id from ujira.payouts where principal_id = $1 and project_id = $2',
+      [a.first.context.principalId, a.first.context.projectId],
+    );
     const own = await asA(async (tx) => payoutViews.list(tx, {}, { limit: 100 }));
-    expect(own.items.map((view) => view.payout.id).sort()).toEqual(
-      [a.first.payoutId, a.first.finishedPayoutId, a.first.waitingPayoutId].sort(),
+    const ownIds = own.items.map((view) => view.payout.id).sort();
+    expect(ownIds).toEqual(stored.rows.map((row) => row.id).sort());
+    expect(ownIds).toEqual(
+      expect.arrayContaining([a.first.payoutId, a.first.finishedPayoutId, a.first.waitingPayoutId]),
     );
   },
   'payoutViews.waitingApproval': async () => {

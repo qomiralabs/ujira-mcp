@@ -5,7 +5,7 @@
 // fractional offsets, a day either side of the date line, clocks that change
 // mid week, and a zone that skips midnight itself.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DEFAULT_PERIOD_DAYS,
@@ -182,5 +182,41 @@ describe('local days', () => {
   it('knows which zones it can place times in', () => {
     expect(isKnownTimeZone('Africa/Nairobi')).toBe(true);
     expect(isKnownTimeZone('Mars/Olympus')).toBe(false);
+  });
+});
+
+// A runtime whose time zone data misbehaves must fail loudly, never place an
+// edge somewhere made up.
+describe('a time zone formatter that misbehaves', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('lets an error that is not about the zone name through', () => {
+    // A function, not an arrow, so it can be called with new as the real one is.
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementationOnce(function () {
+      throw new TypeError('the runtime has no time zone data');
+    });
+    expect(() => isKnownTimeZone('Europe/Tallinn')).toThrow(TypeError);
+  });
+
+  it('refuses a reading with a field missing', () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts').mockReturnValue([
+      { type: 'month', value: '11' },
+    ]);
+    expect(() => wallClock('UTC', 0)).toThrow('the time zone formatter gave no year');
+  });
+
+  it('refuses a wall time no instant reads', () => {
+    // A clock stuck in 1970 never reaches a wall time in 2026.
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts').mockReturnValue(
+      (['year', 'month', 'day', 'hour', 'minute', 'second'] as const).map((type) => ({
+        type,
+        value: type === 'year' ? '1970' : '01',
+      })),
+    );
+    expect(() => instantOfWall('UTC', Date.parse('2026-11-27T00:00:00.000Z'))).toThrow(
+      'no instant reads the wall time in this zone',
+    );
   });
 });

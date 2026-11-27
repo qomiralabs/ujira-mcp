@@ -8,9 +8,9 @@
 -- No receipt could carry one, and a paid payout needs one, so no payout could
 -- be closed. The same rule now reads as a character class and a length.
 --
--- Every row already in the table has no reference, since the old check could
--- not accept any, so the new check holds for all of them and is validated as
--- it is added. The table is small for the same reason, so the scan is short.
+-- The new check is added not valid, so nothing here scans the table under a
+-- lock; the next migration validates it on its own. It holds for new rows at
+-- once.
 
 -- Up Migration
 set local lock_timeout = '5s';
@@ -22,13 +22,10 @@ set local role ujira_owner;
 -- written without a reference check.
 -- squawk-ignore ban-drop-constraint
 alter table ujira.receipts drop constraint receipts_chain_ref_format;
--- Validated as it is added rather than in a second migration: the scan is of
--- a table that cannot hold a row the check refuses, and that is nearly empty.
--- squawk-ignore constraint-missing-not-valid
 alter table ujira.receipts
   add constraint receipts_chain_ref_format check (
     chain_receipt_ref ~ '^[A-Za-z0-9:._-]+$' and char_length(chain_receipt_ref) <= 512
-  );
+  ) not valid;
 
 reset role;
 
@@ -38,7 +35,7 @@ set local statement_timeout = '60s';
 
 set local role ujira_owner;
 
--- Back to the check the previous migration made, so it comes down from the
+-- Back to the check the earlier migration made, so it comes down from the
 -- state it went up to. A receipt with a reference stops the rollback, which is
 -- the right answer: the old check cannot hold it.
 -- squawk-ignore ban-drop-constraint

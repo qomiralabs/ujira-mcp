@@ -28,11 +28,27 @@ export interface PayoutWorld {
   // A second recipient on the same mandate, with a wallet of their own.
   readonly otherRecipientId: string;
   readonly otherMethodId: string;
+  // What the chain knows the first recipient by, and the key the mandate names.
+  readonly recipientRef: string;
+  readonly agentKeyId: string;
+}
+
+// For a test that drives the world through a chain fake: the contract, agent
+// and first recipient the fake already knows.
+export interface PayoutWorldOptions {
+  readonly contractAddress?: string;
+  readonly agentPublicKey?: string;
+  readonly destination?: string;
+  readonly recipientRef?: string;
 }
 
 export const usdc = (amount: bigint): TokenAmount => tokenAmount(amount, 'USDC', 'stellar');
 
-export async function payoutWorld(db: Database, context: ProjectContext): Promise<PayoutWorld> {
+export async function payoutWorld(
+  db: Database,
+  context: ProjectContext,
+  options: PayoutWorldOptions = {},
+): Promise<PayoutWorld> {
   return db.tenant(context).transaction(async (tx) => {
     // A project holds one active key per network, so a second world in the
     // same project shares it.
@@ -42,7 +58,7 @@ export async function payoutWorld(db: Database, context: ProjectContext): Promis
         tx,
         {
           network: TESTNET,
-          publicKey: testAccount(),
+          publicKey: options.agentPublicKey ?? testAccount(),
           secretCiphertext: sealed(1),
           secretNonce: nonce(2),
         },
@@ -53,7 +69,7 @@ export async function payoutWorld(db: Database, context: ProjectContext): Promis
       {
         name: 'Payroll',
         network: TESTNET,
-        contractAddress: testContract(),
+        contractAddress: options.contractAddress ?? testContract(),
         asset: 'USDC',
         scale: 7,
         agent: { keyId: key.id },
@@ -61,17 +77,21 @@ export async function payoutWorld(db: Database, context: ProjectContext): Promis
       },
       testAccounts,
     );
-    const person = async (label: string) => {
+    const person = async (
+      label: string,
+      recipientRef = testHex32(),
+      destination = testAccount(),
+    ) => {
       const recipient = await recipients.create(tx, {
         mandateId: mandate.id,
         label,
-        recipientRef: testHex32(),
+        recipientRef,
       });
       const method = await payoutMethods.addWallet(
         tx,
         {
           recipientId: recipient.id,
-          destination: testAccount(),
+          destination,
           destinationCheck: { receivable: true },
           verified: true,
         },
@@ -79,7 +99,7 @@ export async function payoutWorld(db: Database, context: ProjectContext): Promis
       );
       return { recipient, method };
     };
-    const ada = await person('Ada');
+    const ada = await person('Ada', options.recipientRef, options.destination);
     const grace = await person('Grace');
     return {
       context,
@@ -89,6 +109,8 @@ export async function payoutWorld(db: Database, context: ProjectContext): Promis
       destination: ada.method.destination,
       otherRecipientId: grace.recipient.id,
       otherMethodId: grace.method.id,
+      recipientRef: ada.recipient.recipientRef,
+      agentKeyId: key.id,
     };
   });
 }

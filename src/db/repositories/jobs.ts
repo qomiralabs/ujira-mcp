@@ -26,6 +26,9 @@ export type PayoutJobTask = (typeof PAYOUT_JOB_TASKS)[number];
 /** Tries per job, the last of which moves the payout to needs_attention. */
 export const MAX_JOB_ATTEMPTS = 10;
 
+/** The longest a job may be put off, as the database bounds it. */
+export const MAX_JOB_DELAY_SECONDS = 3600;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const jobs = {
@@ -44,6 +47,36 @@ export const jobs = {
     `.execute(db);
     const [row] = rows;
     if (row === undefined) throw new Error('enqueue_payout returned no job');
+    return BigInt(row.job_id);
+  },
+
+  /**
+   * As enqueuePayout, to run `delaySeconds` from now, 1 to 3600. The worker
+   * login only: it is how a job comes back to a payout that is waiting on
+   * someone else, without spending a retry.
+   */
+  enqueuePayoutLater: async (
+    db: Tx,
+    task: PayoutJobTask,
+    payoutId: string,
+    delaySeconds: number,
+  ): Promise<bigint> => {
+    if (!(PAYOUT_JOB_TASKS as readonly string[]).includes(task)) {
+      throw new RepositoryInputError('task');
+    }
+    if (!UUID.test(payoutId)) throw new RepositoryInputError('payoutId');
+    if (
+      !Number.isInteger(delaySeconds) ||
+      delaySeconds < 1 ||
+      delaySeconds > MAX_JOB_DELAY_SECONDS
+    ) {
+      throw new RepositoryInputError('delaySeconds');
+    }
+    const { rows } = await sql<{ job_id: string }>`
+      select ujira_jobs.enqueue_payout_later(${task}, ${payoutId}::uuid, ${delaySeconds}::integer)::text as job_id
+    `.execute(db);
+    const [row] = rows;
+    if (row === undefined) throw new Error('enqueue_payout_later returned no job');
     return BigInt(row.job_id);
   },
 };

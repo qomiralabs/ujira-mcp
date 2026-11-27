@@ -9,3 +9,11 @@
 export { createTestDatabase, roleUrl, type TestDatabase } from './harness.js';
 export { databaseAsServiceRoles } from './databases.js';
 export { queueFixture, type QueueFixture, type QueueRow } from './queue-fixture.js';
+export {
+  newPayout,
+  payoutWorld,
+  TESTNET,
+  usdc,
+  type PayoutWorld,
+  type PayoutWorldOptions,
+} from './payout-fixture.js';

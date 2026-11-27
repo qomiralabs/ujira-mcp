@@ -55,7 +55,7 @@ function fakeRunner(): JobRunner & { readonly stops: () => number } {
 const advance: PayoutTaskDefinition = {
   task: 'payout.advance',
   run: () => Promise.resolve(),
-  deadLetter: () => Promise.resolve(true),
+  deadLetter: () => Promise.resolve('needs_attention'),
 };
 
 afterEach(() => {

@@ -4,7 +4,18 @@
 // Callers branch on `code`, which stays stable, never on the message. Messages
 // only ever name statuses or counts we validated, never caller text.
 
-export type PayoutErrorCode = 'INVALID_TRANSITION' | 'INVALID_LEGS' | 'FEE_SPONSOR_CAP_REACHED';
+export type PayoutErrorCode =
+  'INVALID_TRANSITION' | 'INVALID_LEGS' | 'FEE_SPONSOR_CAP_REACHED' | PayoutRetryCode;
+
+/**
+ * Why a payout job stopped without changing anything and must look again
+ * later. Each is an attempt the queue retries with backoff.
+ *
+ * - SETTLEMENT_PENDING: an execute was sent and the network has not settled it either way.
+ * - CHAIN_LAGGING: a transaction landed but the payout's state on chain does not show it yet.
+ * - STALE_PAYOUT: another run moved the payout while this one was working.
+ */
+export type PayoutRetryCode = 'SETTLEMENT_PENDING' | 'CHAIN_LAGGING' | 'STALE_PAYOUT';
 
 export class PayoutError extends Error {
   readonly code: PayoutErrorCode;
@@ -21,6 +32,14 @@ export class InvalidTransitionError extends PayoutError {
   constructor(message: string) {
     super('INVALID_TRANSITION', message);
     this.name = 'InvalidTransitionError';
+  }
+}
+
+/** The job must look again later; nothing was sent and nothing moved. */
+export class PayoutRetryError extends PayoutError {
+  constructor(code: PayoutRetryCode) {
+    super(code, `the payout is not ready to move on (${code})`);
+    this.name = 'PayoutRetryError';
   }
 }
 

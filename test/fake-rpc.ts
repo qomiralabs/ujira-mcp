@@ -13,6 +13,7 @@ import { Keypair, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk
 import { ContractRefusedError, EngineError } from '../src/errors.js';
 import { address, i128, struct, u64 } from '../src/chain/stellar/codec.js';
 import type {
+  InvokeHooks,
   InvokeResult,
   SimulateResult,
   SorobanGateway,
@@ -81,7 +82,17 @@ export class FakeMandateRpc implements SorobanGateway {
   calls: string[] = [];
   /** Makes the next invoke of this method land but lose its answer. */
   loseAnswerOf: string | undefined;
+  /** Makes the next invoke of this method land and fail on chain, with no contract error. */
+  failOnChainOf: string | undefined;
+  /** Every call fails as an RPC outage while set, and nothing lands. */
+  down = false;
   private seq = 0;
+
+  private outage(): Promise<never> | undefined {
+    return this.down
+      ? Promise.reject(new EngineError('rpc_unavailable', 'the fake rpc is down'))
+      : undefined;
+  }
 
   allowRecipient(ref: string, destination: string) {
     this.allow.add(`${ref}|${destination}`);
@@ -168,6 +179,8 @@ export class FakeMandateRpc implements SorobanGateway {
 
   read(contractId: string, method: string, args: readonly xdr.ScVal[]): Promise<xdr.ScVal> {
     this.calls.push(`read:${method}`);
+    const down = this.outage();
+    if (down !== undefined) return down;
     if (contractId !== MANDATE)
       return Promise.reject(new EngineError('rpc_unavailable', 'no such contract'));
     const a = args.map((v) => scValToNative(v) as unknown);
@@ -236,6 +249,8 @@ export class FakeMandateRpc implements SorobanGateway {
     source: string,
   ): Promise<SimulateResult> {
     this.calls.push(`simulate:${method}`);
+    const down = this.outage();
+    if (down !== undefined) return down;
     const [caller, req] = args.map((v) => scValToNative(v) as unknown);
     if (method !== 'request_payout' || caller !== source) {
       return Promise.reject(
@@ -249,13 +264,28 @@ export class FakeMandateRpc implements SorobanGateway {
     return Promise.resolve({ ok: true, returnValue: u32(out.status) });
   }
 
-  private land(): string {
+  private nextHash(): string {
     this.seq += 1;
-    const hash = createHash('sha256')
+    return createHash('sha256')
       .update(`tx${String(this.seq)}`)
       .digest('hex');
-    this.txs.set(hash, 'SUCCESS');
-    return hash;
+  }
+
+  /** What simulation refuses before anything is signed, as the real gateway does. */
+  private refusedInSimulation(method: string, a: unknown[], signer: TxSigner): Code | undefined {
+    const caller = String(a[0]);
+    if (method !== 'allow_recipients' && caller !== signer.publicKey) return 10;
+    if (method === 'request_payout') {
+      const out = this.checkRequest(caller, a[1] as Record<string, unknown>);
+      return typeof out === 'number' ? out : undefined;
+    }
+    if (method === 'execute') {
+      if (![...this.agents, ...this.executors, principal.publicKey].includes(caller)) return 10;
+      const rec = this.payouts.get(hexOf(a[1]));
+      if (rec === undefined) return 61;
+      if ('tombstone' in rec || rec.status !== 2) return 62;
+    }
+    return undefined;
   }
 
   private run(method: string, a: unknown[], signer: TxSigner): Code | xdr.ScVal | undefined {
@@ -310,32 +340,43 @@ export class FakeMandateRpc implements SorobanGateway {
     }
   }
 
-  invoke(
+  async invoke(
     contractId: string,
     method: string,
     args: readonly xdr.ScVal[],
     signer: TxSigner,
+    hooks: InvokeHooks = {},
   ): Promise<InvokeResult> {
     this.calls.push(`invoke:${method}`);
-    if (contractId !== MANDATE)
-      return Promise.reject(new EngineError('rpc_unavailable', 'no such contract'));
-    const out = this.run(
-      method,
-      args.map((v) => scValToNative(v) as unknown),
-      signer,
-    );
-    if (typeof out === 'number') return Promise.reject(new ContractRefusedError(method, out));
-    const txHash = this.land();
+    await (this.outage() ?? Promise.resolve());
+    if (contractId !== MANDATE) throw new EngineError('rpc_unavailable', 'no such contract');
+    const decoded = args.map((v) => scValToNative(v) as unknown);
+    const refused = this.refusedInSimulation(method, decoded, signer);
+    if (refused !== undefined) throw new ContractRefusedError(method, refused);
+    const txHash = this.nextHash();
+    // A throw here is the caller's, and nothing is sent.
+    if (hooks.beforeSend !== undefined) await hooks.beforeSend(txHash);
+    if (this.failOnChainOf === method) {
+      this.failOnChainOf = undefined;
+      this.txs.set(txHash, 'FAILED');
+      throw new EngineError('tx_failed', `${method} failed on chain (${txHash})`);
+    }
+    const out = this.run(method, decoded, signer);
+    if (typeof out === 'number') {
+      this.txs.set(txHash, 'FAILED');
+      throw new ContractRefusedError(method, out, txHash);
+    }
+    this.txs.set(txHash, 'SUCCESS');
     if (this.loseAnswerOf === method) {
       this.loseAnswerOf = undefined;
-      return Promise.reject(
-        new EngineError('submission_unknown', `send ${method} lost its answer`),
-      );
+      throw new EngineError('submission_unknown', `send ${method} lost its answer`);
     }
-    return Promise.resolve({ txHash, ledger: this.seq, returnValue: out });
+    return { txHash, ledger: this.seq, returnValue: out };
   }
 
   transaction(hash: string): Promise<TxLookup> {
+    const down = this.outage();
+    if (down !== undefined) return down;
     const status = this.txs.get(hash);
     return Promise.resolve(status === undefined ? { status: 'NOT_FOUND' } : { status, ledger: 1 });
   }

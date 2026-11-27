@@ -9,6 +9,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { issueToken } from '../src/auth/token.js';
 import { Recycler } from '../src/demo/recycler.js';
 import { closeServer, ListenError, startWeb } from '../src/server/web.js';
 import { MandateKeepAlive } from '../src/worker/keep-alive.js';
@@ -282,6 +283,15 @@ describe('startWeb', () => {
     // The project routes come with sign in. Without a cookie they refuse
     // before any query, so they answer even with no database behind them.
     expect((await get(port, '/v1/projects')).status).toBe(401);
+    // So do the key routes.
+    const keys = await fetch(`http://127.0.0.1:${String(port)}/v1/api-keys`);
+    expect(keys.status).toBe(401);
+    expect(((await keys.json()) as { error: { code: string } }).error.code).toBe('SESSION_INVALID');
+    const byKey = await fetch(`http://127.0.0.1:${String(port)}/v1/api-keys`, {
+      headers: { authorization: `Bearer ${issueToken('test').token}` },
+    });
+    // Keys cannot manage keys, so this is refused before the database is asked.
+    expect(byKey.status).toBe(403);
     expect(lines.join('\n')).not.toContain('unused');
     await web.stop();
     expect(await tryConnect(port)).toBe('ECONNREFUSED');

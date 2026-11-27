@@ -16,13 +16,19 @@ import type { Server } from 'node:http';
 import { dirname } from 'node:path';
 
 import { createV1App } from '../api/app.js';
+import { createAuthenticate } from '../api/authenticate.js';
 import { nodeHandler } from '../api/node.js';
 import type { Route } from '../api/route.js';
+import { apiKeyRoutes } from '../api/routes/api-keys.js';
 import { authRoutes } from '../api/routes/auth.js';
 import { tenancyRoutes } from '../api/routes/tenancy.js';
+import { createApiKeyService } from '../auth/api-key-service.js';
+import { databaseApiKeyRecords, databaseTokenStore } from '../auth/api-key-store.js';
 import { postgresSignInStore } from '../auth/postgres-store.js';
 import { loadSignInSettings, type SignInSettings } from '../auth/settings.js';
 import { SignIn } from '../auth/sign-in.js';
+import { createTokenAuthenticator } from '../auth/token-auth.js';
+import { tokenEnvironmentFor } from '../auth/token.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
 import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
@@ -42,14 +48,16 @@ interface SignInWiring {
 }
 
 /**
- * The sign in, principal and project routes and the database behind them,
- * only when UJIRA_SIGN_IN is on. Off, the web role needs no database at all,
- * as before.
+ * The sign in, principal, project and API key routes and the database
+ * behind them, only when UJIRA_SIGN_IN is on. Off, the web role needs no
+ * database at all, as before. Keys are managed from a session, so they
+ * cannot be served without one.
  */
 function signInWiring(
   settings: SignInSettings,
   env: Env,
   verifier: WalletProofVerifier,
+  network: 'testnet' | 'pubnet',
   log: (line: string) => void,
 ): SignInWiring | undefined {
   if (!settings.enabled) return undefined;
@@ -72,10 +80,22 @@ function signInWiring(
     log,
   });
   const tenancy = new Tenancy({ store: postgresTenancyStore(db), log });
+  const session = { signIn, origin: settings.origin };
+  const environment = tokenEnvironmentFor(network);
+  const tokens = createTokenAuthenticator({ store: databaseTokenStore(db), environment, log });
+  const keys = createApiKeyService({
+    records: databaseApiKeyRecords(db),
+    environment,
+    onRevoked: (prefix) => {
+      tokens.forget(prefix);
+    },
+  });
+  const authenticate = createAuthenticate({ tokens, session });
   return {
     routes: [
-      ...authRoutes({ signIn, origin: settings.origin }),
+      ...authRoutes(session),
       ...tenancyRoutes({ signIn, tenancy, origin: settings.origin }),
+      ...apiKeyRoutes({ keys, authenticate }),
     ],
     close: () => db.close(),
   };
@@ -185,7 +205,7 @@ export async function startWeb(
     env,
     ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
   });
-  const signIn = signInWiring(signInSettings, env, wiring.adapter, log);
+  const signIn = signInWiring(signInSettings, env, wiring.adapter, settings.network, log);
   const server = createHttpServer({
     settings: http,
     log,

@@ -33,6 +33,7 @@ describe('error codes', () => {
       IDEMPOTENCY_KEY_INVALID: 400,
       TOKEN_MALFORMED: 401,
       TOKEN_INVALID: 401,
+      TOKEN_ENVIRONMENT_MISMATCH: 401,
       SESSION_INVALID: 401,
       FORBIDDEN: 403,
       ORIGIN_NOT_ALLOWED: 403,
@@ -41,6 +42,7 @@ describe('error codes', () => {
       TASK_ID_REUSED: 409,
       RECIPIENT_LABEL_TAKEN: 409,
       MANDATE_REFUSED: 409,
+      API_KEY_LIMIT_REACHED: 409,
       PAYLOAD_TOO_LARGE: 413,
       UNSUPPORTED_MEDIA_TYPE: 415,
       IDEMPOTENCY_KEY_REUSED: 422,
@@ -49,7 +51,7 @@ describe('error codes', () => {
       CHAIN_UNAVAILABLE: 503,
       DB_UNAVAILABLE: 503,
     });
-    expect(API_ERROR_CODES).toHaveLength(20);
+    expect(API_ERROR_CODES).toHaveLength(22);
     expect(new ApiError('RATE_LIMITED', 'slow down').status).toBe(429);
   });
 

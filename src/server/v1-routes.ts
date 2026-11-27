@@ -2,8 +2,8 @@
 // Copyright 2026 Qomira Labs
 
 // The /v1 routes that need a database: sign in, principals and projects, API
-// keys, payouts and payout reads, recipients, mandates and the MCP over
-// payouts, all on one database and one chain adapter, behind one
+// keys, payouts and payout reads, recipients, mandates, the overview and the
+// MCP over payouts, all on one database and one chain adapter, behind one
 // authenticate. Kept apart from the web role so a test can build exactly what
 // the server mounts, on a test database and a fake chain.
 //
@@ -21,6 +21,7 @@ import { mandateRoutes } from '../api/routes/mandates.js';
 import { payoutReadRoutes } from '../api/routes/payout-reads.js';
 import { payoutRoutes } from '../api/routes/payouts.js';
 import { recipientRoutes } from '../api/routes/recipients.js';
+import { statsRoutes } from '../api/routes/stats.js';
 import { tenancyRoutes } from '../api/routes/tenancy.js';
 import { createApiKeyService } from '../auth/api-key-service.js';
 import { databaseApiKeyRecords, databaseTokenStore } from '../auth/api-key-store.js';
@@ -45,6 +46,8 @@ import {
   type FeeSponsorSettings,
 } from '../payouts/fee-sponsorship.js';
 import { MandateService } from '../payouts/mandates.js';
+import { createOverviewService } from '../payouts/overview.js';
+import { databaseOverviewStore } from '../payouts/overview-store.js';
 import { createPayoutReadService, databasePayoutReads } from '../payouts/payout-reads.js';
 import { createPayoutService } from '../payouts/payout-service.js';
 import { databasePayoutStore } from '../payouts/payout-store.js';
@@ -186,6 +189,16 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
         const caller = await authenticate({ scope: access.scope })(c);
         return { principalId: caller.principalId, projectId: caller.projectId };
       },
+    }),
+  );
+  routes.push(
+    ...statsRoutes({
+      overview: createOverviewService({
+        store: databaseOverviewStore(db),
+        chain: o.adapter,
+        log,
+      }),
+      authenticate,
     }),
   );
   return { routes, agentKeys };

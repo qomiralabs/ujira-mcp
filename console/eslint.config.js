@@ -7,7 +7,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['dist/', 'coverage/', 'node_modules/'] },
+  { ignores: ['dist/', 'coverage/', 'node_modules/', 'e2e/results/', 'e2e/screenshots/'] },
   js.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],

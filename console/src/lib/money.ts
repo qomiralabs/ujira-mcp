@@ -3,7 +3,10 @@
 
 // Amounts move between the screen and the API as strings of integer minor
 // units. USDC has 7 decimals, so "10000000" is 1 USDC. Conversion is done on
-// the digits themselves; a JavaScript number never holds an amount.
+// the digits themselves; a JavaScript number never holds an amount. Amounts
+// from /v1 arrive as bigint and go through the same formatter.
+
+import type { TokenAmount } from './v1Schemas';
 
 export const USDC_DECIMALS = 7;
 
@@ -64,7 +67,8 @@ export interface FormatOptions {
  * Minor units as a decimal string: "125000000" is "12.50". Shows at least
  * two decimals and up to all seven, so no part of an amount is ever hidden.
  */
-export function formatAmount(minor: string, options: FormatOptions = {}): string {
+export function formatAmount(amount: string | bigint, options: FormatOptions = {}): string {
+  const minor = typeof amount === 'bigint' ? amount.toString() : amount;
   const decimals = options.decimals ?? USDC_DECIMALS;
   const minFraction = Math.min(options.minFraction ?? 2, decimals);
   const negative = minor.startsWith('-');
@@ -80,8 +84,16 @@ export function formatAmount(minor: string, options: FormatOptions = {}): string
 }
 
 /** "12.50 USDC". */
-export function formatUsdc(minor: string): string {
+export function formatUsdc(minor: string | bigint): string {
   return `${formatAmount(minor)} USDC`;
+}
+
+/** A /v1 token amount in its own asset and scale: "25.00 USDC". */
+export function formatToken(
+  token: TokenAmount,
+  options: Omit<FormatOptions, 'decimals'> = {},
+): string {
+  return `${formatAmount(token.amount, { ...options, decimals: token.scale })} ${token.asset}`;
 }
 
 export function isMinor(value: string): boolean {

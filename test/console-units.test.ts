@@ -5,63 +5,30 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  Account,
-  Asset,
-  FeeBumpTransaction,
-  Keypair,
-  Operation,
-  TransactionBuilder,
-  scValToNative,
-  xdr,
-} from '@stellar/stellar-sdk';
+import { Keypair, scValToNative } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 
-import {
-  allowEntriesOf,
-  classify,
-  parseEnvelope,
-  type AllowContext,
-} from '../src/console/allowlist.js';
+import { createArgs, mandateConfig, tenantTagFor } from '../src/chain/stellar/txbuild.js';
 import { StellarConsoleChain, decimalToMinor } from '../src/console/chain.js';
 import { ApiError, toApiError } from '../src/console/errors.js';
 import { mapLimit, payoutStatus } from '../src/console/mandates.js';
 import { ConsoleRegistry, MAX_RECIPIENTS, defaultLabel } from '../src/console/registry.js';
 import { loadConsoleSettings } from '../src/console/settings.js';
+import { loadDemoSettings } from '../src/demo/settings.js';
 import { cleanPath, fileIn } from '../src/console/static.js';
-import {
-  checkCreateParams,
-  createArgs,
-  invokeTx,
-  mandateConfig,
-  parseBuildRequest,
-  tenantTagFor,
-  trustlineTx,
-} from '../src/console/txbuild.js';
+import { checkCreateParams, parseBuildRequest } from '../src/console/txbuild.js';
 import { isCanonicalHost, movedTo } from '../src/console/web.js';
 import { ContractRefusedError, EngineError } from '../src/errors.js';
 import { defaultRecipientRef } from '../src/ids.js';
-import { address, encodeAllowEntries, i128 } from '../src/mandate/codec.js';
 import type { Receipt } from '../src/receipts/log.js';
-import { TESTNET_PASSPHRASE } from '../src/stellar/gateway.js';
 import { owner } from './console-helpers.js';
 import { MANDATE, UNIT, agent, executor } from './fake-rpc.js';
 import { alice } from './helpers.js';
 
-const FACTORY = 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7';
 const USDC = 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA';
 const ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const OTHER = 'CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA';
 
-const ctx: AllowContext = {
-  factory: FACTORY,
-  usdc: { code: 'USDC', issuer: ISSUER, contract: USDC },
-  agent: agent.publicKey,
-  executor: executor.publicKey,
-  isRegistered: (id) => id === MANDATE,
-};
-
-const src = () => new Account(owner.publicKey(), '1');
 const params = {
   budget: 100n * UNIT,
   perPaymentCap: 10n * UNIT,
@@ -98,103 +65,8 @@ function refusedCode(work: () => unknown): string | undefined {
   return undefined;
 }
 
-describe('submit allow list', () => {
-  it('accepts a create that names this server as agent and executor', () => {
-    const tx = invokeTx(src(), FACTORY, 'create', createArgs(params, createCtx));
-    expect(classify(tx, ctx)).toEqual({ kind: 'create', principal: owner.publicKey() });
-  });
-
-  it('refuses a create for another agent, another executor or another asset', () => {
-    for (const over of [
-      { agent: Keypair.random().publicKey() },
-      { executor: Keypair.random().publicKey() },
-      { asset: OTHER },
-    ]) {
-      const tx = invokeTx(src(), FACTORY, 'create', createArgs(params, { ...createCtx, ...over }));
-      expect(refusedCode(() => classify(tx, ctx))).toBe('tx_not_allowed');
-    }
-    const upgrade = invokeTx(src(), FACTORY, 'fee_address', []);
-    expect(refusedCode(() => classify(upgrade, ctx))).toBe('tx_not_allowed');
-  });
-
-  it('accepts USDC only into a console mandate', () => {
-    const fund = (to: string) =>
-      invokeTx(src(), USDC, 'transfer', [address(owner.publicKey()), address(to), i128(5n)]);
-    expect(classify(fund(MANDATE), ctx)).toEqual({ kind: 'fund', mandate: MANDATE, amount: 5n });
-    expect(refusedCode(() => classify(fund(OTHER), ctx))).toBe('tx_not_allowed');
-    expect(refusedCode(() => classify(fund(alice), ctx))).toBe('tx_not_allowed');
-    const approve = invokeTx(src(), USDC, 'approve', [
-      address(owner.publicKey()),
-      address(MANDATE),
-      i128(5n),
-      xdr.ScVal.scvU32(1),
-    ]);
-    expect(refusedCode(() => classify(approve, ctx))).toBe('tx_not_allowed');
-  });
-
-  it('accepts owner calls on a console mandate and nothing else', () => {
-    for (const method of ['pause', 'resume', 'revoke', 'sweep', 'withdraw', 'approve', 'reject']) {
-      expect(classify(invokeTx(src(), MANDATE, method, []), ctx)).toMatchObject({
-        kind: 'mandate',
-        method,
-      });
-    }
-    for (const method of ['execute', 'request_payout', 'add_role', 'update_limits', 'cancel']) {
-      expect(refusedCode(() => classify(invokeTx(src(), MANDATE, method, []), ctx))).toBe(
-        'tx_not_allowed',
-      );
-    }
-    expect(refusedCode(() => classify(invokeTx(src(), OTHER, 'pause', []), ctx))).toBe(
-      'tx_not_allowed',
-    );
-  });
-
-  it('accepts a USDC trustline only', () => {
-    expect(classify(trustlineTx(src(), { code: 'USDC', issuer: ISSUER }), ctx)).toEqual({
-      kind: 'trustline',
-    });
-    const fake = trustlineTx(src(), { code: 'USDC', issuer: owner.publicKey() });
-    expect(refusedCode(() => classify(fake, ctx))).toBe('tx_not_allowed');
-  });
-
-  it('refuses other operations, two operations and fee bumps', () => {
-    const builder = () =>
-      new TransactionBuilder(src(), { fee: '100', networkPassphrase: TESTNET_PASSPHRASE });
-    const pay = builder()
-      .addOperation(Operation.payment({ destination: alice, asset: Asset.native(), amount: '1' }))
-      .setTimeout(60)
-      .build();
-    expect(refusedCode(() => classify(pay, ctx))).toBe('tx_not_allowed');
-    const two = builder()
-      .addOperation(Operation.changeTrust({ asset: new Asset('USDC', ISSUER) }))
-      .addOperation(Operation.changeTrust({ asset: new Asset('USDC', ISSUER) }))
-      .setTimeout(60)
-      .build();
-    expect(refusedCode(() => classify(two, ctx))).toBe('tx_not_allowed');
-
-    const inner = trustlineTx(src(), { code: 'USDC', issuer: ISSUER });
-    const key = Keypair.random();
-    inner.sign(key);
-    const bump: FeeBumpTransaction = TransactionBuilder.buildFeeBumpTransaction(
-      key,
-      '20000',
-      inner,
-      TESTNET_PASSPHRASE,
-    );
-    expect(refusedCode(() => parseEnvelope(bump.toXdr()))).toBe('tx_not_allowed');
-    expect(refusedCode(() => parseEnvelope('garbage'))).toBe('invalid_xdr');
-    expect(parseEnvelope(inner.toXdr()).source).toBe(owner.publicKey());
-  });
-
-  it('reads the entries of an allow_recipients call', () => {
-    const entries = [{ recipientRef: defaultRecipientRef(alice), destination: alice }];
-    expect(allowEntriesOf([encodeAllowEntries(entries)])).toEqual([
-      { ref: defaultRecipientRef(alice), destination: alice },
-    ]);
-    expect(allowEntriesOf([])).toEqual([]);
-    expect(allowEntriesOf([i128(1n)])).toEqual([]);
-  });
-});
+/** Demo settings read nothing from a mandate file here. */
+const NO_FACTS = { namedRecipients: {} };
 
 describe('transaction builders', () => {
   it('encodes the factory config the demo mandate used, with the owner approving', () => {
@@ -443,19 +315,16 @@ describe('console helpers', () => {
     expect(isCanonicalHost('localhost:9090', 'localhost:8080')).toBe(false);
   });
 
-  it('reads the site folder, the canonical host and the proof link from the environment', () => {
+  it('reads the site folder and the canonical host from the environment', () => {
     const plain = loadConsoleSettings({});
     expect(plain.canonicalHost).toBeUndefined();
     expect(plain.siteDir.endsWith('/site')).toBe(true);
-    expect(plain.sdpProofUrl).toBe('/instaward');
     const set = loadConsoleSettings({
       UJIRA_CANONICAL_HOST: ' UJIRA.co ',
       UJIRA_SITE_DIR: '/srv/site',
-      UJIRA_SDP_PROOF_URL: 'https://proof.example/page',
     });
     expect(set.canonicalHost).toBe('ujira.co');
     expect(set.siteDir).toBe('/srv/site');
-    expect(set.sdpProofUrl).toBe('https://proof.example/page');
     expect(loadConsoleSettings({ UJIRA_CANONICAL_HOST: 'localhost:8080' }).canonicalHost).toBe(
       'localhost:8080',
     );
@@ -464,8 +333,15 @@ describe('console helpers', () => {
         'UJIRA_CANONICAL_HOST',
       );
     }
+  });
+
+  it('reads the demo proof link from the environment', () => {
+    expect(loadDemoSettings({}, NO_FACTS).sdpProofUrl).toBe('/instaward');
+    expect(
+      loadDemoSettings({ UJIRA_SDP_PROOF_URL: 'https://proof.example/page' }, NO_FACTS).sdpProofUrl,
+    ).toBe('https://proof.example/page');
     for (const bad of ['//evil.example', '/a\\b', '/a b', 'ftp://x']) {
-      expect(() => loadConsoleSettings({ UJIRA_SDP_PROOF_URL: bad }), bad).toThrow(
+      expect(() => loadDemoSettings({ UJIRA_SDP_PROOF_URL: bad }, NO_FACTS), bad).toThrow(
         'UJIRA_SDP_PROOF_URL',
       );
     }
@@ -475,28 +351,32 @@ describe('console helpers', () => {
     const s = loadConsoleSettings({
       UJIRA_RECEIPTS_FILE: '/data/receipts.json',
       UJIRA_PUBLIC_ORIGIN: 'https://ujira.example/',
-      UJIRA_FAUCET_AMOUNT: '100',
-      UJIRA_TREASURY_SECRET: owner.secret(),
     });
     expect(s.dataDir).toBe('/data');
     expect(s.publicOrigin).toBe('https://ujira.example');
-    expect(s.faucetAmount).toBe(100n);
-    expect(s.faucetFloor).toBe(200n);
-    expect(s.treasury?.publicKey).toBe(owner.publicKey());
     expect(s.limits.mandatePayoutsPerHour).toBe(30);
-    expect(loadConsoleSettings({ UJIRA_DATA_DIR: '/x' }).treasury).toBeUndefined();
-    expect(() => loadConsoleSettings({ UJIRA_FAUCET_AMOUNT: '1.5' })).toThrow(
-      'UJIRA_FAUCET_AMOUNT',
-    );
     expect(() => loadConsoleSettings({ UJIRA_HORIZON_URL: 'ftp://x' })).toThrow(
       'UJIRA_HORIZON_URL',
     );
     expect(() => loadConsoleSettings({ UJIRA_FACTORY: 'nope' })).toThrow('UJIRA_FACTORY');
-    expect(() => loadConsoleSettings({ UJIRA_FAUCET_PER_HOUR: '0' })).toThrow(
-      'UJIRA_FAUCET_PER_HOUR',
-    );
     expect(() => loadConsoleSettings({ UJIRA_PUBLIC_ORIGIN: 'not a url' })).toThrow(
       'UJIRA_PUBLIC_ORIGIN',
+    );
+  });
+
+  it('reads the faucet and its treasury only into the demo settings', () => {
+    const env = { UJIRA_FAUCET_AMOUNT: '100', UJIRA_TREASURY_SECRET: owner.secret() };
+    expect(loadConsoleSettings(env)).not.toHaveProperty('treasury');
+    const s = loadDemoSettings(env, NO_FACTS);
+    expect(s.faucetAmount).toBe(100n);
+    expect(s.faucetFloor).toBe(200n);
+    expect(s.treasury?.publicKey).toBe(owner.publicKey());
+    expect(loadDemoSettings({}, NO_FACTS).treasury).toBeUndefined();
+    expect(() => loadDemoSettings({ UJIRA_FAUCET_AMOUNT: '1.5' }, NO_FACTS)).toThrow(
+      'UJIRA_FAUCET_AMOUNT',
+    );
+    expect(() => loadDemoSettings({ UJIRA_FAUCET_PER_HOUR: '0' }, NO_FACTS)).toThrow(
+      'UJIRA_FAUCET_PER_HOUR',
     );
   });
 });

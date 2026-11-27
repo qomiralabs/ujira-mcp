@@ -13,21 +13,17 @@
 
 import { z } from 'zod';
 
+import type { MandateContract, TxSigner } from '../chain/adapter.js';
+import { PAYOUT_STATUS, statusName, type PayoutEntry, type PayoutRequest } from '../chain/types.js';
 import { ContractRefusedError, EngineError } from '../errors.js';
 import { defaultRecipientRef, payoutIdFor, taskId, taskRefFor, type Hex32 } from '../ids.js';
-import type { MandateClient } from '../mandate/client.js';
-import {
-  PAYOUT_STATUS,
-  statusName,
-  type PayoutEntry,
-  type PayoutRequest,
-} from '../mandate/types.js';
 import { minorUnits } from '../money.js';
 import {
   PartialSettlementError,
-  RAIL_NAMES,
+  WALLET_RAIL,
+  railName,
   type PayoutRail,
-  type RailName,
+  type RailId,
   type RailPayment,
   type RailSettlement,
   type SettlementProgress,
@@ -39,14 +35,16 @@ import {
   type Receipt,
   type ReceiptLog,
 } from '../receipts/log.js';
-import type { TxSigner } from '../stellar/gateway.js';
 import { quote, type Quote, type QuoteFacts } from './quote.js';
 
 export const quoteInput = z.object({
   task_id: taskId.optional(),
   recipient: z.string().min(1).max(256),
   amount: minorUnits,
-  rail: z.enum(RAIL_NAMES).default('usdc'),
+  // Old connectors still send usdc or sdp; they are read as the rails they meant.
+  rail: railName
+    .default(WALLET_RAIL)
+    .describe(`The payout rail; ${WALLET_RAIL} pays USDC to the recipient's own Stellar account`),
 });
 
 export const payoutInput = quoteInput.extend({ task_id: taskId });
@@ -61,7 +59,7 @@ export const listInput = z.object({
 });
 
 export interface EngineOptions {
-  readonly mandate: MandateClient;
+  readonly mandate: MandateContract;
   readonly agent: TxSigner;
   readonly rails: readonly PayoutRail[];
   readonly receipts: ReceiptLog;
@@ -80,7 +78,7 @@ export interface QuoteResult {
   readonly reason?: string;
   readonly amount: string;
   readonly asset: string;
-  readonly rail: RailName;
+  readonly rail: RailId;
   readonly destination: string;
   readonly headroom: Readonly<Record<keyof Quote['headroom'], string>>;
 }
@@ -189,7 +187,7 @@ export class PayoutEngine {
     return this.o.agent.publicKey;
   }
 
-  private rail(name: RailName): PayoutRail {
+  private rail(name: RailId): PayoutRail {
     const rail = this.o.rails.find((r) => r.name === name);
     if (rail === undefined) {
       throw new EngineError('rail_unavailable', `the ${name} rail is not available on this server`);
@@ -206,7 +204,7 @@ export class PayoutEngine {
     task_id: string;
     recipient: string;
     amount: bigint;
-    rail: RailName;
+    rail: RailId;
   }): Target {
     const rail = this.rail(input.rail);
     const destination = rail.destinationFor(input.recipient);

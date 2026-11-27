@@ -1486,6 +1486,13 @@ input.mono {
   font-weight: 600;
 }
 
+/* The request id under an error, for a person to quote when asking for help. */
+.notice-ref {
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .notice-paid {
   background: var(--paid-tint);
 }
@@ -2401,5 +2408,325 @@ input.mono {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Sign in: the landing page hero, with the wallet card on the right */
+
+.auth {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 36px 56px;
+}
+
+.auth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 0;
+}
+
+.auth-main {
+  display: grid;
+  align-content: center;
+  padding-top: 12px;
+}
+
+.auth-main:focus {
+  outline: none;
+}
+
+.welcome h1 {
+  font-size: clamp(34px, 4.2vw, 54px);
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+}
+
+.welcome h1:focus {
+  outline: none;
+}
+
+.auth-card .connect {
+  align-content: start;
+}
+
+.signin-steps {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.signin-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.signin-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--row-bg);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.step-done .signin-mark {
+  background: var(--paid-tint);
+  color: var(--paid-fg);
+}
+
+.step-now {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.step-now .signin-mark {
+  background: var(--btn);
+  color: var(--btn-text);
+}
+
+.step-failed {
+  color: var(--text);
+}
+
+.step-failed .signin-mark {
+  background: var(--block-tint);
+  color: var(--block-fg);
+}
+
+.step-later {
+  opacity: 0.7;
+}
+
+.name-form {
+  display: grid;
+  gap: 14px;
+  justify-items: stretch;
+}
+
+.name-form > .btn {
+  justify-self: start;
+}
+
+.auth-out {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+/* The organisation and project switcher in the header */
+
+.session {
+  position: relative;
+}
+
+.session-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 280px;
+  height: 44px;
+  padding: 0 10px 0 5px;
+  border-radius: var(--r-btn);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.25s var(--ease),
+    border-color 0.25s var(--ease);
+}
+
+.session-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--line-2);
+}
+
+.session-btn > .icon {
+  color: var(--text-3);
+}
+
+.session-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--avatar-bg);
+  color: var(--avatar-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.session-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.session-org,
+.session-project,
+.session-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-org {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.session-project {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.session-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.session-pop[hidden] {
+  display: none;
+}
+
+.session-group ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.session-group-name {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-item:hover {
+  background: var(--surface-2);
+}
+
+.session-item[aria-current='true'] {
+  font-weight: 600;
+}
+
+.session-item[aria-current='true'] .icon {
+  color: var(--paid-fg);
+}
+
+.session-item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-item[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.session-add {
+  color: var(--text-2);
+}
+
+.session-new {
+  display: grid;
+  gap: 8px;
+  padding: 6px 10px 10px;
+}
+
+.session-new .actions {
+  justify-content: flex-end;
+}
+
+.session-sep {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--line);
+}
+
+.session-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.session-error {
+  padding: 0 10px 6px;
+}
+
+@media (max-width: 860px) {
+  .auth {
+    padding: 0 16px 32px;
+  }
+
+  .auth-top {
+    padding: 12px 0;
+  }
+
+  .session-btn {
+    max-width: 180px;
+    height: 40px;
+  }
+
+  /* On a phone the menu spans the header, so it never runs off the left edge. */
+  .session {
+    position: static;
+  }
+
+  .session-pop {
+    top: 58px;
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+
+  .session-tile {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
   }
 }

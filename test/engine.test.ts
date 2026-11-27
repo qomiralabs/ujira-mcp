@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import { ContractRefusedError, EngineError } from '../src/errors.js';
 import { defaultRecipientRef, payoutIdFor } from '../src/ids.js';
-import { address, bytes32 } from '../src/mandate/codec.js';
-import type { PayoutRail } from '../src/rails/rail.js';
+import { address, bytes32 } from '../src/chain/stellar/codec.js';
+import { WALLET_RAIL, type PayoutRail } from '../src/rails/rail.js';
 import { MANDATE, UNIT, approver, feeAddress, principal } from './fake-rpc.js';
 import { alice, bob, mallory, setup } from './helpers.js';
 
@@ -66,7 +66,7 @@ describe('requestPayout', () => {
       outcome: 'paid',
       amount: 5n * UNIT,
       asset: 'USDC',
-      rail: 'usdc',
+      rail: WALLET_RAIL,
       recipient: alice,
       payout_id: payoutIdFor(MANDATE, 'task-1'),
       principal: principal.publicKey,
@@ -218,7 +218,7 @@ describe('requestPayout', () => {
 
   it('records a settlement the mandate refused as blocked, leaving the payout approved', async () => {
     const refusing: PayoutRail = {
-      name: 'usdc',
+      name: WALLET_RAIL,
       destinationFor: (r) => r,
       settle: () => Promise.reject(new ContractRefusedError('execute', 42)),
     };
@@ -235,7 +235,7 @@ describe('requestPayout', () => {
 
   it('passes a rail failure that is not the contract to the caller', async () => {
     const failing: PayoutRail = {
-      name: 'usdc',
+      name: WALLET_RAIL,
       destinationFor: (r) => r,
       settle: () => Promise.reject(new Error('rail down')),
     };
@@ -248,7 +248,7 @@ describe('requestPayout', () => {
   it('hands a rail the payment and keeps its disbursement ID', async () => {
     const seen: unknown[] = [];
     const sdp: PayoutRail = {
-      name: 'sdp',
+      name: 'demo.sdp',
       destinationFor: () => alice,
       settle: (p) => {
         seen.push(p);
@@ -262,7 +262,7 @@ describe('requestPayout', () => {
       amount: usdc(2n),
       rail: 'sdp',
     });
-    expect(r).toMatchObject({ outcome: 'paid', rail: 'sdp', sdp_disbursement_id: 'disb-1' });
+    expect(r).toMatchObject({ outcome: 'paid', rail: 'demo.sdp', sdp_disbursement_id: 'disb-1' });
     expect(seen).toMatchObject([
       { destination: alice, recipient: '+254700000000', amount: 2n * UNIT },
     ]);

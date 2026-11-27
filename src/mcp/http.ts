@@ -4,7 +4,8 @@
 // The MCP server over Streamable HTTP, for a public URL anyone can add as a
 // connector. Stateless: every POST gets a fresh server and transport, so no
 // session lives in memory and a restart loses nothing but the rate limit
-// counts. There is no auth, so the guards in public.ts carry the safety.
+// counts. There is no auth, so each binding's guard carries the safety: the
+// demo's for /mcp, the console's for /m/<id>/mcp.
 //
 // Every answer this file writes itself is a fixed message. Nothing a caller
 // sends, and nothing from an internal error, is echoed back or logged.
@@ -19,14 +20,7 @@ import { REQUEST_ID_HEADER } from '../api/context.js';
 import { envelope } from '../api/errors.js';
 import type { V1Handler } from '../api/node.js';
 import type { PayoutEngine } from '../engine/engine.js';
-import {
-  clientAddress,
-  publicGuard,
-  publicLimiters,
-  publicNotes,
-  rateKey,
-  type HttpSettings,
-} from './public.js';
+import { clientAddress, rateKey, type HttpSettings } from './public.js';
 import { createMcpServer, type ServerOptions } from './server.js';
 
 /** One engine with the guard and notes it is served with. */
@@ -48,11 +42,9 @@ export interface ExtraRoutes {
 }
 
 export interface HttpServerOptions {
-  readonly engine: PayoutEngine;
   readonly settings: HttpSettings;
-  readonly assetCode: string;
-  /** Allowlisted destinations to tell visitors about. */
-  readonly recipients?: readonly string[];
+  /** The binding for /mcp, given the caller's rate limit key. Unset, /mcp is a plain 404. */
+  readonly publicMcp?: (client: string) => McpBinding;
   /** One line per request: method, path, status and time. Never addresses or bodies. */
   readonly log?: (line: string) => void;
   readonly now?: () => number;
@@ -131,12 +123,10 @@ function routeLabel(path: string): string {
 }
 
 export function createHttpServer(options: HttpServerOptions): Server {
-  const { engine, settings, assetCode, extra, v1 } = options;
+  const { settings, extra, v1, publicMcp } = options;
   const log = options.log ?? (() => undefined);
   const now = options.now ?? Date.now;
-  const limiters = publicLimiters(settings.limits, now);
   const allowed = new Set(settings.allowedOrigins);
-  const { notes, instructions } = publicNotes(settings.limits, assetCode, options.recipients ?? []);
 
   async function mcp(
     req: IncomingMessage,
@@ -199,15 +189,6 @@ export function createHttpServer(options: HttpServerOptions): Server {
     await transport.handleRequest(req, res, body);
   }
 
-  const demo = (client: string): McpBinding => ({
-    engine,
-    options: {
-      guard: publicGuard({ limits: settings.limits, limiters, client, assetCode }),
-      notes,
-      instructions,
-    },
-  });
-
   const clientOf = (req: IncomingMessage) =>
     rateKey(clientAddress(req.headers, req.socket.remoteAddress, settings.clientIp));
 
@@ -226,8 +207,8 @@ export function createHttpServer(options: HttpServerOptions): Server {
       else send(res, 405, { error: 'method not allowed' }, { allow: 'GET' });
       return;
     }
-    if (path === '/mcp') {
-      await mcp(req, res, path, demo);
+    if (path === '/mcp' && publicMcp !== undefined) {
+      await mcp(req, res, path, publicMcp);
       return;
     }
     if (extra !== undefined) {

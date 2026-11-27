@@ -55,7 +55,7 @@ curl -s https://ujira.co/mcp   -H 'content-type: application/json' -H 'accept: a
 1. **Quote.** `quote_payout` reads the mandate's config and state and predicts `allowed`, `approval_required` or `blocked`, with the contract's own reason (`payment_cap_exceeded`, `recipient_not_allowed`, `daily_cap_exceeded`, `budget_exceeded`, `mandate_paused` and so on). Nothing is spent.
 2. **Request.** `request_payout` builds a `request_payout` call signed by the agent key. The payout ID is derived from the mandate and the task ID, and `task_ref` from the task ID, so the mandate never accepts the same task twice. A blocked request is confirmed by simulating it against the contract and is never sent.
 3. **Approve (people only).** At or above the approval threshold the payout waits. An approver signs `approve` with their own key. This is deliberately not an MCP tool.
-4. **Pay.** An approved payout is executed by the executor key through a rail. The `usdc` rail calls the mandate's `execute`, which transfers USDC to the recipient's Stellar account. Calling `request_payout` again with the same task after approval pays it, once.
+4. **Pay.** An approved payout is executed by the executor key through a rail. The `stellar.wallet` rail calls the mandate's `execute`, which transfers USDC to the recipient's Stellar account. Calling `request_payout` again with the same task after approval pays it, once.
 5. **Receipt.** Every task gets one receipt in a local JSON log: task ID, recipient, amount in integer minor units, asset, rail, outcome (`paid`, `blocked`, `approval_required`, `approved_then_paid`), payout ID and transaction hashes. `list_receipts` with `verify` cross-checks each receipt against the mandate's payout record and the ledger.
 
 Amounts are always whole minor units as strings. USDC has 7 decimals, so `"10000000"` is 1 USDC.
@@ -108,6 +108,7 @@ The principal creates the mandate through the UJIRA factory on testnet, names yo
 | `UJIRA_RECEIPTS_FILE` | Optional. The receipt log, default `~/.ujira-mcp/receipts.json`. |
 | `UJIRA_RPC_URL` | Optional. Another testnet RPC server. |
 | `UJIRA_NETWORK` | Optional. Only `testnet` is accepted. |
+| `UJIRA_DEMO_FEATURES` | `on` or `off`, default `off`. `on` runs the testnet demo: the public demo MCP at `/mcp`, the faucet and test recipients, the recycler and the SDP rail. The server refuses to start with it on unless `UJIRA_NETWORK=testnet` is set. https://ujira.co runs with it on. |
 
 Keys are read only from these settings, never from tool input, and no message the server writes contains one.
 
@@ -213,32 +214,51 @@ The mandate and key settings are the ones under Configure. These are for the HTT
 | `UJIRA_TRUST_PROXY` | `1` | Read the caller's address from a proxy header. Set `0` when the server faces the internet directly, or callers can pick their own address. |
 | `UJIRA_CLIENT_IP_HEADER` | none | The one header holding the caller's address, such as `Fly-Client-IP`. Unset, `X-Real-IP` is read and then the last `X-Forwarded-For` entry. |
 
-Without `UJIRA_SDP_URL` and its companions the SDP rail is off, and a call that asks for it answers `rail_unavailable`. Log lines carry the method, path, status and time of each request, never a key, a body or a caller's address, and errors never carry a stack trace.
+`/mcp` is the public demo and answers only with `UJIRA_DEMO_FEATURES=on`; otherwise it is a 404. The SDP rail runs only with the demo on and `UJIRA_SDP_URL` and its companions set; otherwise a call that asks for it answers `rail_unavailable`. Log lines carry the method, path, status and time of each request, never a key, a body or a caller's address, and errors never carry a stack trace.
 
 ### Console
 
 The same server hosts the UJIRA dashboard (the console): a web app where anyone with a testnet wallet creates and runs their own mandate. It serves the built UI (`console/dist`) at `/app`, a JSON API under `/api`, and an MCP URL per console mandate at `/m/<mandate>/mcp`. The server never sees a wallet's key: it builds unsigned transactions, the wallet signs, and the server relays only the transactions it would have built (the factory's `create` with this server's agent and executor, owner calls on a mandate it created, a USDC transfer into one, or a USDC trustline). Console mandates use the same engine, rails and receipt log as `/mcp`.
 
+The faucet, test recipients, the recycler and the SDP rail are the demo's, so the settings marked demo apply only with `UJIRA_DEMO_FEATURES=on`. Without it, `/api/onboard/*` and `/api/recipients/test` are a 404 and `/api/config` reports the faucet and SDP off.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `UJIRA_DATA_DIR` | the directory of `UJIRA_RECEIPTS_FILE`, else `./data` | Where the console registry (mandates it created, recipient names, last faucet top up per wallet) and the test recipients' keys (`test-wallets.json`, mode 600) are kept. Put it on a volume. |
-| `UJIRA_TREASURY_SECRET` or `UJIRA_TREASURY_KEY_FILE` | none | The key that pays test USDC from the faucet. Without it the faucet and the recycler are off, and test recipients' keys are not kept. |
-| `UJIRA_FAUCET_AMOUNT` | `500000000` (50 USDC) | The faucet's target, in minor units: a top up sends the target minus what the wallet holds, and nothing when it holds the target or more. |
-| `UJIRA_FAUCET_COOLDOWN_SECONDS` | `600` | The least time between two top ups of one wallet. Earlier asks answer `faucet_cooldown` with `retryAfterSeconds`. |
-| `UJIRA_FAUCET_FLOOR` | twice the amount | The faucet refuses once the treasury would drop below this. |
-| `UJIRA_FAUCET_PER_HOUR` | `3` | Faucet top ups an hour from one caller address. |
-| `UJIRA_RECYCLE_INTERVAL_SECONDS` | `300` | How often each test recipient sends its whole USDC balance back to the treasury, paying its own fee. Only wallets this server made are swept; past 5000 the oldest are dropped from recycling. |
-| `UJIRA_TEST_RECIPIENTS_PER_HOUR` | `10` | Test recipient wallets an hour from one caller address. |
-| `UJIRA_FRIENDBOT_PER_HOUR` | `10` | Test XLM requests an hour from one caller address. |
+| `UJIRA_TREASURY_SECRET` or `UJIRA_TREASURY_KEY_FILE` | none | Demo. The key that pays test USDC from the faucet. Without it the faucet and the recycler are off, and test recipients' keys are not kept. |
+| `UJIRA_FAUCET_AMOUNT` | `500000000` (50 USDC) | Demo. The faucet's target, in minor units: a top up sends the target minus what the wallet holds, and nothing when it holds the target or more. |
+| `UJIRA_FAUCET_COOLDOWN_SECONDS` | `600` | Demo. The least time between two top ups of one wallet. Earlier asks answer `faucet_cooldown` with `retryAfterSeconds`. |
+| `UJIRA_FAUCET_FLOOR` | twice the amount | Demo. The faucet refuses once the treasury would drop below this. |
+| `UJIRA_FAUCET_PER_HOUR` | `3` | Demo. Faucet top ups an hour from one caller address. |
+| `UJIRA_RECYCLE_INTERVAL_SECONDS` | `300` | Demo. How often each test recipient sends its whole USDC balance back to the treasury, paying its own fee. Only wallets this server made are swept; past 5000 the oldest are dropped from recycling. |
+| `UJIRA_TEST_RECIPIENTS_PER_HOUR` | `10` | Demo. Test recipient wallets an hour from one caller address. |
+| `UJIRA_FRIENDBOT_PER_HOUR` | `10` | Demo. Test XLM requests an hour from one caller address. |
 | `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
 | `UJIRA_MANDATE_PAYOUTS_PER_HOUR` | `30` | Payout requests an hour on one console mandate, from the console and its MCP URL together. |
 | `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira.co`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
 | `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built dashboard, served under `/app`. |
 | `UJIRA_SITE_DIR` | `site` in the repository | The marketing site and the testnet proof page, served at the root. |
 | `UJIRA_CANONICAL_HOST` | none | A host name such as `ujira.co`. When set, a page asked for on any other host (the platform URL, `www`) gets a 301 to `https://<host>` with the same path and query. `/api`, `/v1`, `/mcp`, `/m/<mandate>/mcp` and `/healthz` keep answering on every host, so connectors already pointed at an old URL keep working. Set it only once that host serves HTTPS. |
-| `UJIRA_SDP_PROOF_URL` | `/instaward` | Where the dashboard links for proof of the SDP rail: a path on this server or an http or https URL. |
+| `UJIRA_SDP_PROOF_URL` | `/instaward` | Demo. Where the dashboard links for proof of the SDP rail: a path on this server or an http or https URL. |
 | `UJIRA_HORIZON_URL`, `UJIRA_FRIENDBOT_URL`, `UJIRA_PUBLIC_RPC_URL` | the public testnet ones | Network endpoints; the public RPC URL is the one browsers are told about. |
 | `UJIRA_FACTORY`, `UJIRA_USDC_ISSUER`, `UJIRA_USDC_CONTRACT` | the testnet deployment | The mandate factory and the USDC the console uses. |
+
+#### Keeping mandate entries alive
+
+Soroban storage lives a set number of ledgers and is then archived, and the next transaction that touches an archived entry pays to restore it first. A mandate's money sits in the USDC contract's balance entry for the mandate, with its own lifetime, and the mandate never extends its allowlist or day usage entries itself. So the server runs a keep alive pass a minute after start and then every interval: for the demo mandate, every console mandate that is not revoked or expired, and the factory, it reads the live time to live of the instance, the code, the balance entry, and the allowlist and day usage entries of the recipients it knows, extends only those under the threshold, and restores any that are archived. Payout records are left to archive once their payout is over. Each run logs `event=mandate_entry_archived`, `event=mandate_entry_restored`, `event=mandate_entry_extended` with the transaction hash, and a closing `event=mandate_keepalive_run` line. While an entry stays archived, `GET /api/mandates/<mandate>` carries a `ledger_entries_archived` warning. A run reads before it sends, so a repeated run sends nothing.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `UJIRA_FEE_SPONSOR_SECRET` or `UJIRA_FEE_SPONSOR_KEY_FILE` | none | The account that pays for extensions and restores, as the transaction's source. Without it the pass only reads, logs and warns. |
+| `UJIRA_KEEPALIVE` | `on` | `off` stops the pass. |
+| `UJIRA_KEEPALIVE_THRESHOLD_LEDGERS` | `345600` (20 days) | An entry with fewer ledgers left is extended. |
+| `UJIRA_KEEPALIVE_EXTEND_TO_LEDGERS` | `1036800` (60 days) | How far ahead an extended entry then lives. Above the threshold and below the network's 3110400. |
+| `UJIRA_KEEPALIVE_INTERVAL_SECONDS` | `86400` | Time between passes. |
+| `UJIRA_KEEPALIVE_MANDATES_PER_RUN` | `200` | Mandates read in one pass; the rest get their turn on the next, round robin. |
+| `UJIRA_KEEPALIVE_TRANSACTIONS_PER_RUN` | `50` | Transactions one pass may send; what is left waits for the next. |
+| `UJIRA_KEEPALIVE_KEYS_PER_TRANSACTION` | `25` | Entries in one transaction. |
+
+`UJIRA_TESTNET=1 npx vitest run test/keep-alive.testnet.test.ts` prints the live numbers for the demo mandate and the factory; add `UJIRA_TESTNET_KEEPALIVE_SEND=1` and a fee sponsor key to run one paid pass.
 
 Every page of the product is served from this one server:
 
@@ -280,7 +300,11 @@ Every input schema is strict: an unknown field is refused by name and its value 
 
 ## Rails
 
-A rail decides which on-chain destination the mandate pays for a recipient and how an approved payout is settled (`src/rails/rail.ts`). `usdc` pays the recipient's Stellar account directly. Other rails, such as the Stellar Disbursement Platform, plug in through `createEngine(settings, { extraRails })`.
+A rail decides which on-chain destination the mandate pays for a recipient and how an approved payout is settled (`src/rails/rail.ts`). Rails have dotted ids. `stellar.wallet` pays the recipient's Stellar account directly and is the only rail product mandates use. `demo.sdp`, the Stellar Disbursement Platform, pays the person from a distribution account UJIRA controls, so it is a testnet demo feature only, in `src/demo`, and goes before mainnet. Other rails plug in through `createEngine(settings, { extraRails })`.
+
+The rails' old names, `usdc` and `sdp`, are still accepted as `rail` in every tool and in the console API, so connectors set up before the rename keep working. Answers name the rail by its id, except the console API, which keeps the old names for the dashboard. The receipt file keeps the old names too, so a build from before the rename can still read it.
+
+Nothing outside `src/demo` imports from it; a lint rule refuses it, and only the entry points (`src/mcp/main.ts`, `src/mcp/http-main.ts`, `src/server/`) compose the demo, and only when `UJIRA_DEMO_FEATURES` is on.
 
 ## Development
 
@@ -342,7 +366,7 @@ Every pull request starts from `.github/pull_request_template.md`: the linked is
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `checks` job runs the pull request template check and its self test. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Its `server` job installs from the lockfile with no install scripts, then runs `tsc`, eslint with zero warnings, the prettier check, vitest with coverage and `npm audit --omit=dev`. Its `console` job does the same in `console/` (vitest without coverage), then the production `vite build`, the license allowlist and the production audit. Its `image` job builds the `Dockerfile` and runs `scripts/check-image.sh` against it, which starts the image with each value of `UJIRA_ROLES` and checks `/healthz`, the missing listener of the worker role, the refusal of an unknown role and a clean stop within 20 seconds, web first; it makes a throwaway unfunded key for the run and never prints it. Its `local-db` job starts the Postgres in `docker-compose.yml` and logs in from the host. Both run on Node 22, the line the image runs, at the exact version in `NODE_VERSION`. Once the install succeeds, every later step reports even when an earlier one fails. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `development`, `staging` and `main`, with read-only permissions. Its `checks` job runs the pull request template check and its self test. Its `secrets` job lints the workflows with actionlint and runs the secret scan below. Its `dashes` job runs the dash check described under Dashes. Its `server` job installs from the lockfile with no install scripts, then runs `tsc`, eslint with zero warnings, the prettier check, vitest with coverage and `npm audit --omit=dev`. Its `console` job does the same in `console/` (vitest without coverage), then the production `vite build`, the license allowlist and the production audit. Its `console-e2e` job builds the console and runs its Playwright flows in mock mode at 375, 768 and 1440 wide in light and dark, with the Chromium build the locked Playwright release names, and keeps the screenshots as the `console-screenshots` artifact for 14 days. Its `image` job builds the `Dockerfile` and runs `scripts/check-image.sh` against it, which starts the image with each value of `UJIRA_ROLES` and checks `/healthz`, the missing listener of the worker role, the refusal of an unknown role and a clean stop within 20 seconds, web first; it makes a throwaway unfunded key for the run and never prints it. Its `local-db` job starts the Postgres in `docker-compose.yml` and logs in from the host. The server and console jobs run on Node 22, the line the image runs, at the exact version in `NODE_VERSION`. Once the install succeeds, every later step reports even when an earlier one fails. Every action is pinned to a full commit SHA, and actionlint and gitleaks are release binaries checked against a SHA-256 in the workflow; bump a version and its hash together.
 
 ## Secret scanning
 

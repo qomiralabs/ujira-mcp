@@ -2,9 +2,14 @@
 // Copyright 2026 Qomira Labs
 
 // The web role: the site, the console at /app, its API under /api, the
-// public MCP at /mcp and /m/<mandate>/mcp, and /healthz, all from one HTTP
-// server. Configuration comes only from the environment; see the README.
+// public API under /v1, the MCP at /m/<mandate>/mcp, and /healthz, all from
+// one HTTP server, with the mandate keep alive. With UJIRA_DEMO_FEATURES on it
+// also serves the testnet demo: the public MCP at /mcp, the faucet and the
+// recycler. Configuration comes only from the environment; see the README.
 // Log lines never carry a key, a caller's address or a request body.
+//
+// This is a composition root, one of the few files allowed to import
+// src/demo, and it builds the demo only when UJIRA_DEMO_FEATURES is on.
 
 import { accessSync, constants, mkdirSync } from 'node:fs';
 import type { Server } from 'node:http';
@@ -12,8 +17,9 @@ import { dirname } from 'node:path';
 
 import { createV1App } from '../api/app.js';
 import { nodeHandler } from '../api/node.js';
-import { createEngine, loadSettings } from '../config.js';
+import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
+import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
@@ -103,32 +109,43 @@ export async function startWeb(
   log: (line: string) => void,
   graceMs: number = WEB_GRACE_MS,
 ): Promise<RoleHandle> {
+  // First, so a demo asked for on another network stops the server before anything else.
+  const withDemo = demoFeatures(env);
   const settings = loadSettings(env);
   const http = loadHttpSettings(env);
   checkReceiptsWritable(settings.receiptsPath);
-  const wiring = createEngine(settings);
-  const {
-    routes,
-    settings: consoleSettings,
-    recycler,
-  } = consoleFromEnv(settings, wiring, http, log, env);
+  const demo = withDemo ? createDemo({ base: settings, env, log }) : undefined;
+  const wiring = createEngine(
+    settings,
+    demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) },
+  );
+  const { routes, keepAlive } = consoleFromEnv({
+    base: settings,
+    wiring,
+    http,
+    log,
+    env,
+    ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
+  });
   const server = createHttpServer({
-    engine: wiring.engine,
     settings: http,
-    assetCode: settings.assetCode,
-    recipients: [...settings.recipientRefs.keys()],
     log,
     extra: routes,
     v1: nodeHandler(createV1App({ log }).app),
+    ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
   });
-  log(
-    `console: faucet ${consoleSettings.treasury === undefined ? 'off' : 'on'}, sdp ${settings.sdp === undefined ? 'off' : 'on'}, recycler ${recycler === undefined ? 'off' : `every ${String(consoleSettings.recycleIntervalSeconds)}s`}`,
-  );
-  recycler?.start(consoleSettings.recycleIntervalSeconds * 1000);
+  const stopTimers = () => {
+    demo?.stop();
+    keepAlive?.stop();
+  };
+  log(demo === undefined ? 'demo off' : demo.summary());
+  demo?.start();
+  log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
+  keepAlive?.start();
   try {
     await listen(server, http.port, http.host);
   } catch (error) {
-    recycler?.stop();
+    stopTimers();
     throw error;
   }
   log(
@@ -138,7 +155,7 @@ export async function startWeb(
     role: 'web',
     async stop() {
       const closed = closeServer(server, graceMs);
-      recycler?.stop();
+      stopTimers();
       await closed;
     },
   };

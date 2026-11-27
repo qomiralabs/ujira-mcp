@@ -7,9 +7,11 @@ import { createServer as createTcpServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { Recycler } from '../src/demo/recycler.js';
 import { closeServer, ListenError, startWeb } from '../src/server/web.js';
+import { MandateKeepAlive } from '../src/worker/keep-alive.js';
 import { keypair } from './console-helpers.js';
 import { MANDATE } from './fake-rpc.js';
 import { freePort, tryConnect } from './server-helpers.js';
@@ -18,6 +20,7 @@ const cleanup: (() => unknown)[] = [];
 
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
+  vi.restoreAllMocks();
 });
 
 function get(port: number, path: string, agent?: Agent): Promise<{ status: number; body: string }> {
@@ -116,7 +119,9 @@ describe('startWeb', () => {
     };
   }
 
-  it('serves /healthz, /mcp and /v1/ping, and stops listening on stop', async () => {
+  it('serves /healthz and /v1/ping, runs the keep alive, and stops both on stop', async () => {
+    const keepStart = vi.spyOn(MandateKeepAlive.prototype, 'start');
+    const keepStop = vi.spyOn(MandateKeepAlive.prototype, 'stop');
     const vars = await env();
     const port = Number(vars['PORT']);
     const lines: string[] = [];
@@ -125,24 +130,61 @@ describe('startWeb', () => {
 
     expect(web.role).toBe('web');
     expect(await get(port, '/healthz')).toEqual({ status: 200, body: '{"status":"ok"}' });
-    const mcp = await get(port, '/mcp');
-    expect(mcp.status).toBe(405);
     const ping = await get(port, '/v1/ping');
     expect(ping.status).toBe(200);
     expect(JSON.parse(ping.body)).toEqual({ status: 'ok' });
+    // The public demo MCP is the demo's, so with the demo off /mcp is unknown.
+    expect((await get(port, '/mcp')).status).toBe(404);
     expect(lines).toEqual(
       expect.arrayContaining([
-        'console: faucet off, sdp off, recycler off',
+        'demo off',
+        'keep alive: on',
         expect.stringMatching(/^ready on testnet at 127\.0\.0\.1:\d+, mandate C/),
       ]),
     );
     expect(lines.join('\n')).not.toContain(vars['UJIRA_AGENT_SECRET']);
+    expect(keepStart).toHaveBeenCalledTimes(1);
+    expect(keepStop).not.toHaveBeenCalled();
 
     await web.stop();
     expect(await tryConnect(port)).toBe('ECONNREFUSED');
+    expect(keepStop).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects with the system code when the port is taken', async () => {
+  it('with the demo on, serves the public /mcp and runs the recycler until stop', async () => {
+    const recycleStart = vi.spyOn(Recycler.prototype, 'start');
+    const recycleStop = vi.spyOn(Recycler.prototype, 'stop');
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_NETWORK: 'testnet',
+      UJIRA_DEMO_FEATURES: 'on',
+      UJIRA_TREASURY_SECRET: keypair('web-role-treasury').secret(),
+      UJIRA_KEEPALIVE: 'off',
+    };
+    const port = Number(vars['PORT']);
+    const lines: string[] = [];
+    const web = await startWeb(vars, (line) => lines.push(line), 1_000);
+    cleanup.push(() => web.stop());
+
+    expect((await get(port, '/mcp')).status).toBe(405);
+    expect((await get(port, '/v1/ping')).status).toBe(200);
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'demo on: faucet on, sdp off, recycler every 300s',
+        'keep alive: off',
+      ]),
+    );
+    expect(lines.join('\n')).not.toContain(vars['UJIRA_TREASURY_SECRET']);
+    expect(recycleStart).toHaveBeenCalledExactlyOnceWith(300_000);
+    expect(recycleStop).not.toHaveBeenCalled();
+
+    await web.stop();
+    expect(await tryConnect(port)).toBe('ECONNREFUSED');
+    expect(recycleStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with the system code when the port is taken, and stops its timers', async () => {
+    const keepStop = vi.spyOn(MandateKeepAlive.prototype, 'stop');
     const vars = await env();
     const taken = createTcpServer();
     await new Promise<void>((resolve) => taken.listen(Number(vars['PORT']), '127.0.0.1', resolve));
@@ -154,6 +196,7 @@ describe('startWeb', () => {
       code: 'EADDRINUSE',
       message: 'cannot listen (EADDRINUSE)',
     });
+    expect(keepStop).toHaveBeenCalledTimes(1);
   });
 
   it('refuses to start without the mandate, before it listens', async () => {

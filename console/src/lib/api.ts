@@ -39,14 +39,28 @@ export class ApiError extends Error {
   readonly status: number;
   /** Set when the refusal clears with time, such as the faucet cooldown. */
   readonly retryAfterSeconds: number | undefined;
+  /** The server's id for the request, for a person to quote when they ask for help. */
+  readonly requestId: string | undefined;
 
-  constructor(code: string, message: string, status: number, retryAfterSeconds?: number) {
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    retryAfterSeconds?: number,
+    requestId?: string,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.requestId = requestId;
   }
+}
+
+/** The request id behind a failure, when the server gave one. */
+export function errorRequestId(error: unknown): string | null {
+  return error instanceof ApiError ? (error.requestId ?? null) : null;
 }
 
 export type Rail = 'usdc' | 'sdp';

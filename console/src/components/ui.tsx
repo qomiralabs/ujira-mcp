@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { explorerTx, useApp } from '../app/context';
 import { formatAmount } from '../lib/money';
+import type { TokenAmount } from '../lib/v1Schemas';
 import { shortAddress } from '../lib/strkey';
 import type { Tone } from '../lib/words';
 
@@ -49,6 +50,7 @@ const LINE_ICONS = {
   more: 'M4 6h12M4 10h12M4 14h12',
   close: 'M5 5l10 10M15 5 5 15',
   power: 'M10 3v6.5M6 5.6a6 6 0 1 0 8 0',
+  chevron: 'M6 8l4 4 4-4',
 } as const;
 
 export type IconName = keyof typeof LINE_ICONS;
@@ -129,11 +131,21 @@ export function StatusPill({ tone, children }: { tone: Tone; children: ReactNode
   );
 }
 
-export function Amount({ minor, size = 'md' }: { minor: string; size?: 'md' | 'lg' | 'xl' }) {
+type AmountSize = 'md' | 'lg' | 'xl';
+
+/** An amount from minor units: a USDC string from /api, or a token amount from /v1. */
+export function Amount(
+  props: { minor: string; size?: AmountSize } | { token: TokenAmount; size?: AmountSize },
+) {
+  const size = props.size ?? 'md';
+  const [digits, code] =
+    'token' in props
+      ? [formatAmount(props.token.amount, { decimals: props.token.scale }), props.token.asset]
+      : [formatAmount(props.minor), 'USDC'];
   return (
     <span className={`amount amount-${size}`}>
-      {formatAmount(minor)}
-      <span className="amount-code"> USDC</span>
+      {digits}
+      <span className="amount-code"> {code}</span>
     </span>
   );
 }
@@ -175,10 +187,24 @@ export function Notice({
   );
 }
 
-export function ErrorNotice({ error, onRetry }: { error: string; onRetry?: () => void }) {
+export function ErrorNotice({
+  error,
+  onRetry,
+  requestId,
+}: {
+  error: string;
+  onRetry?: () => void;
+  /** The server's id for the failed request, to quote when asking for help. */
+  requestId?: string | null;
+}) {
   return (
     <Notice tone="blocked" title="That did not work">
       <p>{error}</p>
+      {requestId === undefined || requestId === null ? null : (
+        <p className="notice-ref">
+          Reference <span className="mono">{requestId}</span>
+        </p>
+      )}
       {onRetry === undefined ? null : (
         <button type="button" className="btn btn-small" onClick={onRetry}>
           Try again

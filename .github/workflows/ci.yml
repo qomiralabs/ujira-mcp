@@ -321,3 +321,50 @@ jobs:
       - name: Audit production dependencies
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm audit --omit=dev
+
+  # The console's browser flows in mock mode, at 375, 768 and 1440 wide in
+  # light and dark. They need no server, wallet or network beyond the fonts.
+  # The screenshots are kept as an artifact for the pull request, pass or fail.
+  console-e2e:
+    name: console-e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+        working-directory: console
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # The browser build is the one the locked Playwright release names.
+      - name: Install the browser
+        run: timeout 600 node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Build
+        run: node_modules/.bin/vite build
+
+      - name: Run the flows
+        env:
+          CI: 'true'
+        run: node_modules/.bin/playwright test
+
+      - name: Keep the screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-screenshots
+          path: console/e2e/screenshots/
+          if-no-files-found: warn
+          retention-days: 14

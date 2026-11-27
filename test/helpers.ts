@@ -7,9 +7,9 @@ import { join } from 'node:path';
 
 import { PayoutEngine } from '../src/engine/engine.js';
 import { defaultRecipientRef } from '../src/ids.js';
-import { MandateClient } from '../src/mandate/client.js';
+import { MandateClient } from '../src/chain/stellar/mandate-client.js';
 import type { PayoutRail } from '../src/rails/rail.js';
-import { UsdcRail } from '../src/rails/usdc.js';
+import { WalletRail } from '../src/rails/wallet.js';
 import { ReceiptLog } from '../src/receipts/log.js';
 import { FakeMandateRpc, MANDATE, agent, executor, testSigner } from './fake-rpc.js';
 
@@ -25,7 +25,7 @@ export function setup(options: { rails?: (m: MandateClient) => PayoutRail[] } = 
   const engine = new PayoutEngine({
     mandate,
     agent,
-    rails: options.rails?.(mandate) ?? [new UsdcRail(mandate, executor)],
+    rails: options.rails?.(mandate) ?? [new WalletRail(mandate, executor)],
     receipts,
     assetCode: 'USDC',
     network: 'testnet',

@@ -1,42 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// Builds the unsigned transactions a wallet signs in the console. The server
-// never holds the owner's key: it only shapes the call, the network
-// simulates it, and the wallet decides whether to sign.
-//
-// Every action is one contract call (or one changeTrust), with the wallet as
-// the transaction source, so the wallet's signature on the envelope is the
-// only authorization any of them needs.
+// What a wallet may ask the console to build, checked strictly, and how each
+// action is described to the person before they sign. The server never holds
+// the owner's key: it only shapes the call, the network simulates it, and the
+// wallet decides whether to sign. The transactions themselves are built in
+// src/chain.
 
-import { createHash, randomBytes } from 'node:crypto';
-
-import {
-  Asset,
-  Contract,
-  Operation,
-  StrKey,
-  TransactionBuilder,
-  xdr,
-  type Account,
-  type Transaction,
-} from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
-import { accountAddress, contractAddress, hex32, type Hex32 } from '../ids.js';
-import { address, bytes32, i128, struct, u64 } from '../mandate/codec.js';
+import { isAccountAddress } from '../chain/stellar/addresses.js';
+import { MAX_ALLOW_ENTRIES, type CreateContext } from '../chain/stellar/txbuild.js';
+import { accountAddress, contractAddress, hex32 } from '../ids.js';
 import { formatUnits, minorUnits } from '../money.js';
-import { TESTNET_PASSPHRASE } from '../stellar/gateway.js';
 import { ApiError } from './errors.js';
-
-/** Above the base fee so a busy testnet still takes it; the wallet pays it. */
-export const INCLUSION_FEE = '10000';
-/** How long the wallet has to sign before the network refuses the transaction. */
-export const SIGN_WINDOW_SECONDS = 300;
-/** How long an approved payout stays executable, as the demo mandate uses. */
-export const PAYOUT_TTL_SECONDS = 86_400n;
-/** The contract takes at most this many allowlist entries in one call. */
-export const MAX_ALLOW_ENTRIES = 10;
 
 export const BUILD_ACTIONS = [
   'create_mandate',
@@ -77,7 +54,7 @@ export const recipientLabel = z
   .min(1)
   .max(40)
   .regex(/^[A-Za-z0-9][A-Za-z0-9 ._@#-]*$/, 'letters, digits, spaces and . _ @ # - only')
-  .refine((s) => !StrKey.isValidEd25519PublicKey(s), 'a label cannot be a Stellar address');
+  .refine((s) => !isAccountAddress(s), 'a label cannot be a Stellar address');
 
 const mandateOnly = z.object({ mandate: contractAddress }).strict();
 
@@ -155,53 +132,6 @@ export function parseBuildRequest(raw: unknown): BuildRequest {
   return parsed.data;
 }
 
-/** One contract call from `source`, unsigned and not yet simulated. */
-export function invokeTx(
-  source: Account,
-  contract: string,
-  method: string,
-  args: readonly xdr.ScVal[],
-): Transaction {
-  return new TransactionBuilder(source, {
-    fee: INCLUSION_FEE,
-    networkPassphrase: TESTNET_PASSPHRASE,
-  })
-    .addOperation(new Contract(contract).call(method, ...args))
-    .setTimeout(SIGN_WINDOW_SECONDS)
-    .build();
-}
-
-export function trustlineTx(source: Account, usdc: { code: string; issuer: string }): Transaction {
-  return new TransactionBuilder(source, {
-    fee: INCLUSION_FEE,
-    networkPassphrase: TESTNET_PASSPHRASE,
-  })
-    .addOperation(Operation.changeTrust({ asset: new Asset(usdc.code, usdc.issuer) }))
-    .setTimeout(SIGN_WINDOW_SECONDS)
-    .build();
-}
-
-const u32 = (n: number) => xdr.ScVal.scvU32(n);
-const addresses = (list: readonly string[]) => xdr.ScVal.scvVec(list.map(address));
-
-/**
- * Groups a principal's mandates for indexers without saying who the
- * principal is beyond what the chain already shows.
- */
-export function tenantTagFor(principal: string): Hex32 {
-  return createHash('sha256').update(`ujira-console/tenant/v1\n${principal}`).digest('hex');
-}
-
-export interface CreateContext {
-  readonly principal: string;
-  readonly agent: string;
-  readonly executor: string;
-  readonly asset: string;
-  /** Unix seconds, from the server clock. */
-  readonly now: number;
-  readonly salt?: Hex32;
-}
-
 /** The checks the contract would refuse with a bare config_invalid, said in words first. */
 export function checkCreateParams(p: CreateParams, ctx: CreateContext): void {
   const refuse = (message: string) => new ApiError(400, 'invalid_rules', message);
@@ -221,40 +151,6 @@ export function checkCreateParams(p: CreateParams, ctx: CreateContext): void {
       "The owner wallet cannot be the server's agent or executor key",
     );
   }
-}
-
-/** The factory's MandateConfig for a console mandate, as an ScVal. */
-export function mandateConfig(p: CreateParams, ctx: CreateContext): xdr.ScVal {
-  return struct({
-    principal: address(ctx.principal),
-    asset: address(ctx.asset),
-    recipient_mode: u32(1),
-    tenant_tag: bytes32(tenantTagFor(ctx.principal)),
-    agents: addresses([ctx.agent]),
-    // The owner approves their own large payouts; one approval is enough.
-    approvers: addresses([ctx.principal]),
-    approvals_required: u32(1),
-    guardians: addresses([]),
-    executors: addresses([ctx.executor]),
-    recovery: addresses([]),
-    recovery_threshold: u32(0),
-    limits: struct({
-      total_budget: i128(p.budget),
-      per_payment_cap: i128(p.perPaymentCap),
-      per_recipient_daily_cap: i128(p.dailyCap),
-      approval_threshold: i128(p.approvalThreshold),
-      payout_ttl_seconds: u64(PAYOUT_TTL_SECONDS),
-      expires_at: u64(BigInt(p.expiresAt)),
-    }),
-    attester: xdr.ScVal.scvVoid(),
-    country_policy_hash: bytes32('0'.repeat(64)),
-    max_fee_bps: u32(p.feeCapBps ?? 0),
-  });
-}
-
-export function createArgs(p: CreateParams, ctx: CreateContext): xdr.ScVal[] {
-  const salt = ctx.salt ?? randomBytes(32).toString('hex');
-  return [mandateConfig(p, ctx), bytes32(salt)];
 }
 
 const usdc = (amount: bigint) => `${formatUnits(amount)} USDC`;

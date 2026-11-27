@@ -2,7 +2,8 @@
 // Copyright 2026 Qomira Labs
 
 // A console wired to memory: the mandate is FakeMandateRpc, the network is
-// FakeChain, and the registry lives in a temporary directory.
+// FakeChain, and the registry lives in a temporary directory. The demo's
+// part of it is on unless a test turns it off, as on ujira.co.
 
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -20,10 +21,13 @@ import {
   type xdr,
 } from '@stellar/stellar-sdk';
 
-import { createConsole } from '../src/console/app.js';
+import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
+import { TESTNET_PASSPHRASE, type TxSigner } from '../src/chain/stellar/gateway.js';
+import { signerFrom } from '../src/chain/stellar/keys.js';
+import type { AccountFacts, StellarNetworkPort } from '../src/chain/stellar/network.js';
+import { createConsole, type ConsoleOptions } from '../src/console/app.js';
 import type { AccountView, ConsoleChain, Submitted } from '../src/console/chain.js';
 import { ApiError } from '../src/console/errors.js';
-import type { ConsoleSdp } from '../src/console/mandates.js';
 import { ConsoleRegistry } from '../src/console/registry.js';
 import {
   TESTNET_FACTORY,
@@ -32,11 +36,12 @@ import {
   type ConsoleLimits,
   type ConsoleSettings,
 } from '../src/console/settings.js';
-import { TestWalletStore } from '../src/console/wallets.js';
+import { demoConsole, type DemoSdp } from '../src/demo/console.js';
+import { publicMcp } from '../src/demo/public-mcp.js';
+import type { DemoLimits, DemoSettings } from '../src/demo/settings.js';
+import { TestWalletStore } from '../src/demo/wallets.js';
 import { createHttpServer } from '../src/mcp/http.js';
 import { DEFAULT_MAX_AMOUNT, type HttpSettings } from '../src/mcp/public.js';
-import { TESTNET_PASSPHRASE, type TxSigner } from '../src/stellar/gateway.js';
-import { signerFrom } from '../src/stellar/keys.js';
 import { FakeMandateRpc, MANDATE, UNIT, agent, executor } from './fake-rpc.js';
 import { setup } from './helpers.js';
 
@@ -48,7 +53,7 @@ export const owner = keypair('owner');
 export const treasuryKey = keypair('treasury');
 export const treasury: TxSigner = signerFrom(treasuryKey);
 
-export class FakeChain implements ConsoleChain {
+export class FakeChain implements ConsoleChain, StellarNetworkPort {
   accounts = new Map<string, AccountView>();
   prepared: Transaction[] = [];
   submitted: Transaction[] = [];
@@ -92,6 +97,19 @@ export class FakeChain implements ConsoleChain {
     }
     return Promise.resolve();
   }
+
+  accountFacts(address: string): Promise<AccountFacts> {
+    const view = this.accounts.get(address);
+    return Promise.resolve({
+      exists: view?.exists === true,
+      trustlines: view === undefined || view.usdc === null ? [] : [`USDC:${TESTNET_USDC_ISSUER}`],
+      memoRequired: false,
+    });
+  }
+
+  latestLedger(): Promise<number> {
+    return Promise.resolve(1);
+  }
 }
 
 export function consoleSettings(
@@ -123,6 +141,21 @@ export function consoleSettings(
     publicRpcUrl: 'https://soroban-testnet.stellar.org',
     factory: TESTNET_FACTORY,
     usdc: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
+    ...over,
+    limits: {
+      apiCallsPerMinute: 1_000,
+      mandatePayoutsPerHour: 20,
+      ...limits,
+    },
+  };
+  return settings;
+}
+
+export function demoSettings(
+  over: Partial<DemoSettings> = {},
+  limits: Partial<DemoLimits> = {},
+): DemoSettings {
+  return {
     treasury,
     faucetAmount: 50n * UNIT,
     faucetCooldownSeconds: 600,
@@ -130,16 +163,8 @@ export function consoleSettings(
     faucetFloor: 100n * UNIT,
     sdpProofUrl: 'https://qomiralabs.github.io/ujira-demo/instaward.html',
     ...over,
-    limits: {
-      faucetPerHour: 2,
-      testRecipientsPerHour: 2,
-      friendbotPerHour: 2,
-      apiCallsPerMinute: 1_000,
-      mandatePayoutsPerHour: 20,
-      ...limits,
-    },
+    limits: { faucetPerHour: 2, testRecipientsPerHour: 2, friendbotPerHour: 2, ...limits },
   };
-  return settings;
 }
 
 export function httpSettings(): HttpSettings {
@@ -168,18 +193,22 @@ export interface World {
 export async function startConsole(
   options: {
     settings?: ConsoleSettings;
-    sdp?: ConsoleSdp;
+    /** The demo's settings, or false for a server with UJIRA_DEMO_FEATURES off. */
+    demo?: DemoSettings | false;
+    sdp?: DemoSdp;
     register?: boolean;
     keypairs?: Keypair[];
     /** false runs without a test wallet store, as a server without a treasury does. */
     wallets?: boolean;
+    warnings?: ConsoleOptions['warnings'];
   } = {},
 ): Promise<World> {
   const world = setup();
   const settings = options.settings ?? consoleSettings();
+  const demo = options.demo === false ? undefined : (options.demo ?? demoSettings());
   const registry = ConsoleRegistry.open(join(settings.dataDir, 'console-registry.json'));
   const wallets =
-    options.wallets === false
+    options.wallets === false || demo === undefined
       ? undefined
       : TestWalletStore.open(join(settings.dataDir, 'test-wallets.json'));
   if (options.register !== false) {
@@ -196,27 +225,52 @@ export async function startConsole(
   const lines: string[] = [];
   const keys = [...(options.keypairs ?? [])];
   const http = httpSettings();
+  const now = () => Number(world.rpc.now) * 1000;
+  const log = (line: string) => lines.push(line);
+  const extension =
+    demo === undefined
+      ? undefined
+      : demoConsole({
+          demo,
+          console: settings,
+          http,
+          chain,
+          ledger: registry,
+          executor,
+          ...(options.sdp === undefined ? {} : { sdp: options.sdp }),
+          ...(wallets === undefined ? {} : { wallets }),
+          now,
+          log,
+          newKeypair: () => keys.shift() ?? Keypair.random(),
+        });
   const routes = createConsole({
     settings,
     http,
     agent,
     executor,
-    gateway: world.rpc,
+    adapter: new StellarChainAdapter({
+      gateway: world.rpc,
+      chain,
+      factory: settings.factory,
+      asset: settings.usdc,
+    }),
     receipts: world.receipts,
     registry,
     chain,
-    ...(wallets === undefined ? {} : { wallets }),
-    ...(options.sdp === undefined ? {} : { sdp: options.sdp }),
-    now: () => Number(world.rpc.now) * 1000,
-    log: (line) => lines.push(line),
-    newKeypair: () => keys.shift() ?? Keypair.random(),
+    ...(extension === undefined ? {} : { extension }),
+    ...(options.warnings === undefined ? {} : { warnings: options.warnings }),
+    now,
+    log,
   });
   const server = createHttpServer({
-    engine: world.engine,
     settings: http,
-    assetCode: 'USDC',
-    log: (line) => lines.push(line),
+    log,
     extra: routes,
+    ...(demo === undefined
+      ? {}
+      : {
+          publicMcp: publicMcp({ engine: world.engine, http, assetCode: 'USDC', recipients: [] }),
+        }),
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;

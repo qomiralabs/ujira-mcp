@@ -28,6 +28,7 @@ const REASONS: Record<string, string> = {
   already_paused: 'The mandate is already paused.',
   not_paused: 'The mandate is not paused, so there is nothing to resume.',
   already_revoked: 'The mandate is already revoked.',
+  recipient_has_no_method: 'This recipient has no wallet to be paid to yet.',
 };
 
 // Sentences for the console API's error codes. Where the server's own
@@ -103,14 +104,15 @@ export function apiErrorText(
 }
 
 function sentence(code: string): string {
-  const words = code.replace(/[_-]+/g, ' ').trim();
+  const words = code.toLowerCase().replace(/[_-]+/g, ' ').trim();
   if (words === '') return 'Blocked by the mandate.';
   return `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
 }
 
 export function reasonText(code: string | null | undefined): string {
   if (code === null || code === undefined || code === '') return 'Blocked by the mandate.';
-  return REASONS[code] ?? sentence(code);
+  // /v1 names the mandate's rules in capitals, the older routes in lower case.
+  return REASONS[code.toLowerCase()] ?? sentence(code);
 }
 
 export type Tone = 'paid' | 'waiting' | 'blocked' | 'neutral';
@@ -122,6 +124,10 @@ export interface StatusWord {
 
 const STATUSES: Record<string, StatusWord> = {
   paid: { label: 'Paid', tone: 'paid' },
+  queued: { label: 'Queued', tone: 'waiting' },
+  submitting: { label: 'Sending to Stellar', tone: 'waiting' },
+  needs_attention: { label: 'Needs a look', tone: 'blocked' },
+  failed: { label: 'Failed', tone: 'blocked' },
   approved_then_paid: { label: 'Approved, paid', tone: 'paid' },
   executed: { label: 'Paid', tone: 'paid' },
   allowed: { label: 'Allowed', tone: 'paid' },

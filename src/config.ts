@@ -11,21 +11,27 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import type { MandateContract, TxSigner } from './chain/adapter.js';
+import { StellarChainAdapter } from './chain/stellar/adapter.js';
+import { RpcGateway, TESTNET_RPC_URL, type SorobanGateway } from './chain/stellar/gateway.js';
+import { signerFromEnv } from './chain/stellar/keys.js';
+import {
+  StellarNetwork,
+  TESTNET_FRIENDBOT_URL,
+  TESTNET_HORIZON_URL,
+  type StellarNetworkPort,
+} from './chain/stellar/network.js';
+import {
+  TESTNET_FACTORY,
+  TESTNET_USDC_CONTRACT,
+  TESTNET_USDC_ISSUER,
+} from './chain/stellar/testnet.js';
 import { PayoutEngine } from './engine/engine.js';
 import { EngineError } from './errors.js';
 import { accountAddress, contractAddress, hex32, type Hex32 } from './ids.js';
-import { MandateClient } from './mandate/client.js';
 import type { PayoutRail } from './rails/rail.js';
-import { SdpClient, SdpRail } from './rails/sdp.js';
-import { UsdcRail } from './rails/usdc.js';
+import { WalletRail } from './rails/wallet.js';
 import { ReceiptLog } from './receipts/log.js';
-import {
-  RpcGateway,
-  TESTNET_RPC_URL,
-  type SorobanGateway,
-  type TxSigner,
-} from './stellar/gateway.js';
-import { signerFromEnv } from './stellar/keys.js';
 
 export interface Settings {
   readonly network: 'testnet';
@@ -36,18 +42,10 @@ export interface Settings {
   readonly agent: TxSigner;
   readonly executor: TxSigner;
   readonly receiptsPath: string;
-  /** Set when UJIRA_SDP_URL is: the SDP rail is then offered next to USDC. */
-  readonly sdp?: SdpSettings;
-}
-
-export interface SdpSettings {
-  readonly url: string;
-  readonly apiKey: string;
-  readonly tenant?: string;
-  readonly distributionAccount: string;
-  readonly assetIssuer: string;
-  /** Handle to wallet, from the mandate file's named recipients. */
-  readonly recipients: Readonly<Record<string, string>>;
+  /** The asset issuer the mandate file names, if it names one. */
+  readonly assetIssuer?: string;
+  /** Recipient names to wallets, from the mandate file's named recipients. */
+  readonly namedRecipients: Readonly<Record<string, string>>;
 }
 
 /** The parts of a mandate file this package reads; anything else in it is ignored. */
@@ -139,8 +137,12 @@ export function loadSettings(env: Env = process.env): Settings {
   const executor = signerFromEnv(env, 'UJIRA_EXECUTOR') ?? agent;
 
   const recipientRefs = new Map<string, Hex32>();
-  for (const r of fromFile?.recipients ?? []) recipientRefs.set(r.destination, r.recipient_ref);
-  const sdp = sdpSettings(env, fromFile);
+  const namedRecipients: Record<string, string> = {};
+  for (const r of fromFile?.recipients ?? []) {
+    recipientRefs.set(r.destination, r.recipient_ref);
+    if (r.name !== undefined) namedRecipients[r.name] = r.destination;
+  }
+  const assetIssuer = fromFile?.asset?.issuer;
 
   return {
     network: 'testnet',
@@ -153,86 +155,72 @@ export function loadSettings(env: Env = process.env): Settings {
     receiptsPath:
       set(env, 'UJIRA_RECEIPTS_FILE') ??
       join(set(env, 'UJIRA_DATA_DIR') ?? join(homedir(), '.ujira-mcp'), 'receipts.json'),
-    ...(sdp === undefined ? {} : { sdp }),
+    ...(assetIssuer === undefined ? {} : { assetIssuer }),
+    namedRecipients,
   };
 }
 
-function sdpSettings(
-  env: Env,
-  fromFile: z.output<typeof mandateFile> | undefined,
-): SdpSettings | undefined {
-  const url = set(env, 'UJIRA_SDP_URL');
-  if (url === undefined) return undefined;
-  const apiKey = set(env, 'UJIRA_SDP_API_KEY');
-  const distributionAccount = set(env, 'UJIRA_SDP_DISTRIBUTION');
-  const assetIssuer = set(env, 'UJIRA_SDP_ASSET_ISSUER') ?? fromFile?.asset?.issuer;
-  if (apiKey === undefined) {
-    throw new EngineError('config_invalid', 'UJIRA_SDP_URL is set, so set UJIRA_SDP_API_KEY too');
+/**
+ * Whether the testnet demo runs in this process: the faucet, test
+ * recipients, the recycler, the public demo MCP and the SDP rail. Off unless
+ * asked for, and never on a network other than testnet, since the demo pays
+ * from keys and accounts UJIRA itself holds.
+ */
+export function demoFeatures(env: Env = process.env): boolean {
+  const flag = set(env, 'UJIRA_DEMO_FEATURES') ?? 'off';
+  if (flag !== 'on' && flag !== 'off') {
+    throw new EngineError('config_invalid', 'UJIRA_DEMO_FEATURES must be on or off');
   }
-  if (distributionAccount === undefined || !accountAddress.safeParse(distributionAccount).success) {
-    throw new EngineError('config_invalid', 'set UJIRA_SDP_DISTRIBUTION to the SDP account (G...)');
-  }
-  if (assetIssuer === undefined) {
+  if (flag === 'off') return false;
+  if (set(env, 'UJIRA_NETWORK') !== 'testnet') {
     throw new EngineError(
       'config_invalid',
-      'set UJIRA_SDP_ASSET_ISSUER, or name the asset issuer in the mandate file',
+      'UJIRA_DEMO_FEATURES=on runs only with UJIRA_NETWORK=testnet',
     );
   }
-  const recipients: Record<string, string> = {};
-  for (const r of fromFile?.recipients ?? []) {
-    if (r.name !== undefined) recipients[r.name] = r.destination;
-  }
-  const tenant = set(env, 'UJIRA_SDP_TENANT');
-  return {
-    url,
-    apiKey,
-    distributionAccount,
-    assetIssuer,
-    recipients,
-    ...(tenant === undefined ? {} : { tenant }),
-  };
-}
-
-function sdpRail(settings: Settings, sdp: SdpSettings, mandate: MandateClient): SdpRail {
-  return new SdpRail({
-    client: new SdpClient({
-      baseUrl: sdp.url,
-      auth: { kind: 'api_key', apiKey: sdp.apiKey },
-      ...(sdp.tenant === undefined ? {} : { tenant: sdp.tenant }),
-    }),
-    distributionAccount: sdp.distributionAccount,
-    asset: { code: settings.assetCode, issuer: sdp.assetIssuer },
-    recipients: sdp.recipients,
-    payToDistribution: (p) => mandate.execute(settings.executor, p.payoutId),
-  });
+  return true;
 }
 
 export interface Wiring {
   readonly engine: PayoutEngine;
-  readonly mandate: MandateClient;
+  readonly mandate: MandateContract;
+  readonly adapter: StellarChainAdapter;
+  /** Shared by every adapter in the process; only composition code builds on it. */
   readonly gateway: SorobanGateway;
   /** One log per process: its writes are serialized in memory, so a second one on the same file would race. */
   readonly receipts: ReceiptLog;
 }
 
 /**
- * Builds the engine from settings. USDC is always there, SDP when the
- * settings name one, and any other rail is passed in by whoever builds it.
+ * Builds the engine from settings. The wallet rail is always there; any
+ * other rail, such as the demo's, is passed in by whoever builds it.
  */
 export function createEngine(
   settings: Settings,
   options: {
     gateway?: SorobanGateway;
-    extraRails?: (mandate: MandateClient) => readonly PayoutRail[];
+    network?: StellarNetworkPort;
+    extraRails?: (mandate: MandateContract) => readonly PayoutRail[];
     now?: () => Date;
   } = {},
 ): Wiring {
   const gateway =
     options.gateway ??
     new RpcGateway({ rpcUrl: settings.rpcUrl, readSource: settings.agent.publicKey });
-  const mandate = new MandateClient(gateway, settings.mandateId);
-  const rails: PayoutRail[] = [new UsdcRail(mandate, settings.executor)];
-  if (settings.sdp !== undefined) rails.push(sdpRail(settings, settings.sdp, mandate));
+  const adapter = new StellarChainAdapter({
+    gateway,
+    chain:
+      options.network ??
+      new StellarNetwork({
+        rpcUrl: settings.rpcUrl,
+        horizonUrl: TESTNET_HORIZON_URL,
+        friendbotUrl: TESTNET_FRIENDBOT_URL,
+      }),
+    factory: TESTNET_FACTORY,
+    asset: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
+  });
+  const mandate = adapter.mandate(settings.mandateId);
+  const rails: PayoutRail[] = [new WalletRail(mandate, settings.executor)];
   rails.push(...(options.extraRails?.(mandate) ?? []));
   const receipts = new ReceiptLog(settings.receiptsPath);
   const engine = new PayoutEngine({
@@ -245,5 +233,5 @@ export function createEngine(
     recipientRefs: settings.recipientRefs,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
-  return { engine, mandate, gateway, receipts };
+  return { engine, mandate, adapter, gateway, receipts };
 }

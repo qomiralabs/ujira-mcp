@@ -7,8 +7,8 @@
 // It is a prediction: the contract stays the authority, and the engine still
 // asks it before anything moves.
 
-import type { MandateConfigView, MandateStateView } from '../mandate/types.js';
-import { RECIPIENT_MODE } from '../mandate/types.js';
+import type { MandateConfigView, MandateStateView } from '../chain/types.js';
+import { RECIPIENT_MODE } from '../chain/types.js';
 
 export type Decision = 'allowed' | 'approval_required' | 'blocked';
 

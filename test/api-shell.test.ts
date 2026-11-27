@@ -20,6 +20,7 @@ import { nodeHandler } from '../src/api/node.js';
 import { defineRoute, type Route } from '../src/api/route.js';
 import { createHttpServer, type ExtraRoutes } from '../src/mcp/http.js';
 import { DEFAULT_MAX_AMOUNT, type HttpSettings } from '../src/mcp/public.js';
+import { publicMcp } from '../src/demo/public-mcp.js';
 import { setup } from './helpers.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -155,10 +156,11 @@ async function start(
   const log = (line: string) => lines.push(line);
   const extra = recordingExtra();
   const v1App = createV1App({ routes: options.routes ?? TEST_ROUTES, log });
+  const http = options.httpSettings ?? settings();
   const server = createHttpServer({
-    engine: setup().engine,
-    settings: options.httpSettings ?? settings(),
-    assetCode: 'USDC',
+    settings: http,
+    // The public demo MCP stays mounted, so /mcp is checked next to /v1.
+    publicMcp: publicMcp({ engine: setup().engine, http, assetCode: 'USDC', recipients: [] }),
     log,
     extra,
     ...(options.v1 === false ? {} : { v1: nodeHandler(v1App.app) }),

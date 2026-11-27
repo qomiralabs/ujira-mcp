@@ -99,11 +99,22 @@ describe('grants on ujira', () => {
       'status_transitions',
     ].map((table) => `relation ${table} SELECT`);
     // The worker reads and writes tenant rows only where a job needs to: it
-    // appends the outbox events of the payouts it moves. The sealed tables
-    // appear for no one.
+    // appends the outbox events of the payouts it moves, and reads the
+    // mandate, recipient, destination and agent key a payout needs. The sealed
+    // tables appear for no one. Column grants are not listed here; the tests
+    // after this one pin them.
     const expected: Record<(typeof SERVICE_ROLES)[number], string[]> = {
       ujira_app: [
         ...REFERENCE,
+        'relation agent_keys INSERT',
+        'relation mandates INSERT',
+        'relation mandates SELECT',
+        'relation payout_methods INSERT',
+        'relation payout_methods SELECT',
+        'relation recipient_pii INSERT',
+        'relation recipient_pii SELECT',
+        'relation recipients INSERT',
+        'relation recipients SELECT',
         'relation audit_heads SELECT',
         'relation audit_log INSERT',
         'relation audit_log SELECT',
@@ -128,11 +139,18 @@ describe('grants on ujira', () => {
       ],
       ujira_worker: [
         ...REFERENCE,
+        'relation agent_keys SELECT',
+        'relation mandates SELECT',
         'relation outbox_events INSERT',
         'relation outbox_events SELECT',
+        'relation payout_methods SELECT',
+        'relation recipients SELECT',
       ],
       ujira_reader: [
         ...REFERENCE,
+        'relation mandates SELECT',
+        'relation payout_methods SELECT',
+        'relation recipients SELECT',
         'relation audit_heads SELECT',
         'relation audit_log SELECT',
         'relation outbox_events SELECT',
@@ -165,6 +183,56 @@ describe('grants on ujira', () => {
         order by 1`,
     );
     expect(columns.rows.map((row) => row.column_name)).toEqual(['role', 'status']);
+  });
+
+  it('lets the app change only what is meant to change on a mandate, a recipient, a destination and a key', async () => {
+    const columns = await client.query<{ table_name: string; column_name: string }>(
+      `select table_name::text as table_name, column_name::text as column_name
+         from information_schema.column_privileges
+        where table_schema = 'ujira'
+          and table_name = any($1::text[])
+          and grantee = 'ujira_app' and privilege_type = 'UPDATE'`,
+      [['agent_keys', 'mandates', 'recipients', 'recipient_pii', 'payout_methods']],
+    );
+    expect(columns.rows.map((row) => `${row.table_name}.${row.column_name}`).sort()).toEqual([
+      'agent_keys.status',
+      'mandates.name',
+      'payout_methods.verified_at',
+      'recipient_pii.email_ciphertext',
+      'recipient_pii.email_nonce',
+      'recipients.label',
+      'recipients.status',
+    ]);
+  });
+
+  it('lets only the worker read an agent secret, and the reader no personal data', async () => {
+    const readable = async (role: string, table: string): Promise<string[]> => {
+      const found = await client.query<{ column_name: string }>(
+        `select a.attname::text as column_name
+           from pg_attribute a
+          where a.attrelid = $2::regclass and a.attnum > 0 and not a.attisdropped
+            and has_column_privilege($1::name, a.attrelid, a.attnum, 'SELECT')`,
+        [role, table],
+      );
+      return found.rows.map((row) => row.column_name).sort();
+    };
+    const publicColumns = [
+      'created_at',
+      'id',
+      'network',
+      'principal_id',
+      'project_id',
+      'public_key',
+      'status',
+      'updated_at',
+    ];
+    expect(await readable('ujira_app', 'ujira.agent_keys')).toEqual(publicColumns);
+    expect(await readable('ujira_reader', 'ujira.agent_keys')).toEqual(publicColumns);
+    expect(await readable('ujira_worker', 'ujira.agent_keys')).toEqual(
+      [...publicColumns, 'secret_ciphertext', 'secret_nonce'].sort(),
+    );
+    expect(await readable('ujira_reader', 'ujira.recipient_pii')).toEqual([]);
+    expect(await readable('ujira_worker', 'ujira.recipient_pii')).toEqual([]);
   });
 
   it('lets each service role call the context functions and the entry points of its job, and nothing else', async () => {

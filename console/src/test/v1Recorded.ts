@@ -136,14 +136,20 @@ export const receipt = {
 };
 
 export const apiKey = {
+  principalId: IDS.principal,
+  projectId: IDS.project,
   id: IDS.runner,
   name: 'Payroll runner',
-  prefix: 'ujk_test_9f3a',
+  prefix: 'ujk_test_m3qx7k2pa4bn5c6d',
   scopes: ['payouts:read', 'payouts:write'],
-  createdAt: '2026-11-24T08:00:00.000Z',
-  lastUsedAt: null,
+  expiresAt: '2027-11-24T08:00:00.000Z',
   revokedAt: null,
+  lastUsedAt: null,
+  createdAt: '2026-11-24T08:00:00.000Z',
 };
+
+// The format the server issues, `ujk_<env>_<id>_<secret><checksum>`; never a real key.
+export const apiKeySecret = `${apiKey.prefix}_${'a'.repeat(52)}${'b'.repeat(7)}`;
 
 /** Each route's recorded answer, keyed by "METHOD path". */
 export const RECORDED = {
@@ -167,7 +173,8 @@ export const RECORDED = {
   'GET /v1/receipts/{id}': { receipt },
   'GET /v1/receipts/{id}/verify': { matched: true, field: null, txHash: IDS.tx },
   'GET /v1/api-keys': { items: [apiKey], nextCursor: null },
-  'POST /v1/api-keys': { apiKey, secret: 'ujk_test_9f3a0000000000000000000000000000' },
+  'POST /v1/api-keys': { apiKey, secret: apiKeySecret },
+  'DELETE /v1/api-keys/{id}': { apiKey: { ...apiKey, revokedAt: '2026-11-26T09:00:00.000Z' } },
   'GET /v1/stats/overview': {
     period: { from: '2026-11-01T00:00:00.000Z', to: '2026-11-26T00:00:00.000Z' },
     paid: [usdc('1225000000')],

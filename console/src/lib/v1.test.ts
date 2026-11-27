@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { IDS, RECEIPTS_CSV, RECORDED, mandate, payout } from '../test/v1Recorded';
+import { IDS, RECEIPTS_CSV, RECORDED, apiKey, mandate, payout } from '../test/v1Recorded';
 import { ApiError, NETWORK_ERROR, errorRequestId } from './api';
 import { createHttpAuthApi } from './auth';
 import { formatToken } from './money';
@@ -227,8 +227,15 @@ const ROUTES: readonly {
     key: 'POST /v1/api-keys',
     method: 'POST',
     url: '/v1/api-keys',
-    run: (a) => a.createApiKey({ name: 'Payroll runner', scopes: ['payouts:read'] }),
-    body: { name: 'Payroll runner', scopes: ['payouts:read'] },
+    run: (a) =>
+      a.createApiKey({ name: 'Payroll runner', scopes: ['payouts:read'], expiresInDays: 90 }),
+    body: { name: 'Payroll runner', scopes: ['payouts:read'], expiresInDays: 90 },
+  },
+  {
+    key: 'DELETE /v1/api-keys/{id}',
+    method: 'DELETE',
+    url: `/v1/api-keys/${IDS.runner}`,
+    run: (a) => a.revokeApiKey(IDS.runner),
   },
   {
     key: 'GET /v1/stats/overview',
@@ -332,11 +339,22 @@ describe('the /v1 client, against recorded answers', () => {
     });
   });
 
-  it('revokes a key with DELETE and no body', async () => {
-    const { api, calls } = recorder(() => new Response(null, { status: 204 }));
-    await expect(api.revokeApiKey(IDS.runner)).resolves.toBeUndefined();
+  it('revokes a key with DELETE and no body, and returns the key as the server now holds it', async () => {
+    const { api, calls } = recorder(() => json(200, RECORDED['DELETE /v1/api-keys/{id}']));
+    const revoked = await api.revokeApiKey(IDS.runner);
+    expect(revoked.revokedAt).toBe('2026-11-26T09:00:00.000Z');
     expect(calls[0]?.init.method).toBe('DELETE');
+    expect(calls[0]?.init.body).toBeUndefined();
     expect(calls[0]?.url).toBe(`/v1/api-keys/${IDS.runner}`);
+  });
+
+  it('reads a key with no name and its expiry', async () => {
+    const { api } = recorder(() =>
+      json(200, { items: [{ ...apiKey, name: null }], nextCursor: null }),
+    );
+    const [k] = (await api.apiKeys()).items;
+    expect(k?.name).toBeNull();
+    expect(k?.expiresAt).toBe('2027-11-24T08:00:00.000Z');
   });
 });
 

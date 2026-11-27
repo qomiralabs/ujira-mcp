@@ -192,18 +192,22 @@ export type ReceiptVerification = z.output<typeof receiptVerificationSchema>;
 
 export const apiKeySchema = z.looseObject({
   id,
-  name: text,
-  // The first characters of the key, so a person can tell keys apart.
+  // Null only on a key made before keys had names.
+  name: nullableText,
+  // The public start of the key, so a person can tell keys apart.
   prefix: text,
   scopes: z.array(text),
+  expiresAt: timestamp,
   createdAt: timestamp,
   lastUsedAt: z.nullable(timestamp),
   revokedAt: z.nullable(timestamp),
 });
 export type ApiKey = z.output<typeof apiKeySchema>;
 export const apiKeyPageSchema = pageSchema(apiKeySchema);
+export const apiKeyEnvelope = z.looseObject({ apiKey: apiKeySchema });
 export const createdApiKeySchema = z.looseObject({
   apiKey: apiKeySchema,
+  // The whole key. This answer is the only time anyone sees it.
   secret: z.string().check(z.minLength(1)),
 });
 

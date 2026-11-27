@@ -15,6 +15,13 @@
 import * as z from 'zod/mini';
 
 import { ApiError } from './api';
+import {
+  API_SCOPES,
+  EXPIRY_DEFAULT_DAYS,
+  EXPIRY_MAX_DAYS,
+  KEY_LIMIT,
+  KEY_NAME_MAX,
+} from './apiKeys';
 import type { FakeAuthApi, FakeTenant } from './fakeAuth';
 import { formatAmount } from './money';
 import { v1ErrorText, type MandateActionInput, type PrepareMandateInput, type V1Api } from './v1';
@@ -38,14 +45,11 @@ export const FAKE_NETWORK = 'stellar:testnet';
 export const FAKE_ASSET = 'USDC';
 export const FAKE_SCALE = 7;
 
-const SCOPES = [
-  'mandates:read',
-  'recipients:read',
-  'recipients:write',
-  'payouts:read',
-  'payouts:write',
-] as const;
 const PAGE_DEFAULT = 50;
+// The key list takes at most 100 a page, as the server does.
+const KEY_PAGE_MAX = 100;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DAY_MS = 86_400_000;
 const PAGE_MAX = 200;
 const SIGNING_MS = 10 * 60 * 1000;
 const STELLAR_ACCOUNT = /^G[A-Z2-7]{55}$/;
@@ -116,9 +120,10 @@ interface PayoutRow {
 
 interface ApiKeyRow {
   readonly id: string;
-  readonly name: string;
+  readonly name: string | null;
   readonly prefix: string;
   readonly scopes: readonly string[];
+  readonly expiresAt: string;
   readonly createdAt: string;
   revokedAt: string | null;
 }
@@ -148,6 +153,12 @@ const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 function strkey(prefix: 'C' | 'G'): string {
   const bytes = crypto.getRandomValues(new Uint8Array(55));
   return prefix + [...bytes].map((b) => BASE32.charAt(b % 32)).join('');
+}
+
+/** Lower case base32, the alphabet of an API key. */
+function base32(length: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return [...bytes].map((b) => BASE32.charAt(b % 32).toLowerCase()).join('');
 }
 
 function mask(address: string): string {
@@ -328,16 +339,33 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     });
   }
 
-  function keyWire(k: ApiKeyRow) {
-    return parse(apiKeySchema, { ...k, lastUsedAt: null });
+  function keyWire(t: { principalId: string; projectId: string }, k: ApiKeyRow) {
+    return parse(apiKeySchema, {
+      principalId: t.principalId,
+      projectId: t.projectId,
+      id: k.id,
+      name: k.name,
+      prefix: k.prefix,
+      scopes: [...k.scopes],
+      expiresAt: k.expiresAt,
+      revokedAt: k.revokedAt,
+      lastUsedAt: null,
+      createdAt: k.createdAt,
+    });
+  }
+
+  // Only owners and admins reach the key routes, listing included.
+  function keyManager(t: FakeTenant): void {
+    if (t.role !== 'owner' && t.role !== 'admin') throw fail('FORBIDDEN', 403);
   }
 
   function page<T>(
     items: readonly T[],
     q: { cursor?: string | undefined; limit?: number | undefined } | undefined,
+    max = PAGE_MAX,
   ): Page<T> {
     const limit = q?.limit ?? PAGE_DEFAULT;
-    if (!Number.isInteger(limit) || limit < 1 || limit > PAGE_MAX) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > max) {
       throw fail('INVALID_REQUEST', 400, 'The page size is out of range.');
     }
     let offset = 0;
@@ -832,42 +860,63 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
             : { matched: true, field: null, txHash: p.txHash },
         );
       }),
+    // The server lists keys by id, revoked and expired ones too, 100 a page at most.
     apiKeys: (q) =>
-      step((_t, d) =>
-        page(
-          [...d.keys.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(keyWire),
-          q,
-        ),
-      ),
+      step((t, d) => {
+        const rows = [...d.keys.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+        const listed = page(rows, q, KEY_PAGE_MAX);
+        keyManager(t);
+        return { items: listed.items.map((k) => keyWire(t, k)), nextCursor: listed.nextCursor };
+      }),
     createApiKey: (input) =>
       step((t, d) => {
-        if (t.role !== 'owner' && t.role !== 'admin') throw fail('FORBIDDEN', 403);
+        // The body is checked before the role, as the server's schema runs first.
         const name = input.name.trim();
-        if (name === '' || name.length > 80) {
-          throw fail('INVALID_REQUEST', 400, 'Enter a name of up to 80 characters.');
+        if (name === '' || name.length > KEY_NAME_MAX || /\p{Cc}/u.test(name)) {
+          throw fail('INVALID_REQUEST', 400, 'Name the key in up to 100 characters.');
         }
-        const known = new Set<string>(SCOPES);
-        if (input.scopes.length === 0 || input.scopes.some((s) => !known.has(s))) {
-          throw fail('INVALID_REQUEST', 400, 'Choose at least one scope from the list.');
+        const known = new Set<string>(API_SCOPES);
+        if (
+          input.scopes.length === 0 ||
+          input.scopes.some((s) => !known.has(s)) ||
+          new Set(input.scopes).size !== input.scopes.length
+        ) {
+          throw fail('INVALID_REQUEST', 400, 'Choose each scope at most once, from the list.');
         }
-        const secret = `ujk_test_${hex(24)}`;
+        const days = input.expiresInDays ?? EXPIRY_DEFAULT_DAYS;
+        if (!Number.isInteger(days) || days < 1 || days > EXPIRY_MAX_DAYS) {
+          throw fail('INVALID_REQUEST', 400, 'A key lasts from 1 to 730 days.');
+        }
+        keyManager(t);
+        const at = now();
+        const active = [...d.keys.values()].filter(
+          (k) => k.revokedAt === null && Date.parse(k.expiresAt) > at,
+        ).length;
+        if (active >= KEY_LIMIT) throw fail('API_KEY_LIMIT_REACHED', 409);
+        const prefix = `ujk_test_${base32(16)}`;
+        // The whole key leaves in this answer only; the fake keeps the prefix, as the server does.
+        const secret = `${prefix}_${base32(52)}${base32(7)}`;
         const k: ApiKeyRow = {
           id: crypto.randomUUID(),
           name,
-          prefix: secret.slice(0, 13),
-          scopes: [...new Set(input.scopes)],
-          createdAt: iso(),
+          prefix,
+          scopes: [...input.scopes],
+          expiresAt: iso(at + days * DAY_MS),
+          createdAt: iso(at),
           revokedAt: null,
         };
         d.keys.set(k.id, k);
-        return { apiKey: keyWire(k), secret };
+        return { apiKey: keyWire(t, k), secret };
       }),
     revokeApiKey: (id) =>
       step((t, d) => {
-        if (t.role !== 'owner' && t.role !== 'admin') throw fail('FORBIDDEN', 403);
+        if (!UUID.test(id)) throw fail('INVALID_REQUEST', 400);
+        keyManager(t);
         const k = d.keys.get(id);
+        // Another project's key reads exactly like one that never existed.
         if (k === undefined) throw fail('NOT_FOUND', 404);
         k.revokedAt ??= iso();
+        return keyWire(t, k);
       }),
     overview: (q) =>
       step((_t, d) => {

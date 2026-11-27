@@ -313,31 +313,115 @@ describe('the fake /v1 API', () => {
     });
   });
 
-  it('shows a new API key secret once, and lists it without', async () => {
-    const { v1 } = await setup();
+  it('shows a new API key secret once, in the server format, and lists it without', async () => {
+    const { v1, project } = await setup();
     const { apiKey, secret } = await v1.createApiKey({
-      name: 'Runner',
+      name: ' Runner ',
       scopes: ['payouts:write', 'payouts:read'],
     });
-    expect(secret).toMatch(/^ujk_test_[0-9a-f]{48}$/);
-    expect(secret.startsWith(apiKey.prefix)).toBe(true);
-    const listed = (await v1.apiKeys()).items;
-    expect(JSON.stringify(listed)).not.toContain(secret);
-    await v1.revokeApiKey(apiKey.id);
-    expect((await v1.apiKeys()).items[0]?.revokedAt).not.toBeNull();
-    await expect(v1.createApiKey({ name: 'x', scopes: ['admin:all'] })).rejects.toMatchObject({
-      code: 'INVALID_REQUEST',
+    expect(secret).toMatch(/^ujk_test_[a-z2-7]{16}_[a-z2-7]{59}$/);
+    expect(apiKey.prefix).toMatch(/^ujk_test_[a-z2-7]{16}$/);
+    expect(secret.startsWith(`${apiKey.prefix}_`)).toBe(true);
+    expect(apiKey).toMatchObject({
+      name: 'Runner',
+      projectId: project.id,
+      scopes: ['payouts:write', 'payouts:read'],
+      revokedAt: null,
+      lastUsedAt: null,
     });
+    const listed = (await v1.apiKeys()).items;
+    expect(JSON.stringify(listed)).not.toContain(secret.slice(apiKey.prefix.length));
+    const revoked = await v1.revokeApiKey(apiKey.id);
+    expect(revoked.revokedAt).not.toBeNull();
+    expect((await v1.apiKeys()).items[0]?.revokedAt).toBe(revoked.revokedAt);
+    // Revoking again returns the key as it is.
+    expect((await v1.revokeApiKey(apiKey.id)).revokedAt).toBe(revoked.revokedAt);
   });
 
-  it('refuses keys to a role that is not owner or admin', async () => {
+  it('expires a key after 365 days unless told otherwise, from 1 to 730', async () => {
+    const at = Date.parse('2026-11-27T00:00:00.000Z');
+    const { auth } = await signedIn(ALICE);
+    const v1 = createFakeV1Api(auth, { delayMs: 0, demo: false, now: () => at });
+    const day = 86_400_000;
+    const plain = await v1.createApiKey({ name: 'a', scopes: ['payouts:read'] });
+    expect(Date.parse(plain.apiKey.expiresAt)).toBe(at + 365 * day);
+    const short = await v1.createApiKey({ name: 'b', scopes: ['payouts:read'], expiresInDays: 1 });
+    expect(Date.parse(short.apiKey.expiresAt)).toBe(at + day);
+    for (const expiresInDays of [0, 731, 1.5]) {
+      await expect(
+        v1.createApiKey({ name: 'c', scopes: ['payouts:read'], expiresInDays }),
+      ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
+    }
+  });
+
+  it('refuses a key body the server would refuse', async () => {
+    const { v1 } = await setup();
+    const bad = [
+      { name: 'x', scopes: ['admin:all'] },
+      { name: 'x', scopes: [] },
+      { name: 'x', scopes: ['payouts:read', 'payouts:read'] },
+      { name: '   ', scopes: ['payouts:read'] },
+      { name: 'x'.repeat(101), scopes: ['payouts:read'] },
+      { name: 'tab\there', scopes: ['payouts:read'] },
+    ];
+    for (const input of bad) {
+      await expect(v1.createApiKey(input)).rejects.toMatchObject({
+        code: 'INVALID_REQUEST',
+        status: 400,
+      });
+    }
+    await expect(v1.revokeApiKey('not-a-uuid')).rejects.toMatchObject({ status: 400 });
+    await expect(v1.revokeApiKey(crypto.randomUUID())).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      status: 404,
+    });
+    await expect(v1.apiKeys({ limit: 101 })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('holds 20 active keys at most; a revoked one frees a place', async () => {
+    const { v1 } = await setup();
+    const made = [];
+    for (let i = 0; i < 20; i += 1) {
+      made.push(await v1.createApiKey({ name: `k${String(i)}`, scopes: ['payouts:read'] }));
+    }
+    await expect(v1.createApiKey({ name: 'one more', scopes: ['payouts:read'] })).rejects.toSatisfy(
+      (e: unknown) =>
+        e instanceof ApiError && e.code === 'API_KEY_LIMIT_REACHED' && e.status === 409,
+    );
+    await v1.revokeApiKey(made[0]?.apiKey.id ?? '');
+    await expect(
+      v1.createApiKey({ name: 'one more', scopes: ['payouts:read'] }),
+    ).resolves.toBeDefined();
+    const all = await v1.apiKeys({ limit: 100 });
+    expect(all.items).toHaveLength(21);
+  });
+
+  it('keeps keys inside their project', async () => {
+    const { auth, v1 } = await setup();
+    const { apiKey } = await v1.createApiKey({ name: 'Main key', scopes: ['payouts:read'] });
+    const { project: other } = await auth.createPrincipal('Other Ltd');
+    auth.useProject(other.id);
+    expect((await v1.apiKeys()).items).toEqual([]);
+    await expect(v1.revokeApiKey(apiKey.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('refuses every key route to a role that is not owner or admin', async () => {
     const { auth } = await setup();
     const tenant = auth.tenant();
-    const viewer: FakeAuthApi = { ...auth, tenant: () => ({ ...tenant, role: 'viewer' }) };
-    const asViewer = createFakeV1Api(viewer, { delayMs: 0, demo: false });
-    await expect(asViewer.createApiKey({ name: 'k', scopes: ['payouts:read'] })).rejects.toSatisfy(
-      (e: unknown) => e instanceof ApiError && e.code === 'FORBIDDEN' && e.requestId !== undefined,
-    );
+    for (const role of ['viewer', 'developer']) {
+      const member: FakeAuthApi = { ...auth, tenant: () => ({ ...tenant, role }) };
+      const v1 = createFakeV1Api(member, { delayMs: 0, demo: false });
+      const forbidden = (e: unknown) =>
+        e instanceof ApiError &&
+        e.code === 'FORBIDDEN' &&
+        e.status === 403 &&
+        e.requestId !== undefined;
+      await expect(v1.apiKeys()).rejects.toSatisfy(forbidden);
+      await expect(v1.createApiKey({ name: 'k', scopes: ['payouts:read'] })).rejects.toSatisfy(
+        forbidden,
+      );
+      await expect(v1.revokeApiKey(crypto.randomUUID())).rejects.toSatisfy(forbidden);
+    }
   });
 
   it('counts the overview from the payouts themselves', async () => {

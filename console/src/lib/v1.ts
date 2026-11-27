@@ -12,6 +12,7 @@ import * as z from 'zod/mini';
 
 import { ApiError, NETWORK_ERROR } from './api';
 import {
+  apiKeyEnvelope,
   apiKeyPageSchema,
   createdApiKeySchema,
   createdRecipientSchema,
@@ -76,6 +77,9 @@ const V1_ERRORS: Record<string, string> = {
   IDEMPOTENCY_KEY_REUSED: 'That request was already sent with different details. Start it again.',
   IDEMPOTENCY_IN_PROGRESS: 'That request is still being handled. Wait a moment and refresh.',
   TASK_ID_REUSED: 'This task already has a payout on this mandate. Use a new task ID.',
+  API_KEY_LIMIT_REACHED: 'This project has 20 active keys. Revoke one to make another.',
+  TOKEN_ENVIRONMENT_MISMATCH:
+    'That key is for the other network. Test keys work on testnet, live keys on mainnet.',
   RATE_LIMITED: 'Too many tries in a short time. Wait a minute and try again.',
   CHAIN_UNAVAILABLE: 'The Stellar network is not answering right now. Try again in a moment.',
   DB_UNAVAILABLE: 'UJIRA is busy for a moment. Try again shortly.',
@@ -311,6 +315,8 @@ export interface CreatePayoutInput {
 export interface CreateApiKeyInput {
   readonly name: string;
   readonly scopes: readonly string[];
+  /** Whole days, 1 to 730. The server takes 365 when it is left out. */
+  readonly expiresInDays?: number | undefined;
 }
 
 /** The /v1 routes the console calls with a session. Sign in itself is in auth.ts. */
@@ -341,7 +347,8 @@ export interface V1Api {
   apiKeys: (q?: PageQuery) => Promise<Page<ApiKey>>;
   /** The secret comes back once and is never shown again. */
   createApiKey: (input: CreateApiKeyInput) => Promise<{ apiKey: ApiKey; secret: string }>;
-  revokeApiKey: (id: string) => Promise<void>;
+  /** The key as the server holds it now, revoked. Revoking twice returns it as it is. */
+  revokeApiKey: (id: string) => Promise<ApiKey>;
   overview: (q?: { from?: string | undefined; to?: string | undefined }) => Promise<Overview>;
 }
 
@@ -439,7 +446,8 @@ export function createHttpV1Api(transport: V1Transport): V1Api {
       t.json(apiKeyPageSchema, { method: 'GET', path: '/v1/api-keys', query: pageQuery(q) }),
     createApiKey: (input) =>
       t.json(createdApiKeySchema, { method: 'POST', path: '/v1/api-keys', body: input }),
-    revokeApiKey: (id) => t.send({ method: 'DELETE', path: `/v1/api-keys/${enc(id)}` }),
+    revokeApiKey: async (id) =>
+      (await t.json(apiKeyEnvelope, { method: 'DELETE', path: `/v1/api-keys/${enc(id)}` })).apiKey,
     overview: (q) =>
       t.json(overviewSchema, {
         method: 'GET',

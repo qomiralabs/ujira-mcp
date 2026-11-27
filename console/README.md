@@ -82,6 +82,14 @@ keyed by the open project. Create is two wallet signatures, `POST /v1/mandates/p
 `POST /v1/signing/submit`, and a step is done only once the mandate read back from the server shows
 it; until then the page says what it waits for. Revoke asks for the mandate's name typed back.
 
+The developers screen (`developers`) lists the project's keys from `GET /v1/api-keys`, makes one
+with `POST /v1/api-keys` (a name, scopes, and an expiry of 1 to 730 days, 365 by default) and
+revokes one with `DELETE /v1/api-keys/{id}` after a confirm. The whole key is in the create answer
+only; the console holds it in the dialog that shows it, and nowhere else, so it is gone once that
+dialog closes. Only owners and admins manage keys: everyone else sees a short line saying so, and a
+403 from the server reads the same way. The screen also gives each mandate's MCP address,
+`<origin>/m/<contract>/mcp`, with the steps to connect it.
+
 ## Checks
 
 ```sh

@@ -34,7 +34,13 @@ begin
     if not exists (select from pg_catalog.pg_roles where rolname = definer_role) then
       execute format('create role %I nologin noinherit nobypassrls', definer_role);
     end if;
-    execute format('alter role %I nobypassrls', definer_role);
+    -- Only when it needs it: Postgres 16 and later refuse any change to the
+    -- attribute, even taking it away, from a login that does not hold it.
+    if exists (
+      select from pg_catalog.pg_roles where rolname = definer_role and rolbypassrls
+    ) then
+      execute format('alter role %I nobypassrls', definer_role);
+    end if;
   end loop;
 end
 $roles$;

@@ -3,20 +3,23 @@
 
 // Where the database lives and how hard this process may lean on it. Four
 // roles, each with its own pool: the app writes through the transaction
-// pooler, the worker listens through the session pooler, the reader reads,
-// and the migrator runs migrations. The reader has no URL of its own unless
-// one is given: it logs in as the app, which reads under the same policies,
-// so a deployment needs only the three logins it already has.
+// pooler, the worker listens on a session connection, the reader reads, and
+// the migrator runs migrations. The reader has no URL of its own unless one
+// is given: it logs in as the app, which reads under the same policies, so a
+// deployment needs only the three logins it already has.
 //
-// TLS is pinned by default: the server is verified against the certificate
-// in tls.ts, and a URL may not carry an ssl parameter, because pg would let
-// one replace or disable that. `UJIRA_DB_TLS=off` exists for a local
-// Postgres and is refused for any host that is not loopback.
+// TLS is pinned by default: the server is verified against the roots in
+// tls.ts, and a URL may not carry an ssl parameter, because pg would let one
+// replace or disable that. `UJIRA_DB_TLS=off` exists for a local Postgres and
+// is refused for any host that is not loopback.
 //
-// The numbers here come from the Supabase spike: max_connections is 60 on
-// the project, the pooler's statement_timeout and lock_timeout are 8s, the
-// transaction pooler delivers no LISTEN notification, and the migration
-// tool's advisory lock is session scoped. The defaults are deliberately
+// The database is Render Postgres. Its pooler is PgBouncer in transaction
+// mode on port 6432, which delivers no LISTEN notification and cannot hold
+// the migration tool's session scoped advisory lock, so the worker and the
+// migrator connect to the server directly on 5432. The connection budget is
+// the plan's, measured on the instance (docs/spikes/render-postgres.md). The
+// statement and lock limits stay under 8 s, the bound the first pooler had
+// and the roles migration still assumes. The defaults are deliberately
 // small; the deploy tunes them against real traffic.
 
 import { ConnectionUrl } from './connection-url.js';
@@ -83,11 +86,13 @@ export interface DatabaseConfig {
   readonly lockTimeoutMs: number;
 }
 
-// Measured on the project. `reservedForUs` leaves room for the dashboard,
-// the Supabase API roles, a migration running beside the services and a
-// person with psql.
+// The Render basic_256mb plan allows 100 client connections; the server
+// reports max_connections 103, the rest kept for Render's own roles.
+// `reservedForUs` leaves room for Render's monitoring and PgBouncer's own
+// server connections, a second instance during a deploy, a migration
+// running beside the services and a person with psql.
 export const CONNECTION_BUDGET = Object.freeze({
-  maxConnections: 60,
+  maxConnections: 100,
   reservedForUs: 30,
 });
 
@@ -102,21 +107,25 @@ export const POOL_DEFAULTS = Object.freeze({
   migration: 1,
 });
 
-// Under the pooler's 8s, so a statement here is cut by our limit and not by
-// a limit we do not control.
+// Under 8 s. Render's PgBouncer sets no query limit of its own; the bound
+// is kept because the app role's server side limits in the roles migration
+// are sized under it, and a client limit above those is never the one that
+// fires.
 const TIMEOUT_DEFAULTS = Object.freeze({
   acquireTimeoutMs: 5_000,
   statementTimeoutMs: 5_000,
   lockTimeoutMs: 3_000,
 });
-const POOLER_TIMEOUT_MS = 8_000;
+const TIMEOUT_CEILING_MS = 8_000;
 
-// Supavisor's transaction pooler. The worker cannot use it, because it
-// delivers no LISTEN notification, and nor can the migrator, whose advisory
-// lock is held in the session. Both are measured in the spike. The rule is
-// written as a refusal of this port rather than a demand for 5432, so a
-// local Postgres on any port still works.
-const TRANSACTION_POOLER_PORT = '6543';
+// Transaction poolers: 6432 is PgBouncer, which is where Render runs it, and
+// 6543 is Supavisor, refused too so a URL copied from the earlier host
+// cannot slip through. The worker cannot use one, because it delivers no
+// LISTEN notification, and nor can the migrator, whose advisory lock is held
+// in the session. Both are measured in docs/spikes/render-postgres.md. The
+// rule is written as a refusal of these ports rather than a demand for
+// 5432, so a local Postgres on any other port still works.
+const TRANSACTION_POOLER_PORTS: ReadonlySet<string> = new Set(['6432', '6543']);
 
 type Role = keyof typeof POOL_DEFAULTS;
 
@@ -145,7 +154,7 @@ const ALLOWED_URL_PARAMETERS: ReadonlySet<string> = new Set([
 // container, never anything reachable over a network.
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-// Roles that must reach the session pooler.
+// Roles that need a session connection, never a transaction pooler.
 const SESSION_ONLY: readonly Role[] = ['worker', 'migration'];
 
 function fail(message: string): never {
@@ -192,9 +201,9 @@ function readUrl(env: DatabaseEnvironment, role: Role): string {
       );
     }
   }
-  if (SESSION_ONLY.includes(role) && parsed.port === TRANSACTION_POOLER_PORT) {
+  if (SESSION_ONLY.includes(role) && TRANSACTION_POOLER_PORTS.has(parsed.port)) {
     fail(
-      `${key} must not use the transaction pooler port ${TRANSACTION_POOLER_PORT}: it delivers no LISTEN notification and breaks the migration lock, so this role needs a session connection`,
+      `${key} must not use the transaction pooler port ${parsed.port}: it delivers no LISTEN notification and breaks the migration lock, so this role needs a direct connection on 5432`,
     );
   }
   return raw;
@@ -262,9 +271,9 @@ export function loadDatabaseConfig(env: DatabaseEnvironment): DatabaseConfig {
     ['UJIRA_DB_STATEMENT_TIMEOUT_MS', statementTimeoutMs],
     ['UJIRA_DB_LOCK_TIMEOUT_MS', lockTimeoutMs],
   ] as const) {
-    if (value >= POOLER_TIMEOUT_MS) {
+    if (value >= TIMEOUT_CEILING_MS) {
       fail(
-        `${key} must stay under the pooler's ${String(POOLER_TIMEOUT_MS)} ms limit, or it would never be reached`,
+        `${key} must stay under ${String(TIMEOUT_CEILING_MS)} ms, the bound the app role's server side limits are sized under`,
       );
     }
   }

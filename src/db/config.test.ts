@@ -93,15 +93,18 @@ describe('loadDatabaseConfig', () => {
   it('refuses the transaction pooler port for the worker and the migrator', () => {
     // Measured in the spike: the transaction pooler delivers no LISTEN
     // notification, and the migration tool takes a session level advisory
-    // lock, so neither role may point at port 6543. Any other port is
-    // allowed, so a local Postgres works.
-    const onTransactionPort = 'postgresql://worker:s@pooler.example:6543/postgres';
-    expect(() => loadDatabaseConfig({ ...URLS, UJIRA_DB_WORKER_URL: onTransactionPort })).toThrow(
-      DatabaseConfigError,
-    );
-    expect(() => loadDatabaseConfig({ ...URLS, UJIRA_DB_MIGRATOR_URL: onTransactionPort })).toThrow(
-      DatabaseConfigError,
-    );
+    // lock, so neither role may point at PgBouncer's 6432, where Render runs
+    // it, or Supavisor's 6543. Any other port is allowed, so a local
+    // Postgres works.
+    for (const port of ['6432', '6543']) {
+      const onTransactionPort = `postgresql://worker:s@pooler.example:${port}/postgres`;
+      expect(() => loadDatabaseConfig({ ...URLS, UJIRA_DB_WORKER_URL: onTransactionPort })).toThrow(
+        `UJIRA_DB_WORKER_URL must not use the transaction pooler port ${port}`,
+      );
+      expect(() =>
+        loadDatabaseConfig({ ...URLS, UJIRA_DB_MIGRATOR_URL: onTransactionPort }),
+      ).toThrow(DatabaseConfigError);
+    }
     // A local container on a random port is fine for both.
     expect(() =>
       loadDatabaseConfig({
@@ -147,10 +150,11 @@ describe('loadDatabaseConfig', () => {
   });
 
   it('keeps the defaults inside the measured connection budget', () => {
-    // The spike measured max_connections 60 on the project. Defaults that
-    // can exhaust it would take the database down rather than slow it.
+    // The Render plan allows 100 client connections, and the instance
+    // reports max_connections 103. Defaults that can exhaust it would take
+    // the database down rather than slow it.
     const total = Object.values(POOL_DEFAULTS).reduce((sum, size) => sum + size, 0);
-    expect(CONNECTION_BUDGET.maxConnections).toBe(60);
+    expect(CONNECTION_BUDGET.maxConnections).toBe(100);
     expect(total).toBeLessThanOrEqual(CONNECTION_BUDGET.reservedForUs);
     expect(CONNECTION_BUDGET.reservedForUs).toBeLessThan(CONNECTION_BUDGET.maxConnections);
   });
@@ -190,9 +194,9 @@ describe('loadDatabaseConfig', () => {
     expect(() => loadDatabaseConfig({ ...URLS, ...overrides })).toThrow(DatabaseConfigError);
   });
 
-  it('keeps the statement timeout under the pooler', () => {
-    // The spike measured statement_timeout 8s and lock_timeout 8s on the
-    // authenticator role. A longer one here would never be reached.
+  it('keeps the statement timeout under 8 s', () => {
+    // The app role's server side limits in the roles migration sit under
+    // 8 s. A longer one here would never be reached.
     const config = loadDatabaseConfig(URLS);
     expect(config.statementTimeoutMs).toBeLessThan(8_000);
     expect(config.lockTimeoutMs).toBeLessThan(8_000);

@@ -46,13 +46,26 @@ begin
     if not exists (select from pg_catalog.pg_roles where rolname = login_role) then
       execute format('create role %I login noinherit nobypassrls', login_role);
     end if;
-    -- Converges a role that existed before this migration as well.
-    execute format('alter role %I nobypassrls', login_role);
+    -- Converges a role that existed before this migration as well. Only
+    -- when it needs it: Postgres 16 and later refuse any change to the
+    -- attribute, even taking it away, from a login that does not hold it,
+    -- and Render's bootstrap login does not.
+    if exists (
+      select from pg_catalog.pg_roles where rolname = login_role and rolbypassrls
+    ) then
+      execute format('alter role %I nobypassrls', login_role);
+    end if;
   end loop;
   -- The session running migrations must be able to become the owner. A
   -- superuser already can; on a managed server the bootstrap role cannot
-  -- until it is granted membership.
-  if not pg_catalog.pg_has_role(current_user, 'ujira_owner', 'member') then
+  -- until it is granted membership. From Postgres 16 the role that creates
+  -- a role is made a member with ADMIN alone, which counts as membership
+  -- but cannot SET ROLE, so there the test is SET, and the grant names it.
+  if pg_catalog.current_setting('server_version_num')::int >= 160000 then
+    if not pg_catalog.pg_has_role(current_user, 'ujira_owner', 'SET') then
+      execute format('grant ujira_owner to %I with set true', current_user);
+    end if;
+  elsif not pg_catalog.pg_has_role(current_user, 'ujira_owner', 'member') then
     execute format('grant ujira_owner to %I', current_user);
   end if;
 end

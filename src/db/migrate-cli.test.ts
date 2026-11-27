@@ -88,7 +88,7 @@ describe('npm run db:migrate', () => {
 
   it('runs up and down from an empty Postgres with no error', async () => {
     const database = await empty('superuser');
-    const env = { UJIRA_DB_MIGRATOR_URL: database.url };
+    const env = { UJIRA_DB_TLS: 'off', UJIRA_DB_MIGRATOR_URL: database.url };
     const up = capture();
     expect(await main(['up'], env, up)).toBe(0);
     expect(up.errors).toEqual([]);
@@ -110,6 +110,7 @@ describe('npm run db:migrate', () => {
   it('runs each file under its own login when a bootstrap URL is given', async () => {
     const database = await empty('two-logins');
     const env = {
+      UJIRA_DB_TLS: 'off',
       UJIRA_DB_BOOTSTRAP_URL: database.url,
       UJIRA_DB_MIGRATOR_URL: roleUrl(roleUrls, 'ujira_migrator', database.name),
     };
@@ -123,10 +124,22 @@ describe('npm run db:migrate', () => {
     expect(await schemaExists(database.url)).toBe(false);
   });
 
+  it('pins TLS unless told otherwise, so a server without TLS is refused', async () => {
+    // The test container speaks no TLS. With UJIRA_DB_TLS unset the run asks
+    // for it, verified against the pinned roots, and stops before anything.
+    const database = await empty('pinned');
+    const output = capture();
+    expect(await main(['up'], { UJIRA_DB_MIGRATOR_URL: database.url }, output)).toBe(1);
+    expect(output.errors.join('\n')).toContain('db:migrate: ');
+    expect(await schemaExists(database.url)).toBe(false);
+  });
+
   it('reports a failed run by its message, with no URL in it', async () => {
     const output = capture();
     const missing = withDatabase(adminUrl, 'no_such_database');
-    expect(await main(['up'], { UJIRA_DB_MIGRATOR_URL: missing }, output)).toBe(1);
+    expect(
+      await main(['up'], { UJIRA_DB_TLS: 'off', UJIRA_DB_MIGRATOR_URL: missing }, output),
+    ).toBe(1);
     const printed = output.errors.join('\n');
     const url = new URL(missing);
     expect(printed).toContain('db:migrate: ');

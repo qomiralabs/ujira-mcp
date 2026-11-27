@@ -29,7 +29,13 @@ begin
   if not exists (select from pg_catalog.pg_roles where rolname = 'ujira_ops') then
     create role ujira_ops nologin noinherit nobypassrls;
   end if;
-  alter role ujira_ops nobypassrls;
+  -- Only when it needs it: Postgres 16 and later refuse any change to the
+  -- attribute, even taking it away, from a login that does not hold it.
+  if exists (
+    select from pg_catalog.pg_roles where rolname = 'ujira_ops' and rolbypassrls
+  ) then
+    alter role ujira_ops nobypassrls;
+  end if;
 end
 $roles$;
 

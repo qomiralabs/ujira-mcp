@@ -90,6 +90,12 @@ dialog closes. Only owners and admins manage keys: everyone else sees a short li
 403 from the server reads the same way. The screen also gives each mandate's MCP address,
 `<origin>/m/<contract>/mcp`, with the steps to connect it.
 
+The approvals screen (`approvals`) reads `GET /v1/approvals`, oldest first, with the rule and the
+budget left from each mandate. Approve and reject restate the amount and the recipient, then sign
+an `approve` or `reject` action in the approver's wallet; the row waits until the payout read back
+from the server has left `pending_approval`. A member the mandate does not name as an approver sees
+the item and the reason, and cannot sign. J and K move through the queue; A and R open the confirm.
+
 ## Checks
 
 ```sh

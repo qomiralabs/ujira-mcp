@@ -471,12 +471,26 @@ function ApiKeys({ v1, projectId, role }: { v1: V1Api; projectId: string; role: 
   );
 }
 
-function Snippet({ title, code, copyLabel }: { title: string; code: string; copyLabel: string }) {
+function Snippet({
+  title,
+  code,
+  copyLabel,
+  soon = false,
+}: {
+  title: string;
+  code: string;
+  copyLabel: string;
+  /** Shown as it will work, tagged, until the route behind it ships. */
+  soon?: boolean;
+}) {
   const id = useId();
   return (
     <figure className="snippet" aria-labelledby={id}>
-      <figcaption id={id} className="snippet-head">
-        <span>{title}</span>
+      <figcaption className="snippet-head">
+        <span id={id} className="snippet-title">
+          {title}
+          {soon ? <SoonTag /> : null}
+        </span>
         <CopyButton text={code} label={copyLabel} icon />
       </figcaption>
       <pre tabIndex={0} aria-labelledby={id}>
@@ -493,15 +507,19 @@ function Examples({ m }: { m: SnippetMandate }) {
       <div className="card-head">
         <h2 id="examples-title" className="card-title">
           With an API key
-          <SoonTag />
         </h2>
         <Tip
           label="About these examples"
-          text="The payouts API and the project MCP address are on the way. Keys you make now will work with them."
+          text="Send the key as a bearer token. The idempotency key makes a retry safe: the same key and body return the same payout."
         />
       </div>
       <Snippet title="Create a payout" code={payoutCurl(origin, m)} copyLabel="Copy the request" />
-      <Snippet title="Any MCP client" code={keyMcpConfig(origin)} copyLabel="Copy the MCP config" />
+      <Snippet
+        title="Any MCP client"
+        code={keyMcpConfig(origin)}
+        copyLabel="Copy the MCP config"
+        soon
+      />
     </section>
   );
 }

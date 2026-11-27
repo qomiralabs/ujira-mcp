@@ -21,6 +21,23 @@ const CURRENT_PROJECT = sql<string>`ujira.current_project_id()`;
 
 export type AgentKeyStatus = 'active' | 'retired';
 
+// Whether the key's account exists on chain yet; see the funding migration.
+export type AgentKeyFundingStatus = 'pending' | 'funded' | 'failed';
+
+export interface AgentKeyFunding {
+  readonly status: AgentKeyFundingStatus;
+  readonly attempts: number;
+  // The chain adapter's code for the last failure, such as UNAVAILABLE.
+  readonly lastError: string | null;
+  readonly fundedAt: Date | null;
+}
+
+// What one funding attempt came to. `final` marks the last attempt the
+// retries allow, after which the key reads as failed.
+export type FundingAttempt =
+  | { readonly kind: 'funded' }
+  | { readonly kind: 'failed'; readonly error: string; readonly final: boolean };
+
 export interface AgentKey {
   readonly id: string;
   readonly projectId: string;
@@ -29,6 +46,7 @@ export interface AgentKey {
   // The account the key signs as, which the project's mandates name as agent.
   readonly publicKey: string;
   readonly status: AgentKeyStatus;
+  readonly funding: AgentKeyFunding;
   readonly createdAt: Date;
 }
 
@@ -51,11 +69,23 @@ export interface SealedAgentSecret {
 
 const STATUSES: ReadonlySet<string> = new Set<AgentKeyStatus>(['active', 'retired']);
 
-// The column check makes this unreachable unless the two lists drift apart.
+const FUNDING_STATUSES: ReadonlySet<string> = new Set<AgentKeyFundingStatus>([
+  'pending',
+  'funded',
+  'failed',
+]);
+
+// The column checks make these unreachable unless the lists drift apart.
 function agentKeyStatus(value: string): AgentKeyStatus {
   if (!STATUSES.has(value))
     throw new Error('an agent key row holds a status this code does not know');
   return value as AgentKeyStatus;
+}
+
+function fundingStatus(value: string): AgentKeyFundingStatus {
+  if (!FUNDING_STATUSES.has(value))
+    throw new Error('an agent key row holds a funding status this code does not know');
+  return value as AgentKeyFundingStatus;
 }
 
 // The public columns only: these are all the app may select.
@@ -65,6 +95,10 @@ const publicColumns = [
   'network',
   'public_key',
   'status',
+  'funding_status',
+  'funding_attempts',
+  'funding_error',
+  'funded_at',
   'created_at',
 ] as const;
 
@@ -74,6 +108,10 @@ function toAgentKey(row: {
   network: string;
   public_key: string;
   status: string;
+  funding_status: string;
+  funding_attempts: number;
+  funding_error: string | null;
+  funded_at: Date | null;
   created_at: Date;
 }): AgentKey {
   return {
@@ -82,6 +120,12 @@ function toAgentKey(row: {
     network: row.network,
     publicKey: row.public_key,
     status: agentKeyStatus(row.status),
+    funding: {
+      status: fundingStatus(row.funding_status),
+      attempts: row.funding_attempts,
+      lastError: row.funding_error,
+      fundedAt: row.funded_at,
+    },
     createdAt: row.created_at,
   };
 }
@@ -135,6 +179,37 @@ export const agentKeys = {
       .where('status', '=', 'active')
       .executeTakeFirst();
     return result.numUpdatedRows > 0n;
+  },
+
+  // Counts one funding attempt and what it came to. A key already funded is
+  // left as it is, so a late retry cannot undo it; undefined then, and for a
+  // key outside the context.
+  recordFunding: async (
+    db: Tx,
+    id: string,
+    attempt: FundingAttempt,
+  ): Promise<AgentKey | undefined> => {
+    const row = await db
+      .updateTable('ujira.agent_keys')
+      .set(
+        attempt.kind === 'funded'
+          ? {
+              funding_status: 'funded',
+              funding_attempts: sql<number>`funding_attempts + 1`,
+              funding_error: null,
+              funded_at: sql<Date>`now()`,
+            }
+          : {
+              funding_status: attempt.final ? 'failed' : 'pending',
+              funding_attempts: sql<number>`funding_attempts + 1`,
+              funding_error: attempt.error,
+            },
+      )
+      .where('id', '=', id)
+      .where('funding_status', '<>', 'funded')
+      .returning(publicColumns)
+      .executeTakeFirst();
+    return row === undefined ? undefined : toAgentKey(row);
   },
 
   // For the worker's signer only. Under the app or the reader the database

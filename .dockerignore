@@ -1,6 +1,6 @@
 # Only package.json, the lockfile, the TypeScript configs, src, docker,
 # console (the web app source), embed (the widget source), site (the
-# marketing pages) and LICENSE are needed to build the image.
+# marketing pages), db/migrations and LICENSE are needed to build the image.
 .git
 .github
 node_modules

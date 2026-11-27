@@ -1,0 +1,36 @@
+# What squawk reports in the migrations written before it ran in CI, each one
+# read and accepted, as `<file> <rule>`. scripts/lint-migrations.sh fails on an
+# entry that no longer matches a finding, so this list only shrinks, and on an
+# entry for a file after 1800000000025. A new migration fixes what squawk
+# reports, or accepts it with `-- squawk-ignore <rule>` and a reason, in the file.
+
+# The amount, scale and hash domains are created with the schema, before any
+# table uses them, and they are how every amount column is bounded.
+1800000000000_amount_domain_reference_data.sql ban-create-domain-with-constraint
+
+# A contract migration: dropping the old default and bound is its purpose, and
+# the tighter check replaces them in the same transaction.
+1800000000004_api_token_format.sql ban-drop-default
+1800000000004_api_token_format.sql ban-drop-constraint
+
+# The check that expires_at is not null was validated by the migration before,
+# so Postgres takes it as proof and sets NOT NULL without scanning the table;
+# the check is then dropped as redundant.
+1800000000006_api_token_expiry_not_null.sql adding-not-nullable-field
+1800000000006_api_token_expiry_not_null.sql ban-drop-constraint
+
+# payout_methods, mandates and payout_legs hold no rows in any database these
+# run on: nothing writes product rows before the cutover. A scan or an index
+# build on an empty table is instant. leg_index is checked to 0 to 3.
+1800000000020_destination_checks_signing_requests.sql constraint-missing-not-valid
+1800000000021_payouts_legs_receipts.sql disallowed-unique-constraint
+1800000000021_payouts_legs_receipts.sql prefer-bigint-over-smallint
+
+# graphile_worker.migrations is Graphile Worker's own ledger, created here in
+# the shape the pinned version creates, so the installer finds it as its own.
+1800000000024_job_queue.sql prefer-bigint-over-int
+
+# agent_keys holds no rows in any database this runs on before the cutover, so
+# the checks scan nothing. funding_attempts is checked to 0 to 1000.
+1800000000025_agent_key_funding.sql constraint-missing-not-valid
+1800000000025_agent_key_funding.sql prefer-bigint-over-int

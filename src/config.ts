@@ -12,7 +12,9 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import type { MandateContract, TxSigner } from './chain/adapter.js';
+import type { AgentAccounts } from './chain/agent-accounts.js';
 import { StellarChainAdapter } from './chain/stellar/adapter.js';
+import { StellarAgentAccounts } from './chain/stellar/agent-accounts.js';
 import { RpcGateway, TESTNET_RPC_URL, type SorobanGateway } from './chain/stellar/gateway.js';
 import { signerFromEnv } from './chain/stellar/keys.js';
 import {
@@ -199,6 +201,8 @@ export interface Wiring {
   readonly receipts: ReceiptLog;
   /** Horizon and the RPC outside contract calls, such as account balances. */
   readonly network: StellarNetworkPort;
+  /** Makes, funds and signs with the per project agent keys. */
+  readonly agentAccounts: AgentAccounts;
 }
 
 /**
@@ -248,5 +252,6 @@ export function createEngine(
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.log === undefined ? {} : { log: options.log }),
   });
-  return { engine, mandate, adapter, gateway, receipts, network };
+  const agentAccounts = new StellarAgentAccounts({ network: adapter.network, chain: network });
+  return { engine, mandate, adapter, gateway, receipts, network, agentAccounts };
 }

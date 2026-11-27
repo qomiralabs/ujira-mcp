@@ -7,9 +7,14 @@
 // one JSON object on stdout through the redacting sink in src/log.ts, with
 // `service` naming the part that wrote it: ujira-server, ujira-mcp-http (the
 // web role, the name the HTTP server has always logged as) or ujira-worker.
-// A failure to start is one plain line on stderr, before any logging runs.
+// A failure to start is one plain line on stderr.
+//
+// Before any role starts, the pending database migrations run, when
+// UJIRA_DB_MIGRATOR_URL is set (src/db/migrate-start.ts). A failed run exits 1
+// before the web role listens, so a deploy with a bad migration never passes
+// its health check and the previous release keeps serving.
 
-import { DatabaseConfigError } from '../db/index.js';
+import { DatabaseConfigError, migrateBeforeStart, MigrationStartError } from '../db/index.js';
 import { EngineError } from '../errors.js';
 import { jsonLog } from '../log.js';
 import { startWorker } from '../worker/index.js';
@@ -26,7 +31,8 @@ function failed(error: unknown): never {
   const message =
     error instanceof EngineError ||
     error instanceof ListenError ||
-    error instanceof DatabaseConfigError
+    error instanceof DatabaseConfigError ||
+    error instanceof MigrationStartError
       ? error.message
       : 'failed to start';
   process.stderr.write(`ujira-server: ${message}\n`);
@@ -35,6 +41,7 @@ function failed(error: unknown): never {
 
 try {
   const roles = parseRoles(process.env['UJIRA_ROLES']);
+  await migrateBeforeStart(process.env, { log });
   const workerLog = prefixed('ujira-worker');
   await runServer({
     roles,

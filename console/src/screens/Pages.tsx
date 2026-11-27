@@ -27,6 +27,7 @@ import { Amount, Empty, ErrorNotice, Icon, Notice, Skeleton, SoonRow } from '../
 import { formatUsdc } from '../lib/money';
 import type { Mandate, Receipt } from '../lib/schemas';
 import { shortAddress } from '../lib/strkey';
+import { ApprovalsV1 } from './ApprovalsV1';
 import { MandatesV1 } from './MandatesV1';
 import { PayoutsV1 } from './PayoutsV1';
 
@@ -219,6 +220,15 @@ function PayoutsOnApi() {
 }
 
 export function ApprovalsPage() {
+  const v1 = useV1('approvals');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <ApprovalsV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
+  return <ApprovalsOnApi />;
+}
+
+function ApprovalsOnApi() {
   const [lastPaid, setLastPaid] = useState<{ result: Receipt; label: string } | null>(null);
   return (
     <WithPortfolio what="what waits for your approval">

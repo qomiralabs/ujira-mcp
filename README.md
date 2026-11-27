@@ -268,7 +268,8 @@ The faucet, test recipients, the recycler and the SDP rail are the demo's, so th
 | `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
 | `UJIRA_MANDATE_PAYOUTS_PER_HOUR` | `30` | Payout requests an hour on one console mandate, from the console and its MCP URL together. |
 | `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira.co`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
-| `UJIRA_SIGN_IN` | `off` | `on` serves wallet sign in on `/v1` (`auth/challenge`, `auth/session`, `me`) and the principal and project routes (`principals`, `projects`), and makes `/api/config` report `signIn: true`, so the dashboard asks people to sign in. It needs `UJIRA_PUBLIC_ORIGIN` set to the https origin the dashboard is served from, the `UJIRA_DB_*` URLs, and the migrations applied. The session is an HttpOnly, Secure, SameSite=Lax `ujira_session` cookie on `/v1`; only its SHA-256 is stored. |
+| `UJIRA_SIGN_IN` | `off` | `on` serves wallet sign in on `/v1` (`auth/challenge`, `auth/session`, `me`) and the principal and project routes (`principals`, `projects`), the API key routes (`api-keys`), and the recipient routes (`recipients`), and makes `/api/config` report `signIn: true`, so the dashboard asks people to sign in. It needs `UJIRA_PUBLIC_ORIGIN` set to the https origin the dashboard is served from, `UJIRA_KEY_ENCRYPTION_KEY`, the `UJIRA_DB_*` URLs, and the migrations applied. The session is an HttpOnly, Secure, SameSite=Lax `ujira_session` cookie on `/v1`; only its SHA-256 is stored. |
+| `UJIRA_KEY_ENCRYPTION_KEY` | none | 32 random bytes in base64 (`openssl rand -base64 32`). Seals every project's agent key and every recipient email with AES-256-GCM. Required with `UJIRA_SIGN_IN=on`, since every new project gets its own agent key; a malformed value refuses to start either way, and is never repeated in the refusal. Rotation is in `docs/runbooks/key-encryption-key-rotation.md`. |
 | `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built dashboard, served under `/app`. |
 | `UJIRA_SITE_DIR` | `site` in the repository | The marketing site and the testnet proof page, served at the root. |
 | `UJIRA_EMBED_DIR` | `embed/dist` in the repository | The built recipient widget, served under `/embed/v1/`. |
@@ -384,6 +385,20 @@ Its login, password and database are all `ujira`, fixed local values that no rea
 | `UJIRA_DB_WORKER_URL` | `postgresql://ujira:ujira@127.0.0.1:54329/ujira` |
 
 The local server has no TLS certificate, so turn TLS off in the database settings when you point them at it. The `ujira` login owns the database and is a superuser, so it bypasses row level security: use it to migrate and to create the test databases, never to prove tenant isolation. The app connects as `ujira_app` (section 8.3 of `docs/adr/0001-product-base.md`), a login the migrations create without a password; give it a local password with `ALTER ROLE` and point `UJIRA_DB_APP_URL` at it, and do the same for the worker's login and `UJIRA_DB_WORKER_URL`. The `local-db` CI job starts this service and logs in from the host with the URL above.
+
+### Migrations on deploy
+
+The server runs the pending migrations up before any role starts (`src/db/migrate-start.ts`), so the web role only takes traffic on a schema that is up to date:
+
+- `UJIRA_DB_MIGRATOR_URL` unset: nothing runs, one log line says so, and the server starts as it did before it had a database.
+- `UJIRA_DB_MIGRATOR_URL` set: every pending migration runs under the migrator login, over the pinned TLS, connecting directly on 5432 (the PgBouncer port is refused). A file marked `-- bootstrap` is refused under that login, so a deploy that carries one also needs `UJIRA_DB_BOOTSTRAP_URL`; with it, each file runs under the login it names. `UJIRA_DB_BOOTSTRAP_URL` without the migrator URL refuses to start.
+- A failed or refused run exits 1 before the web role listens. The host's health check never passes, the deploy fails and the previous release keeps serving. A migration that fails rolls back whole (under the migrator alone, so do the files before it, up to any `-- no-transaction` file), and the next deploy starts again where the run stopped.
+- Instances that start together wait for the migration lock: one runs the migrations and the others find nothing to do. An instance gives up after 5 minutes behind a run that never ends.
+- The start step runs the SQL migrations only. The job queue's own tables are installed by the worker when it starts, or by `node dist/db/migrate-cli.js up` with `UJIRA_DB_WORKER_URL` set (see the worker section).
+
+The previous release runs on the new schema until the new one is healthy, which is why every migration is expand and contract. The same run is a command in the image: `node dist/db/migrate-cli.js up`.
+
+`scripts/lint-migrations.sh` lints the up section of every migration with [squawk](https://squawk.dev), and the `migrations` CI job runs it after its self test, `scripts/lint-migrations.test.sh`. An index built without `CONCURRENTLY`, a constraint added without `NOT VALID`, or a statement with no `lock_timeout` fails it. Fix the migration, or accept the finding in the file with `-- squawk-ignore <rule>` on the line before the statement and a comment saying why. The findings in the migrations written before the lint are accepted, each with its reason, in `scripts/migration-lint-baseline.txt`, which can only shrink. To run it locally, put the squawk release CI pins on your PATH or name it in `SQUAWK`.
 
 ## Dashes
 

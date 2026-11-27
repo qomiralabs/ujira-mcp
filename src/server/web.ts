@@ -16,49 +16,44 @@ import type { Server } from 'node:http';
 import { dirname } from 'node:path';
 
 import { createV1App } from '../api/app.js';
-import { createAuthenticate } from '../api/authenticate.js';
 import { nodeHandler } from '../api/node.js';
 import type { Route } from '../api/route.js';
-import { apiKeyRoutes } from '../api/routes/api-keys.js';
-import { authRoutes } from '../api/routes/auth.js';
-import { tenancyRoutes } from '../api/routes/tenancy.js';
-import { createApiKeyService } from '../auth/api-key-service.js';
-import { databaseApiKeyRecords, databaseTokenStore } from '../auth/api-key-store.js';
-import { postgresSignInStore } from '../auth/postgres-store.js';
 import { loadSignInSettings, type SignInSettings } from '../auth/settings.js';
-import { SignIn } from '../auth/sign-in.js';
-import { createTokenAuthenticator } from '../auth/token-auth.js';
-import { tokenEnvironmentFor } from '../auth/token.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
+import type { ChainAdapter } from '../chain/adapter.js';
+import type { AgentAccounts } from '../chain/agent-accounts.js';
 import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
 import { createDatabase, DatabaseConfigError, loadDatabaseConfig } from '../db/index.js';
 import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
+import type { AgentKeyService } from '../keys/agent-keys.js';
+import { requireSealer, sealerFromEnv } from '../keys/settings.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
-import { postgresTenancyStore } from '../tenancy/postgres-store.js';
-import { Tenancy } from '../tenancy/tenancy.js';
 import { observabilityFromEnv } from './observability.js';
 import type { RoleHandle } from './run.js';
+import { v1Routes } from './v1-routes.js';
 
 interface SignInWiring {
   readonly routes: Route[];
+  readonly agentKeys: AgentKeyService;
   readonly close: () => Promise<void>;
 }
 
 /**
- * The sign in, principal, project and API key routes and the database
- * behind them, only when UJIRA_SIGN_IN is on. Off, the web role needs no
- * database at all, as before. Keys are managed from a session, so they
- * cannot be served without one.
+ * The /v1 routes that need a database, and the database behind them, only
+ * when UJIRA_SIGN_IN is on. Off, the web role needs no database at all, as
+ * before. Keys and recipients are managed from a session, so they cannot be
+ * served without one.
  */
 function signInWiring(
   settings: SignInSettings,
   env: Env,
-  verifier: WalletProofVerifier,
+  adapter: ChainAdapter & WalletProofVerifier,
   network: 'testnet' | 'pubnet',
   log: (line: string) => void,
+  agentAccounts: AgentAccounts,
 ): SignInWiring | undefined {
   if (!settings.enabled) return undefined;
   let config: ReturnType<typeof loadDatabaseConfig>;
@@ -72,33 +67,19 @@ function signInWiring(
     }
     throw error;
   }
+  // Before the database, so a missing key stops the server with nothing open.
+  const sealer = requireSealer(env, 'UJIRA_SIGN_IN=on');
   const db = createDatabase(config);
-  const signIn = new SignIn({
-    store: postgresSignInStore(db),
-    verifier,
+  const v1 = v1Routes({
+    db,
+    adapter,
     origin: settings.origin,
+    network,
     log,
+    sealer,
+    agentAccounts,
   });
-  const tenancy = new Tenancy({ store: postgresTenancyStore(db), log });
-  const session = { signIn, origin: settings.origin };
-  const environment = tokenEnvironmentFor(network);
-  const tokens = createTokenAuthenticator({ store: databaseTokenStore(db), environment, log });
-  const keys = createApiKeyService({
-    records: databaseApiKeyRecords(db),
-    environment,
-    onRevoked: (prefix) => {
-      tokens.forget(prefix);
-    },
-  });
-  const authenticate = createAuthenticate({ tokens, session });
-  return {
-    routes: [
-      ...authRoutes(session),
-      ...tenancyRoutes({ signIn, tenancy, origin: settings.origin }),
-      ...apiKeyRoutes({ keys, authenticate }),
-    ],
-    close: () => db.close(),
-  };
+  return { ...v1, close: () => db.close() };
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -187,6 +168,9 @@ export async function startWeb(
 ): Promise<RoleHandle> {
   // First, so a demo asked for on another network stops the server before anything else.
   const withDemo = demoFeatures(env);
+  // A malformed key encryption key refuses to start even while nothing uses
+  // it yet, so it is found when it is set, not when it is first needed.
+  sealerFromEnv(env);
   const settings = loadSettings(env);
   const http = loadHttpSettings(env);
   const signInSettings = loadSignInSettings(env);
@@ -205,7 +189,14 @@ export async function startWeb(
     env,
     ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
   });
-  const signIn = signInWiring(signInSettings, env, wiring.adapter, settings.network, log);
+  const signIn = signInWiring(
+    signInSettings,
+    env,
+    wiring.adapter,
+    settings.network,
+    log,
+    wiring.agentAccounts,
+  );
   const server = createHttpServer({
     settings: http,
     log,

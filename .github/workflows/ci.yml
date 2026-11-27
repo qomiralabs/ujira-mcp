@@ -24,6 +24,11 @@ env:
   # only to a release at least 14 days old.
   GITLEAKS_VERSION: 8.30.1
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  # squawk is Apache-2.0 licensed. Bump the version and its hash together, and
+  # only to a release at least 14 days old. The hash is the one GitHub lists for
+  # the release asset.
+  SQUAWK_VERSION: 2.72.0
+  SQUAWK_SHA256: a61661808119a82515565503111099b070c869f73698f61cb1785de5d0c8b11a
   # The Unicode tables of the runner's python3 decide what the invisible character
   # check rejects. A runner update that moves them fails the check, so the set of
   # rejected characters only changes when this does.
@@ -161,6 +166,39 @@ jobs:
         if: ${{ !cancelled() }}
         run: scripts/test-check-invisible-characters.sh
 
+  # The up section of every migration, linted by squawk for changes that would
+  # block a live table. The self test runs first and the lint reports even when
+  # it fails, so a squawk that stopped rejecting the unsafe fixture shows up
+  # next to the result it would otherwise make look clean.
+  migrations:
+    name: migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install squawk
+        run: |
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 --max-time 180 -o "${RUNNER_TEMP}/squawk" "https://github.com/sbdchd/squawk/releases/download/v${SQUAWK_VERSION}/squawk-linux-x64"
+          echo "${SQUAWK_SHA256}  ${RUNNER_TEMP}/squawk" | sha256sum --check --strict
+          chmod +x "${RUNNER_TEMP}/squawk"
+          version=$("${RUNNER_TEMP}/squawk" --version)
+          [ "$version" = "squawk ${SQUAWK_VERSION}" ] || { echo "squawk is $version, not ${SQUAWK_VERSION}" >&2; exit 1; }
+          echo "SQUAWK=${RUNNER_TEMP}/squawk" >> "$GITHUB_ENV"
+
+      - name: Test the migration lint
+        run: scripts/lint-migrations.test.sh
+
+      - name: Lint the migrations
+        if: ${{ !cancelled() }}
+        run: scripts/lint-migrations.sh
+
   # The MCP server, the payout engine and the console API. The install is the
   # lockfile exactly, with no install scripts, the same way the image builds.
   # Every step after the install reports even when an earlier one fails, so one
@@ -212,8 +250,11 @@ jobs:
   # The image the host runs, built from the Dockerfile and run the way a host
   # runs it: both roles (the default) and the web role alone answer /healthz,
   # the worker role alone opens no port, an unknown role refuses to start, and
-  # SIGTERM stops each within 20 s, the web role first. scripts/check-image.sh
-  # holds the checks, so they run the same on a laptop.
+  # SIGTERM stops each within 20 s, the web role first. With no database the
+  # migration step is skipped; against a Postgres, two instances run the
+  # shipped migrations once before their roles start, and a failing migration
+  # exits 1 before any role starts. scripts/check-image.sh holds the checks,
+  # so they run the same on a laptop.
   image:
     name: image
     runs-on: ubuntu-24.04

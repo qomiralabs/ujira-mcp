@@ -10,7 +10,11 @@
 # - UJIRA_ROLES=web answers /healthz and starts no worker;
 # - UJIRA_ROLES=worker opens no port, needs none of the web settings, and
 #   stops cleanly;
-# - an unknown role exits 1 with a message that names it.
+# - an unknown role exits 1 with a message that names it;
+# - with no database configured the migration step is skipped;
+# - with a Postgres (the one docker-compose.yml pins), two instances started
+#   together run every migration in the image once, before their roles start,
+#   and a migration that fails exits 1 before any role starts.
 #
 # The web role needs an agent key and a mandate address to start. This script
 # makes a fresh unfunded key and a made up contract address inside the image,
@@ -21,6 +25,7 @@
 set -euo pipefail
 
 image=${1:?usage: scripts/check-image.sh <image> [first host port]}
+here=$(cd "$(dirname "$0")/.." && pwd)
 base_port=${2:-18080}
 budget_seconds=20
 run_id="ujira-check-$$"
@@ -126,6 +131,13 @@ echo "check-image: an unknown role exits 1 with: $refused"
 both="$run_id-both"
 start "$both" --env-file "$env_file" --publish "127.0.0.1:${base_port}:8080"
 wait_log "$both" '"service":"ujira-server","event":"log","message":"running web,worker"'
+docker logs "$both" 2>&1 |
+  grep -qF '"service":"ujira-server","event":"log","message":"migrations skipped: UJIRA_DB_MIGRATOR_URL is not set"' ||
+  {
+    show_logs "$both"
+    fail "with no database the migration step did not say it was skipped"
+  }
+echo "check-image: with no database the migration step is skipped"
 wait_healthy "http://127.0.0.1:${base_port}/healthz" || {
   show_logs "$both"
   fail "/healthz did not answer 200 with both roles"
@@ -165,5 +177,79 @@ if docker exec "$worker" node -e "
 fi
 echo "check-image: the worker role has no HTTP listener"
 stop_within_budget "$worker"
+
+# 5. Migrations before the roles start, against a real Postgres. The image's
+# containers share its network, so the database is on their loopback address,
+# the only place UJIRA_DB_TLS=off is accepted.
+pg_image=$(awk '$1 == "image:" && $2 ~ /^postgres:/ { print $2; exit }' "$here/docker-compose.yml")
+[ -n "$pg_image" ] || fail "no Postgres image in docker-compose.yml"
+pg="$run_id-pg"
+pg_password="check-$$-$RANDOM"
+containers+=("$pg")
+docker run --detach --name "$pg" -e POSTGRES_PASSWORD="$pg_password" -e POSTGRES_DB=ujira \
+  "$pg_image" >/dev/null
+for _ in $(seq 1 60); do
+  docker exec "$pg" pg_isready --quiet --host 127.0.0.1 --username postgres && break
+  sleep 1
+done
+docker exec "$pg" pg_isready --quiet --host 127.0.0.1 --username postgres || {
+  show_logs "$pg"
+  fail "Postgres did not become ready"
+}
+db_env=(--network "container:$pg" -e UJIRA_ROLES=worker -e UJIRA_DB_TLS=off
+  -e "UJIRA_DB_MIGRATOR_URL=postgresql://postgres:${pg_password}@127.0.0.1:5432/ujira")
+expected=$(find "$here/db/migrations" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')
+shipped=$(docker run --rm --entrypoint sh "$image" -c 'ls /app/db/migrations/*.sql | wc -l' | tr -d ' ')
+[ "$shipped" = "$expected" ] || fail "the image ships $shipped migrations, the repository has $expected"
+ledger() {
+  docker exec "$pg" psql --username postgres --dbname ujira --no-psqlrc --tuples-only --no-align \
+    --command 'select count(*), count(distinct name) from public.ujira_migrations'
+}
+
+first="$run_id-migrate-1"
+second="$run_id-migrate-2"
+start "$first" "${db_env[@]}"
+start "$second" "${db_env[@]}"
+wait_log "$first" '"service":"ujira-server","event":"log","message":"running worker"'
+wait_log "$second" '"service":"ujira-server","event":"log","message":"running worker"'
+[ "$(ledger)" = "$expected|$expected" ] || fail "the ledger holds $(ledger), not $expected once each"
+applied=0
+for name in "$first" "$second"; do
+  logs=$(docker logs "$name" 2>&1)
+  if grep -qF "\"message\":\"migrations applied ${expected}: " <<<"$logs"; then
+    applied=$((applied + 1))
+  elif ! grep -qF '"message":"migrations up to date, nothing to run"' <<<"$logs"; then
+    show_logs "$name"
+    fail "$name neither applied the migrations nor found them up to date"
+  fi
+  ran=$(grep -n -F '"message":"migrations ' <<<"$logs" | tail -1 | cut -d: -f1)
+  running=$(grep -n -F '"message":"running worker"' <<<"$logs" | cut -d: -f1)
+  [ "$ran" -lt "$running" ] || fail "$name started its role before its migrations finished"
+  if grep -qF "$pg_password" <<<"$logs"; then fail "$name logged the database password"; fi
+done
+[ "$applied" = 1 ] || fail "$applied instances applied the migrations, not 1"
+echo "check-image: two instances started together ran $expected migrations once, before their roles"
+stop_within_budget "$first"
+stop_within_budget "$second"
+
+# A failed migration exits 1 before any role starts, and the ledger is as it was.
+broken="$work/broken-migrations"
+mkdir -p "$broken"
+cp "$here"/db/migrations/*.sql "$broken/"
+printf '%s\n' '-- expand' '-- Up Migration' 'select * from public.nowhere;' '-- Down Migration' \
+  'select 1;' >"$broken/1999999999999_broken.sql"
+chmod 0755 "$broken"
+chmod 0644 "$broken"/*.sql
+set +e
+refused=$(docker run --rm "${db_env[@]}" -v "$broken:/app/db/migrations:ro" "$image" 2>&1)
+code=$?
+set -e
+[ "$code" = "1" ] || fail "a failed migration exited $code, not 1: $refused"
+grep -qE '^ujira-server: migrations failed: .*nowhere' <<<"$refused" ||
+  fail "a failed migration printed: $refused"
+if grep -qF '"message":"running' <<<"$refused"; then fail "a role started after a failed migration"; fi
+if grep -qF "$pg_password" <<<"$refused"; then fail "a failed migration printed the database password"; fi
+[ "$(ledger)" = "$expected|$expected" ] || fail "a failed migration changed the ledger: $(ledger)"
+echo "check-image: a failed migration exits 1 before any role starts"
 
 echo "check-image: every role check passed"

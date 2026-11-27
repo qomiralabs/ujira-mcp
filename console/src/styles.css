@@ -2746,7 +2746,8 @@ input.mono {
   padding: 8px 10px 4px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-3);
+  /* Small text: the third ink is 4.2:1 on white, so it takes the second. */
+  color: var(--text-2);
 }
 
 .session-item {

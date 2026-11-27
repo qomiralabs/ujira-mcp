@@ -47,7 +47,8 @@
   --paid-tint: var(--paid-bg);
   --wait-fg: var(--wait);
   --wait-tint: var(--wait-bg);
-  --block-fg: var(--block);
+  /* The landing page red reads at 3.9:1 on its own tint; text needs 4.5:1. */
+  --block-fg: #b91c1c;
   --block-tint: var(--block-bg);
   --neutral-tint: #eef2f3;
   --avatar-bg: var(--mist);
@@ -101,7 +102,7 @@
   --paid-tint: rgba(74, 222, 128, 0.14);
   --wait-fg: #fbbf24;
   --wait-tint: rgba(251, 191, 36, 0.14);
-  --block-fg: #f87171;
+  --block-fg: #fca5a5;
   --block-tint: rgba(248, 113, 113, 0.14);
   --neutral-tint: #16444f;
   --avatar-bg: #1c4f5b;
@@ -144,7 +145,7 @@
     --paid-tint: rgba(74, 222, 128, 0.14);
     --wait-fg: #fbbf24;
     --wait-tint: rgba(251, 191, 36, 0.14);
-    --block-fg: #f87171;
+    --block-fg: #fca5a5;
     --block-tint: rgba(248, 113, 113, 0.14);
     --neutral-tint: #16444f;
     --avatar-bg: #1c4f5b;

@@ -4,9 +4,12 @@
 // The sign in flow in a real browser, in mock mode: sign in with the demo
 // wallet, name the organisation, land on the page asked for, switch project
 // and sign out. Screenshots of each screen go to e2e/screenshots at the three
-// widths the console is designed for, in light and dark.
+// widths the console is designed for, in light and dark, and each screen
+// photographed passes an axe scan.
 
 import { expect, test, type Page } from '@playwright/test';
+
+import { expectAccessible } from './axe';
 
 const WIDTHS = [375, 768, 1440] as const;
 const SCHEMES = ['light', 'dark'] as const;
@@ -16,6 +19,8 @@ async function shot(page: Page, name: string, width: number, scheme: string) {
   // Fonts come from Google Fonts; wait for them so the screenshot is the real look.
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: `${SHOTS}/${name}-${width}-${scheme}.png`, fullPage: true });
+  // Every screen that is photographed is also scanned, in the same state.
+  await expectAccessible(page, `${name} at ${String(width)} in ${scheme}`);
 }
 
 for (const width of WIDTHS) {

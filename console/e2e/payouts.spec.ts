@@ -4,9 +4,12 @@
 // The payouts screen on /v1 in a real browser, in mock mode with the payouts
 // screen moved over: the table, a filter that survives a reload, the side
 // sheet over the table and the table's scroll kept under it. Screenshots go
-// to e2e/screenshots at 375, 768 and 1440 wide, in light and dark.
+// to e2e/screenshots at 375, 768 and 1440 wide, in light and dark, and each
+// of those screens, the table and the open sheet, passes an axe scan.
 
 import { expect, test, type Page } from '@playwright/test';
+
+import { expectAccessible } from './axe';
 
 const WIDTHS = [375, 768, 1440] as const;
 const SCHEMES = ['light', 'dark'] as const;
@@ -15,6 +18,8 @@ const SHOTS = 'e2e/screenshots';
 async function shot(page: Page, name: string, width: number, scheme: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: `${SHOTS}/${name}-${width}-${scheme}.png`, fullPage: true });
+  // Every screen that is photographed is also scanned, in the same state.
+  await expectAccessible(page, `${name} at ${String(width)} in ${scheme}`);
 }
 
 async function signIn(page: Page) {

@@ -2,8 +2,8 @@
 // Copyright 2026 Qomira Labs
 
 // The /v1 routes that need a database: sign in, principals and projects, API
-// keys and recipients, all on one database and one chain adapter, behind one
-// authenticate. Kept apart from the web role so a test can build exactly what
+// keys, payouts and recipients, all on one database and one chain adapter,
+// behind one authenticate. Kept apart from the web role so a test can build exactly what
 // the server mounts, on a test database and a fake chain.
 //
 // Every new project gets its agent key here, and recipients seal a person's
@@ -12,9 +12,11 @@
 // without one rather than serving half of /v1.
 
 import { createAuthenticate } from '../api/authenticate.js';
+import { databaseIdempotencyStore } from '../api/idempotency-store.js';
 import type { Route } from '../api/route.js';
 import { apiKeyRoutes } from '../api/routes/api-keys.js';
 import { authRoutes } from '../api/routes/auth.js';
+import { payoutRoutes } from '../api/routes/payouts.js';
 import { recipientRoutes } from '../api/routes/recipients.js';
 import { tenancyRoutes } from '../api/routes/tenancy.js';
 import { createApiKeyService } from '../auth/api-key-service.js';
@@ -26,10 +28,12 @@ import { tokenEnvironmentFor } from '../auth/token.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
 import type { ChainAdapter } from '../chain/adapter.js';
 import type { AgentAccounts } from '../chain/agent-accounts.js';
-import type { Database } from '../db/index.js';
+import { payoutJobQueue, type Database } from '../db/index.js';
 import { createAgentKeyService, type AgentKeyService } from '../keys/agent-keys.js';
 import { postgresAgentKeyStore } from '../keys/postgres-store.js';
 import type { Sealer } from '../keys/sealer.js';
+import { createPayoutService } from '../payouts/payout-service.js';
+import { databasePayoutStore } from '../payouts/payout-store.js';
 import { createRecipientService } from '../payouts/recipients.js';
 import { postgresTenancyStore } from '../tenancy/postgres-store.js';
 import { Tenancy } from '../tenancy/tenancy.js';
@@ -93,6 +97,17 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
     ...authRoutes(session),
     ...tenancyRoutes({ signIn, tenancy, origin: o.origin }),
     ...apiKeyRoutes({ keys, authenticate }),
+    // A payout is written with its first job, which the worker role runs.
+    ...payoutRoutes({
+      service: createPayoutService({
+        store: databasePayoutStore(db, payoutJobQueue),
+        chain: o.adapter,
+        destinationAsset: () => RECIPIENT_DESTINATION_ASSET,
+        log,
+      }),
+      authenticate,
+      idempotency: { store: databaseIdempotencyStore(db), log },
+    }),
   ];
 
   const service = createRecipientService({

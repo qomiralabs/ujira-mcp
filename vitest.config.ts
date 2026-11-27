@@ -35,7 +35,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
-          exclude: ['src/db/**'],
+          exclude: ['src/db/**', 'src/**/*.db.test.ts'],
         },
       },
       {
@@ -43,11 +43,12 @@ export default defineConfig({
         // through the global setup, which needs a docker daemon: they fail
         // without one rather than skipping, so an empty run cannot look like
         // a passing one. The template database is migrated once, and each
-        // test file gets a fresh clone of it.
+        // test file gets a fresh clone of it. A module outside src/db that
+        // needs a real database names its test *.db.test.ts.
         extends: true,
         test: {
           name: 'db',
-          include: ['src/db/**/*.test.ts'],
+          include: ['src/db/**/*.test.ts', 'src/**/*.db.test.ts'],
           globalSetup: ['src/db/testing/global-setup.ts'],
           hookTimeout: 180_000,
           testTimeout: 120_000,

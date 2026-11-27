@@ -14,6 +14,12 @@ import { z } from 'zod';
 import { MAX_BODY_BYTES } from './body.js';
 import { REQUEST_ID_HEADER } from './context.js';
 import { API_ERROR_STATUS, errorEnvelopeSchema, type ApiErrorCode } from './errors.js';
+import {
+  IDEMPOTENCY_HEADER,
+  IDEMPOTENCY_KEY_PATTERN,
+  IDEMPOTENCY_REPLAY_SECONDS,
+  REPLAYED_HEADER,
+} from './idempotency.js';
 import type { Route } from './route.js';
 
 export const OPENAPI_VERSION = '3.1.0';
@@ -51,6 +57,27 @@ const REQUEST_ID_REF = { $ref: '#/components/headers/RequestId' };
 const ALWAYS: readonly ApiErrorCode[] = ['INTERNAL'];
 const WITH_INPUT: readonly ApiErrorCode[] = ['INVALID_REQUEST'];
 const WITH_BODY: readonly ApiErrorCode[] = ['PAYLOAD_TOO_LARGE', 'UNSUPPORTED_MEDIA_TYPE'];
+// The keys live in the database, so an idempotent route can also find it down.
+const WITH_KEY: readonly ApiErrorCode[] = [
+  'IDEMPOTENCY_KEY_REQUIRED',
+  'IDEMPOTENCY_KEY_INVALID',
+  'IDEMPOTENCY_KEY_REUSED',
+  'IDEMPOTENCY_IN_PROGRESS',
+  'DB_UNAVAILABLE',
+];
+
+const IDEMPOTENCY_PARAMETER = {
+  name: IDEMPOTENCY_HEADER,
+  in: 'header',
+  required: true,
+  description: `Makes the write safe to retry. The same key with the same request returns the first answer, for ${IDEMPOTENCY_REPLAY_SECONDS / 86_400} days; with a different request it is refused. Keys are per project.`,
+  schema: { type: 'string', pattern: IDEMPOTENCY_KEY_PATTERN.source },
+};
+
+const REPLAYED_HEADER_DOC = {
+  description: 'Present, as `true`, when this answer is the stored answer to an earlier request.',
+  schema: { type: 'string', enum: ['true'] },
+};
 
 function parameters(schema: z.ZodObject | undefined, where: 'path' | 'query'): JsonObject[] {
   if (schema === undefined) return [];
@@ -75,6 +102,7 @@ function errorResponses(route: Route): Record<string, JsonObject> {
     for (const code of WITH_INPUT) codes.add(code);
   }
   if (route.body !== undefined) for (const code of WITH_BODY) codes.add(code);
+  if (route.idempotent) for (const code of WITH_KEY) codes.add(code);
   const byStatus = new Map<number, ApiErrorCode[]>();
   for (const code of codes) {
     const status = API_ERROR_STATUS[code];
@@ -92,7 +120,11 @@ function errorResponses(route: Route): Record<string, JsonObject> {
 }
 
 function operation(route: Route): JsonObject {
-  const params = [...parameters(route.params, 'path'), ...parameters(route.query, 'query')];
+  const params = [
+    ...parameters(route.params, 'path'),
+    ...parameters(route.query, 'query'),
+    ...(route.idempotent ? [IDEMPOTENCY_PARAMETER] : []),
+  ];
   return {
     operationId: route.operationId,
     summary: route.summary,
@@ -111,7 +143,10 @@ function operation(route: Route): JsonObject {
     responses: {
       [String(route.status)]: {
         description: route.responseDescription,
-        headers: { [REQUEST_ID_HEADER]: REQUEST_ID_REF },
+        headers: {
+          [REQUEST_ID_HEADER]: REQUEST_ID_REF,
+          ...(route.idempotent ? { [REPLAYED_HEADER]: REPLAYED_HEADER_DOC } : {}),
+        },
         content: { 'application/json': { schema: jsonSchema(route.response, 'output') } },
       },
       ...errorResponses(route),

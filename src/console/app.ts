@@ -187,6 +187,9 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       // The dashboard offers the faucet unless told it is off.
       faucet: { amount: '0', enabled: false },
       ...extension?.config(),
+      // Last, so nothing can tell the dashboard to ask for a sign in the
+      // server is not serving.
+      signIn: settings.signIn === true,
     };
   }
 

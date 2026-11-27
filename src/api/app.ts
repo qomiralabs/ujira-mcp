@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { routePath } from 'hono/route';
 
+import { DatabaseUnavailableError } from '../db/index.js';
 import { bodyGuard, MAX_BODY_BYTES } from './body.js';
 import { REQUEST_ID_HEADER, type V1Context, type V1Env } from './context.js';
 import { ApiError, envelope, type ApiErrorCode, type ErrorDetail } from './errors.js';
@@ -89,6 +90,9 @@ function errorResponse(
   });
 }
 
+/** Long enough for a pooler to recycle a connection or a failover to finish. */
+const DB_RETRY_AFTER_SECONDS = '5';
+
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : 'NonError';
 }
@@ -134,6 +138,16 @@ export function createV1App(options: V1AppOptions = {}): V1App {
         error.details,
         error.headers,
       );
+    }
+    if (error instanceof DatabaseUnavailableError) {
+      // An outage, not a bug: the caller may retry, and nothing was half done
+      // because every write runs in one transaction.
+      log(
+        `event=v1_db_unavailable requestId=${c.get('requestId')} route=${routePath(c)} reason=${error.reason}`,
+      );
+      return errorResponse(c, 'DB_UNAVAILABLE', 503, 'The service is busy; try again shortly', [], {
+        'retry-after': DB_RETRY_AFTER_SECONDS,
+      });
     }
     if (error instanceof HTTPException) {
       const code = codeForStatus(error.status);

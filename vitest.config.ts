@@ -35,7 +35,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
-          exclude: ['src/db/**', 'src/**/*.db.test.ts'],
+          exclude: ['src/db/**', '**/*.db.test.ts'],
         },
       },
       {
@@ -48,7 +48,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'db',
-          include: ['src/db/**/*.test.ts', 'src/**/*.db.test.ts'],
+          include: ['src/db/**/*.test.ts', 'src/**/*.db.test.ts', 'test/**/*.db.test.ts'],
           globalSetup: ['src/db/testing/global-setup.ts'],
           hookTimeout: 180_000,
           testTimeout: 120_000,

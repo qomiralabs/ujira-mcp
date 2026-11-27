@@ -12,7 +12,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 
 import { createV1App, type V1App } from '../src/api/app.js';
 import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
@@ -55,9 +55,14 @@ let app: V1App['app'];
 let request: Request;
 let call: Call;
 const lines: string[] = [];
+let databases = 0;
 
-beforeAll(async () => {
-  database = await createTestDatabase(adminUrl, import.meta.url);
+// A contract belongs to one mandate, and the fake RPC serves one contract, so
+// every test that pays on it needs a database of its own. The log lines stay
+// across tests, for the last one to read.
+beforeEach(async () => {
+  databases += 1;
+  database = await createTestDatabase(adminUrl, `${import.meta.url}#${String(databases)}`);
   db = databaseAsServiceRoles(roleUrls, database);
   network = new FakeNetwork();
   adapter = new StellarChainAdapter({
@@ -86,7 +91,7 @@ beforeAll(async () => {
   call = clientFor(app);
 });
 
-afterAll(async () => {
+afterEach(async () => {
   await db.close();
   await database.drop();
 });

@@ -30,11 +30,13 @@ import {
   type ChainAdapter,
   type ChainPayoutState,
   type CheckResult,
+  type FeeBudget,
   type Hex32,
   type MandateAction,
   type NetworkId,
   type PayoutIntent,
   type SigningRequest,
+  type SponsoredFee,
 } from '../adapter.js';
 import {
   PAYOUT_STATUS,
@@ -47,7 +49,7 @@ import { isAccountAddress, isContractAddress } from './addresses.js';
 import { address, bytes32, encodeAllowEntries, i128 } from './codec.js';
 import type { SorobanGateway } from './gateway.js';
 import { MandateClient } from './mandate-client.js';
-import type { StellarNetworkPort } from './network.js';
+import type { StellarNetworkPort, Submitted } from './network.js';
 import {
   MAX_ALLOW_ENTRIES,
   SIGN_WINDOW_SECONDS,
@@ -73,7 +75,10 @@ export interface StellarAdapterOptions {
   readonly factory: string;
   /** The one asset mandates hold, as its classic code and issuer and its contract. */
   readonly asset: { readonly code: string; readonly issuer: string; readonly contract: string };
-  /** Pays the fee of envelopes principals sign; without it sponsorFee is unavailable. */
+  /**
+   * Pays the fee of every envelope principals sign, so a principal never needs
+   * XLM. Without it a principal pays its own fee and sponsorFee is unavailable.
+   */
   readonly feeSponsor?: TxSigner;
   /** Milliseconds since the epoch; the server clock unless a test sets one. */
   readonly now?: () => number;
@@ -128,6 +133,24 @@ function envelope(text: string, passphrase: string): Transaction {
   }
   if (tx instanceof FeeBumpTransaction) throw mismatch('a fee bump envelope is not accepted');
   return tx;
+}
+
+/** The resource fee a Soroban transaction carries; a fee bump passes it on as it is. */
+function resourceFeeOf(tx: Transaction): bigint {
+  const env = tx.toEnvelope();
+  if (env.type !== 'envelopeTypeTx') return 0n;
+  const ext = env.value.tx.ext;
+  return ext.type === 'sorobanData' ? ext.sorobanData.resourceFee : 0n;
+}
+
+/**
+ * The network refused it before applying it, so no fee was taken. Anything
+ * else, a timeout above all, may have landed and been paid for.
+ */
+function neverApplied(error: unknown): boolean {
+  return (
+    error instanceof ChainError && error.code === 'TX_FAILED' && error.reason === 'tx_rejected'
+  );
 }
 
 function hex32Of(value: string, field: string): Hex32 {
@@ -397,6 +420,7 @@ export class StellarChainAdapter implements ChainAdapter {
     signedXdr: string,
     expected: SigningRequest,
     o: CallOptions,
+    budget?: FeeBudget,
   ): Promise<{ txHash: string }> {
     if (expected.network !== this.network)
       throw mismatch(`it was prepared for ${expected.network}`);
@@ -423,25 +447,92 @@ export class StellarChainAdapter implements ChainAdapter {
         `The transaction is not signed by ${expected.signer}`,
       );
     }
-    return withDeadline(
-      o,
-      'submit the transaction',
-      async () => {
-        const sent = await this.o.chain.submit(signed);
-        if (sent.status === 'SUCCESS') return { txHash: sent.hash };
-        if (sent.reason !== undefined) {
-          throw new ChainError('CONTRACT_REFUSED', `The mandate refused it: ${sent.reason}`, {
-            specError: sent.reason.toUpperCase(),
-            reason: sent.reason,
-            txHash: sent.hash,
-          });
-        }
-        throw new ChainError('TX_FAILED', `The transaction failed on chain (${sent.hash})`, {
-          txHash: sent.hash,
-        });
-      },
-      (e) => toChainError(e, 'submit the transaction'),
+
+    const sponsor = this.o.feeSponsor;
+    let outgoing: Transaction | FeeBumpTransaction = signed;
+    let charge: { fee: SponsoredFee; budget: FeeBudget } | undefined;
+    if (sponsor !== undefined) {
+      // An unmetered sponsor could be drained by one principal, so a sponsored
+      // send always names what it is charged to.
+      if (budget === undefined) {
+        throw new ChainError('UNAVAILABLE', 'A sponsored transaction needs a fee budget');
+      }
+      let bump: FeeBumpTransaction;
+      try {
+        bump = this.bump(signed, sponsor);
+      } catch (error) {
+        throw toChainError(error, 'sponsor the fee');
+      }
+      charge = {
+        fee: { innerTxHash: Buffer.from(hash).toString('hex'), maxFee: BigInt(bump.fee) },
+        budget,
+      };
+      outgoing = bump;
+      if (o.signal.aborted) {
+        throw new ChainError(
+          'TIMEOUT',
+          'submit the transaction did not finish before its deadline',
+        );
+      }
+      // Before anything leaves, so a refused fee sends nothing. The budget's
+      // own error is the answer, not a chain error.
+      await budget.reserve(charge.fee);
+    }
+
+    let sent: Submitted;
+    try {
+      sent = await withDeadline(
+        o,
+        'submit the transaction',
+        () => this.o.chain.submit(outgoing),
+        (e) => toChainError(e, 'submit the transaction'),
+      );
+    } catch (error) {
+      if (charge !== undefined && neverApplied(error)) {
+        // The transaction's own outcome is the answer; the budget reports its
+        // failures itself.
+        await charge.budget.release(charge.fee).catch(() => undefined);
+      }
+      throw error;
+    }
+    if (charge !== undefined) {
+      await charge.budget
+        .settle(charge.fee, sent.feeCharged ?? charge.fee.maxFee)
+        .catch(() => undefined);
+    }
+    if (sent.status === 'SUCCESS') return { txHash: sent.hash };
+    if (sent.reason !== undefined) {
+      throw new ChainError('CONTRACT_REFUSED', `The mandate refused it: ${sent.reason}`, {
+        specError: sent.reason.toUpperCase(),
+        reason: sent.reason,
+        txHash: sent.hash,
+      });
+    }
+    throw new ChainError('TX_FAILED', `The transaction failed on chain (${sent.hash})`, {
+      txHash: sent.hash,
+    });
+  }
+
+  /**
+   * The inner transaction inside a fee bump the sponsor signs. The bump bids
+   * the inner transaction's own inclusion fee per operation, and never less
+   * than the network minimum, and passes the resource fee on as it is. The
+   * bid is a ceiling: the network charges what inclusion costs.
+   */
+  private bump(inner: Transaction, sponsor: TxSigner): FeeBumpTransaction {
+    const ops = BigInt(inner.operations.length);
+    if (ops === 0n) throw mismatch('it has no operations');
+    const inclusion = BigInt(inner.fee) - resourceFeeOf(inner);
+    const perOp = (inclusion + ops - 1n) / ops;
+    const base = perOp > BigInt(BASE_FEE) ? perOp : BigInt(BASE_FEE);
+    const bump = TransactionBuilder.buildFeeBumpTransaction(
+      sponsor.publicKey,
+      base.toString(),
+      inner,
+      this.passphrase,
     );
+    sponsor.sign(bump);
+    return bump;
   }
 
   async sponsorFee(signedXdr: string, principal: string, o: CallOptions): Promise<string> {
@@ -458,21 +549,11 @@ export class StellarChainAdapter implements ChainAdapter {
     return withDeadline(
       o,
       'sponsor the fee',
-      () => {
-        // The inner fee per operation is always enough for the fee bump's own
-        // bid. It is a cap: the network charges what inclusion costs.
-        const ops = BigInt(inner.operations.length);
-        const perOp = (BigInt(inner.fee) + ops - 1n) / ops;
-        const base = perOp > BigInt(BASE_FEE) ? perOp : BigInt(BASE_FEE);
-        const bump = TransactionBuilder.buildFeeBumpTransaction(
-          sponsor.publicKey,
-          base.toString(),
-          inner,
-          this.passphrase,
-        );
-        sponsor.sign(bump);
-        return Promise.resolve(bump.toXdr());
-      },
+      // An executor's throw becomes the promise's rejection, so it maps like any other.
+      () =>
+        new Promise<string>((resolve) => {
+          resolve(this.bump(inner, sponsor).toXdr());
+        }),
       (e) => toChainError(e, 'sponsor the fee'),
     );
   }

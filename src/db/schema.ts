@@ -275,6 +275,29 @@ export interface PayoutMethodsTable {
   readonly created_at: Generated<Date>;
 }
 
+// A date reads back as a Date at local midnight, so the repository casts the
+// day to text in its queries and never reads this column raw.
+type Day = ColumnType<Date, string, string>;
+
+export interface FeeSponsorDaysTable {
+  readonly principal_id: string;
+  readonly day: Day;
+  readonly used_stroops: Generated<string>;
+}
+
+export interface FeeSponsorshipsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly inner_tx_hash: Buffer;
+  readonly day: Day;
+  readonly max_fee_stroops: Int8;
+  readonly charged_stroops: NullableInt8;
+  readonly status: Generated<string>;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
 export interface Schema {
   'ujira.chains': ChainsTable;
   'ujira.currencies': CurrenciesTable;
@@ -301,6 +324,8 @@ export interface Schema {
   'ujira.recipients': RecipientsTable;
   'ujira.recipient_pii': RecipientPiiTable;
   'ujira.payout_methods': PayoutMethodsTable;
+  'ujira.fee_sponsor_days': FeeSponsorDaysTable;
+  'ujira.fee_sponsorships': FeeSponsorshipsTable;
 }
 
 // Every column above, by table, for the schema test. Checked against the
@@ -489,5 +514,18 @@ export const SCHEMA_COLUMNS = {
     destination_address: true,
     verified_at: true,
     created_at: true,
+  },
+  'ujira.fee_sponsor_days': { principal_id: true, day: true, used_stroops: true },
+  'ujira.fee_sponsorships': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    inner_tx_hash: true,
+    day: true,
+    max_fee_stroops: true,
+    charged_stroops: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
   },
 } as const satisfies { readonly [T in keyof Schema]: Record<keyof Schema[T], true> };

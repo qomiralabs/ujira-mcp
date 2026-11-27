@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// Every method of the idempotency, audit and outbox repositories, run as one
+// Every method of the idempotency, audit, outbox and fee sponsorship
+// repositories, run as one
 // tenant against another tenant's rows. Each case shows the call finds nothing,
 // changes nothing, or lands on the caller's own tenant. The matrix fails when a
 // method is added without a case.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { Kysely } from 'kysely';
 import pg from 'pg';
@@ -19,6 +20,7 @@ import { caseProblems } from '../testing/cross-tenant.js';
 import { databaseAsServiceRoles } from '../testing/databases.js';
 import { createTestDatabase, type TestDatabase } from '../testing/harness.js';
 import { audit, auditRepositories } from './audit.js';
+import { feeSponsorshipRepositories, feeSponsorships } from './fee-sponsorships.js';
 import { idempotencyKeys, idempotencyRepositories } from './idempotency.js';
 import { outbox, outboxRepositories, webhookDeliveries, webhookEndpoints } from './outbox.js';
 
@@ -37,7 +39,12 @@ let db: Database;
 let a: World;
 let b: World;
 
-const REPOSITORIES = { ...auditRepositories, ...idempotencyRepositories, ...outboxRepositories };
+const REPOSITORIES = {
+  ...auditRepositories,
+  ...feeSponsorshipRepositories,
+  ...idempotencyRepositories,
+  ...outboxRepositories,
+};
 
 async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
   try {
@@ -94,7 +101,72 @@ async function leaseHeldByB(key: string): Promise<string> {
   return held.leaseId;
 }
 
+const FEE_DAY = '2026-11-27';
+
+const txHash = (): string => createHash('sha256').update(randomUUID()).digest('hex');
+
+async function feeReservedByB(maxFee = 10n): Promise<string> {
+  const innerTxHash = txHash();
+  const held = await db
+    .tenant(b.tenant)
+    .transaction(async (tx) =>
+      feeSponsorships.reserve(tx, { innerTxHash, day: FEE_DAY, maxFee, dailyCap: 1_000_000n }),
+    );
+  if (held.kind !== 'reserved') throw new Error(`expected a reservation, got ${held.kind}`);
+  return innerTxHash;
+}
+
+async function feeDayOf(principalId: string): Promise<string | undefined> {
+  const row = await admin.query<{ used: string }>(
+    'select used_stroops::text as used from ujira.fee_sponsor_days where principal_id = $1 and day = $2',
+    [principalId, FEE_DAY],
+  );
+  return row.rows[0]?.used;
+}
+
+async function feeStatusOf(innerTxHash: string): Promise<string[]> {
+  const rows = await admin.query<{ status: string }>(
+    "select status from ujira.fee_sponsorships where inner_tx_hash = decode($1, 'hex')",
+    [innerTxHash],
+  );
+  return rows.rows.map((row) => row.status);
+}
+
 const cases: Record<string, () => Promise<void>> = {
+  // The cap charged is the context's principal's: the same envelope reserved by
+  // B is a new reservation for A, and B's day does not move.
+  'feeSponsorships.reserve': async () => {
+    const innerTxHash = await feeReservedByB();
+    const before = await feeDayOf(b.tenant.principalId);
+    const mine = await asA(async (tx) =>
+      feeSponsorships.reserve(tx, { innerTxHash, day: FEE_DAY, maxFee: 7n, dailyCap: 1_000_000n }),
+    );
+    expect(mine.kind).toBe('reserved');
+    expect(await feeDayOf(b.tenant.principalId)).toBe(before);
+    const owners = await admin.query<{ principal_id: string }>(
+      "select principal_id from ujira.fee_sponsorships where inner_tx_hash = decode($1, 'hex') order by 1",
+      [innerTxHash],
+    );
+    expect(owners.rows.map((row) => row.principal_id)).toEqual(
+      [a.tenant.principalId, b.tenant.principalId].sort(),
+    );
+  },
+  'feeSponsorships.settle': async () => {
+    const innerTxHash = await feeReservedByB();
+    const before = await feeDayOf(b.tenant.principalId);
+    expect(await asA(async (tx) => feeSponsorships.settle(tx, { innerTxHash, charged: 1n }))).toBe(
+      false,
+    );
+    expect(await feeStatusOf(innerTxHash)).toEqual(['reserved']);
+    expect(await feeDayOf(b.tenant.principalId)).toBe(before);
+  },
+  'feeSponsorships.release': async () => {
+    const innerTxHash = await feeReservedByB();
+    const before = await feeDayOf(b.tenant.principalId);
+    expect(await asA(async (tx) => feeSponsorships.release(tx, { innerTxHash }))).toBe(false);
+    expect(await feeStatusOf(innerTxHash)).toEqual(['reserved']);
+    expect(await feeDayOf(b.tenant.principalId)).toBe(before);
+  },
   // The chain a row joins comes from the context, so a writer can only ever
   // reach its own: B's head does not move, and the row lands on A.
   'audit.record': async () => {

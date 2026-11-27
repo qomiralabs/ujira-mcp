@@ -6,7 +6,13 @@
 // Every call has a timeout, and no answer body is passed on as it came.
 // Failures are ChainError, with the console's older codes as the reason.
 
-import { rpc, type Account, type Transaction, type xdr } from '@stellar/stellar-sdk';
+import {
+  rpc,
+  type Account,
+  type FeeBumpTransaction,
+  type Transaction,
+  type xdr,
+} from '@stellar/stellar-sdk';
 import { z } from 'zod';
 
 import { contractCodeIn, mandateErrorName } from '../../errors.js';
@@ -41,6 +47,8 @@ export interface Submitted {
   readonly returnValue?: xdr.ScVal;
   /** For a failed contract call, the contract's reason, such as mandate_paused. */
   readonly reason?: string;
+  /** Stroops the fee source paid, as the result says; for a fee bump, the sponsor. */
+  readonly feeCharged?: bigint;
 }
 
 export interface LedgerEntriesRead {
@@ -61,8 +69,8 @@ export interface StellarNetworkPort {
   loadAccount(address: string): Promise<Account>;
   /** Simulates and assembles, so the result is ready to sign. */
   prepare(tx: Transaction): Promise<Transaction>;
-  /** Sends a signed transaction and waits until it is final. */
-  submit(tx: Transaction): Promise<Submitted>;
+  /** Sends a signed transaction, or a fee bump around one, and waits until it is final. */
+  submit(tx: Transaction | FeeBumpTransaction): Promise<Submitted>;
   /** Funds a new account with test XLM; succeeds when it is already funded. */
   friendbot(address: string): Promise<void>;
   latestLedger(): Promise<number>;
@@ -259,7 +267,7 @@ export class StellarNetwork implements StellarNetworkPort {
     return rpc.assembleTransaction(tx, sim).build();
   }
 
-  async submit(tx: Transaction): Promise<Submitted> {
+  async submit(tx: Transaction | FeeBumpTransaction): Promise<Submitted> {
     const hash = Buffer.from(tx.hash()).toString('hex');
     for (let attempt = 1; ; attempt++) {
       let sent: rpc.Api.SendTransactionResponse;
@@ -301,6 +309,7 @@ export class StellarNetwork implements StellarNetworkPort {
         return {
           hash,
           status: 'SUCCESS',
+          feeCharged: got.resultXdr.feeCharged,
           ...(got.returnValue === undefined ? {} : { returnValue: got.returnValue }),
         };
       }
@@ -309,6 +318,7 @@ export class StellarNetwork implements StellarNetworkPort {
         return {
           hash,
           status: 'FAILED',
+          feeCharged: got.resultXdr.feeCharged,
           ...(code === undefined ? {} : { reason: mandateErrorName(code) }),
         };
       }

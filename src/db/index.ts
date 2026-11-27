@@ -227,6 +227,12 @@ export {
 } from './repositories/payout-views.js';
 export { receipts, type IssuedReceipt, type Receipt } from './repositories/receipts.js';
 export {
+  payoutStats,
+  type NetworkAmount,
+  type PayoutPeriodStats,
+  type StatsPeriod,
+} from './repositories/payout-stats.js';
+export {
   SECURITY_EVENT_KINDS,
   securityEvents,
   type NewSecurityEvent,

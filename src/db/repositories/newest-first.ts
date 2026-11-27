@@ -21,13 +21,25 @@ export function pageKey(row: { readonly page_time: string; readonly id: string }
   return `${row.page_time}|${row.id}`;
 }
 
-// The rows older than the key, for a query ordered by created_at desc, id desc.
-export function olderThan(after: string): RawBuilder<SqlBool> {
+function parts(after: string): { readonly time: string; readonly id: string } {
   const match = KEY.exec(after);
   const time = match?.[1];
   const id = match?.[2];
   if (time === undefined || id === undefined) {
     throw new PageRequestError('after is not a key this list returned');
   }
+  return { time, id };
+}
+
+// The rows older than the key, for a query ordered by created_at desc, id desc.
+export function olderThan(after: string): RawBuilder<SqlBool> {
+  const { time, id } = parts(after);
   return sql<SqlBool>`(created_at, id) < (${time}::timestamptz, ${id}::uuid)`;
+}
+
+// The rows newer than the key, for the few lists read oldest first, such as a
+// queue where whoever waited longest comes first. Same key, other direction.
+export function newerThan(after: string): RawBuilder<SqlBool> {
+  const { time, id } = parts(after);
+  return sql<SqlBool>`(created_at, id) > (${time}::timestamptz, ${id}::uuid)`;
 }

@@ -14,14 +14,10 @@
 import { z } from 'zod';
 
 import { DatabaseUnavailableError, PayoutConflictError } from '../../db/index.js';
-import type { PayoutLeg } from '../../db/index.js';
+import type { Payout, PayoutLeg } from '../../db/index.js';
 import { taskId } from '../../ids.js';
 import type { TokenAmount } from '../../money/index.js';
-import {
-  PayoutServiceError,
-  type PayoutRecord,
-  type PayoutService,
-} from '../../payouts/payout-service.js';
+import { PayoutServiceError, type PayoutService } from '../../payouts/payout-service.js';
 import { maskAddress } from '../../payouts/recipients.js';
 import type { Authenticate } from '../authenticate.js';
 import { ApiError } from '../errors.js';
@@ -89,7 +85,7 @@ export const quotePayoutBody = z
   })
   .strict();
 
-const amountOut = z
+export const amountOut = z
   .object({
     amount: z.string(),
     asset: z.string(),
@@ -155,8 +151,20 @@ export function amountWire(amount: TokenAmount, network: string): z.input<typeof
   };
 }
 
+/**
+ * What a payout's wire form is drawn from. A created payout and a payout read
+ * back for a list both carry it, so the two answers cannot drift apart.
+ */
+export interface PayoutWireSource {
+  readonly principalId: string;
+  readonly payout: Payout;
+  readonly legs: readonly PayoutLeg[];
+  readonly mandate: { readonly id: string; readonly contractAddress: string };
+  readonly recipient: { readonly id: string; readonly label: string };
+}
+
 export function payoutWire(
-  record: PayoutRecord,
+  record: PayoutWireSource,
   receiptId: string | null = null,
 ): z.input<typeof payoutDetailSchema> {
   const { payout, legs, mandate, recipient } = record;

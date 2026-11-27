@@ -2,20 +2,19 @@
 // Copyright 2026 Qomira Labs
 
 // What the /v1 MCP tools read back: one task's payout with its receipt, and
-// the project's receipts. Each call is one tenant transaction under the API
-// key's project, so a mandate, payout or receipt of another project reads as
-// nothing, the same answer as one that does not exist.
+// the project's receipts. Every read runs in a tenant transaction under the
+// API key's project, so a mandate, payout or receipt of another project reads
+// as nothing, the same answer as one that does not exist.
 //
-// A port, so the tools can run against rows held in memory. The payout list
-// and receipt services in progress elsewhere will replace this database side
-// once they land; the tools only see the port.
+// A port, so the tools can run against rows held in memory. A task's payout
+// comes from the payout read service, the one GET /v1/payouts answers from, so
+// a tool and the API cannot read a payout two ways. Receipts are still read
+// here until they have a service of their own; the tools only see the port.
 
+import type { PayoutWireSource } from '../api/routes/payouts.js';
 import {
-  mandates,
-  payoutLegs,
   payouts,
   receipts,
-  recipients,
   type Database,
   type Page,
   type PageRequest,
@@ -23,10 +22,10 @@ import {
   type ProjectContext,
   type Receipt,
 } from '../db/index.js';
-import type { PayoutRecord } from '../payouts/payout-service.js';
+import type { PayoutReadService } from '../payouts/payout-reads.js';
 
 export interface TaskPayout {
-  readonly record: PayoutRecord;
+  readonly record: PayoutWireSource;
   readonly receipt: Receipt | null;
 }
 
@@ -46,32 +45,20 @@ export interface McpReads {
   receipts(context: ProjectContext, page: PageRequest): Promise<Page<ReceiptWithPayout>>;
 }
 
-export function databaseMcpReads(db: Database): McpReads {
+export function databaseMcpReads(db: Database, reads: PayoutReadService): McpReads {
   return {
-    payoutByTask: (context, mandateId, taskId) =>
-      db.tenant(context).transaction(async (tx) => {
-        const mandate = await mandates.get(tx, mandateId);
-        if (mandate === undefined) return undefined;
-        const payout = await payouts.findByTask(tx, mandate.id, taskId);
-        if (payout === undefined) return undefined;
-        const recipient = await recipients.get(tx, payout.recipientId);
-        // The payout's foreign key names this recipient under the same tenant.
-        if (recipient === undefined)
-          throw new Error('a payout names a recipient that cannot be read');
-        const legs = await payoutLegs.list(tx, payout.id);
-        const receipt = await receipts.forPayout(tx, payout.id);
-        return {
-          record: {
-            created: false,
-            principalId: context.principalId,
-            payout,
-            legs,
-            mandate,
-            recipient,
-          },
-          receipt: receipt ?? null,
-        };
-      }),
+    payoutByTask: async (context, mandateId, taskId) => {
+      const view = await reads.byTask(context, mandateId, taskId);
+      if (view === undefined) return undefined;
+      const { receiptId } = view;
+      // A receipt is written once and never changed, so reading it after the
+      // payout cannot pair the payout with a receipt that disagrees.
+      const receipt =
+        receiptId === null
+          ? undefined
+          : await db.tenant(context).transaction((tx) => receipts.get(tx, receiptId));
+      return { record: view, receipt: receipt ?? null };
+    },
 
     receipts: (context, page) =>
       db.tenant(context).transaction(async (tx) => {

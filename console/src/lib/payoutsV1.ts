@@ -66,7 +66,8 @@ function uuidOrNull(raw: string | null): string | null {
   return raw !== null && UUID.test(raw) ? raw : null;
 }
 
-function localDay(day: string): Date | null {
+/** Midnight at the start of a YYYY-MM-DD day in the person's own time zone; null for no such day. */
+export function localDay(day: string): Date | null {
   const m = DAY.exec(day);
   if (m === null) return null;
   const [y, mo, d] = [m[1], m[2], m[3]].map((x) => Number.parseInt(x ?? '', 10));

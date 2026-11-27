@@ -30,6 +30,7 @@ import { shortAddress } from '../lib/strkey';
 import { ApprovalsV1 } from './ApprovalsV1';
 import { MandatesV1 } from './MandatesV1';
 import { PayoutsV1 } from './PayoutsV1';
+import { ReceiptsV1 } from './ReceiptsV1';
 
 /** Shows the page once a wallet is connected, else asks for one. */
 function WithPortfolio({
@@ -291,6 +292,15 @@ function ApprovalsOnApi() {
 }
 
 export function ReceiptsPage() {
+  const v1 = useV1('receipts');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <ReceiptsV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
+  return <ReceiptsOnApi />;
+}
+
+function ReceiptsOnApi() {
   return (
     <WithPortfolio what="your receipts">
       {(portfolio) => (

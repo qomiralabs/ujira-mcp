@@ -41,6 +41,8 @@ export interface ConsoleSettings {
   readonly consoleDir: string;
   /** The marketing site and the Instaward page, served at the root. */
   readonly siteDir: string;
+  /** The built embed widget, served under /embed/v1/. */
+  readonly embedDir: string;
   /** Pages asked for on any other host redirect to this one, such as ujira.co. */
   readonly canonicalHost?: string;
   readonly publicOrigin?: string;
@@ -163,6 +165,7 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
     dataDir,
     consoleDir: resolve(value(env, 'UJIRA_CONSOLE_DIR') ?? packageDir('console', 'dist')),
     siteDir: resolve(value(env, 'UJIRA_SITE_DIR') ?? packageDir('site')),
+    embedDir: resolve(value(env, 'UJIRA_EMBED_DIR') ?? packageDir('embed', 'dist')),
     ...(canonicalHost === undefined ? {} : { canonicalHost }),
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
     horizonUrl: url(env, 'UJIRA_HORIZON_URL', TESTNET_HORIZON_URL),

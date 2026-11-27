@@ -62,11 +62,21 @@ const MONEY_TESTS = [
 ];
 
 export default defineConfig(
-  // The console web app has its own lint setup in console/. site/ is the
-  // static marketing site, kept as published, with a bundled wallet script.
-  // A *.fixture.ts file breaks a rule on purpose; the lint tests lint it
-  // explicitly to prove the rule fires.
-  { ignores: ['dist/', 'coverage/', 'node_modules/', 'console/', 'site/', '**/*.fixture.ts'] },
+  // The console web app and the embed widget have their own lint setups in
+  // console/ and embed/. site/ is the static marketing site, kept as
+  // published, with a bundled wallet script. A *.fixture.ts file breaks a
+  // rule on purpose; the lint tests lint it explicitly to prove the rule fires.
+  {
+    ignores: [
+      'dist/',
+      'coverage/',
+      'node_modules/',
+      'console/',
+      'embed/',
+      'site/',
+      '**/*.fixture.ts',
+    ],
+  },
   js.configs.recommended,
   {
     files: ['**/*.ts'],

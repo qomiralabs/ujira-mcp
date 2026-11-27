@@ -132,10 +132,15 @@ export function consoleSettings(
   writeFileSync(join(siteDir, '.env'), 'hidden');
   writeFileSync(join(siteDir, 'assets', 'sky.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
   writeFileSync(join(siteDir, 'data', 'page.json'), '{"mcp_url":"https://ujira.co/mcp"}');
+  const embedDir = join(dataDir, 'embed');
+  mkdirSync(embedDir, { recursive: true });
+  writeFileSync(join(embedDir, 'ujira-embed.js'), 'customElements.define("ujira-onboarding")');
+  writeFileSync(join(embedDir, '.hidden.js'), 'outside the console');
   const settings: ConsoleSettings = {
     dataDir,
     consoleDir,
     siteDir,
+    embedDir,
     horizonUrl: 'https://horizon-testnet.stellar.org',
     friendbotUrl: 'https://friendbot.stellar.org',
     publicRpcUrl: 'https://soroban-testnet.stellar.org',

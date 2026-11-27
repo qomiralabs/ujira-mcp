@@ -45,6 +45,18 @@ export const CACHE_IMMUTABLE = 'public, max-age=31536000, immutable';
 export const CACHE_REVALIDATE = 'no-cache';
 /** Unhashed images and scripts: fresh within the hour after a deploy. */
 export const CACHE_SHORT = 'public, max-age=3600';
+/**
+ * The embed widget. Its path carries the major version, so a page keeps the
+ * same address while fixes inside v1 ship: a day in the cache, and a week
+ * more served from the cache while the browser checks for a newer one.
+ */
+export const CACHE_EMBED = 'public, max-age=86400, stale-while-revalidate=604800';
+
+/** Lets any page load the widget as a module script, which needs CORS. */
+export const EMBED_HEADERS: Readonly<Record<string, string>> = {
+  'access-control-allow-origin': '*',
+  'cross-origin-resource-policy': 'cross-origin',
+};
 
 export function contentType(file: string): string {
   return TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
@@ -90,6 +102,7 @@ export async function sendFile(
   file: string,
   cache: string,
   status = 200,
+  extra: Readonly<Record<string, string>> = {},
 ): Promise<void> {
   const body = await readFile(file);
   res.writeHead(status, {
@@ -97,6 +110,7 @@ export async function sendFile(
     'content-length': String(body.length),
     'cache-control': cache,
     ...SECURITY_HEADERS,
+    ...extra,
   });
   res.end(req.method === 'HEAD' ? undefined : body);
 }

@@ -4,16 +4,20 @@
 
 // The `ujira-mcp-http` command: the web role on its own, whatever
 // UJIRA_ROLES says. The image runs src/server/main.ts, which picks the roles.
-// Configuration comes only from the environment; see the README. Log lines
-// never carry a key, a caller's address or a request body.
+// Configuration comes only from the environment; see the README. Every log
+// line is one JSON object on stdout, passed through the redacting sink in
+// src/log.ts, so none carries a key, a signature, a caller's address or a
+// request body.
 
 import { EngineError } from '../errors.js';
+import { jsonLog } from '../log.js';
 import { runServer } from '../server/run.js';
 import { ListenError, startWeb } from '../server/web.js';
 
-const log = (line: string) => {
-  process.stdout.write(`ujira-mcp-http: ${line}\n`);
-};
+const log = jsonLog({
+  service: 'ujira-mcp-http',
+  write: (json) => process.stdout.write(`${json}\n`),
+});
 
 try {
   await runServer({

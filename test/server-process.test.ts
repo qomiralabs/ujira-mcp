@@ -48,7 +48,19 @@ function start(env: Record<string, string>): Run {
       resolve({ code, signal });
     });
   });
-  return { child, out: () => out, err: () => err, exited };
+  return { child, out: () => readable(out), err: () => err, exited };
+}
+
+/** Each JSON log line as `service: message`, the way the lines read before they were JSON. */
+function readable(out: string): string {
+  return out
+    .split('\n')
+    .map((line) => {
+      if (!line.startsWith('{')) return line;
+      const record = JSON.parse(line) as { service?: unknown; message?: unknown };
+      return `${String(record.service)}: ${String(record.message)}`;
+    })
+    .join('\n');
 }
 
 async function until(check: () => boolean, ms: number): Promise<void> {
@@ -119,7 +131,8 @@ describe('src/server/main.ts', { timeout: 60_000 }, () => {
     const worker = lines.indexOf('ujira-server: worker stopped');
     expect(web).toBeGreaterThan(-1);
     expect(worker).toBeGreaterThan(web);
-    expect(run.out()).toContain('ujira-mcp-http: ready on testnet at 127.0.0.1:');
+    // The bind address reads [redacted]: the log sink takes every IP address out.
+    expect(run.out()).toContain('ujira-mcp-http: ready on testnet at ');
     expect(run.out()).not.toContain(env['UJIRA_AGENT_SECRET']);
     expect(run.err()).toBe('');
   });

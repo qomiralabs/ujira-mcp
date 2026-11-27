@@ -30,6 +30,7 @@ import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
+import { observabilityFromEnv } from './observability.js';
 import type { RoleHandle } from './run.js';
 
 interface SignInWiring {
@@ -160,10 +161,11 @@ export async function startWeb(
   const signInSettings = loadSignInSettings(env);
   checkReceiptsWritable(settings.receiptsPath);
   const demo = withDemo ? createDemo({ base: settings, env, log }) : undefined;
-  const wiring = createEngine(
-    settings,
-    demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) },
-  );
+  const wiring = createEngine(settings, {
+    log,
+    ...(demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) }),
+  });
+  const observe = observabilityFromEnv({ env, settings, wiring, log });
   const { routes, keepAlive } = consoleFromEnv({
     base: settings,
     wiring,
@@ -178,21 +180,24 @@ export async function startWeb(
     log,
     extra: routes,
     v1: nodeHandler(createV1App({ log, routes: signIn?.routes ?? [] }).app),
+    deepHealth: observe.deepHealth,
     ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
   });
-  const stopTimers = () => {
+  const stopTimers = async () => {
     demo?.stop();
     keepAlive?.stop();
+    await observe.stop();
   };
   log(demo === undefined ? 'demo off' : demo.summary());
   log(`sign in: ${signIn === undefined ? 'off' : 'on'}`);
   demo?.start();
   log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
   keepAlive?.start();
+  observe.start();
   try {
     await listen(server, http.port, http.host);
   } catch (error) {
-    stopTimers();
+    await stopTimers();
     await signIn?.close();
     throw error;
   }
@@ -203,8 +208,9 @@ export async function startWeb(
     role: 'web',
     async stop() {
       const closed = closeServer(server, graceMs);
-      stopTimers();
+      const timers = stopTimers();
       await closed;
+      await timers;
       // After the server, so a request still in its grace can finish its query.
       await signIn?.close();
     },

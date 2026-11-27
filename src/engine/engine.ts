@@ -17,6 +17,7 @@ import type { MandateContract, TxSigner } from '../chain/adapter.js';
 import { PAYOUT_STATUS, statusName, type PayoutEntry, type PayoutRequest } from '../chain/types.js';
 import { ContractRefusedError, EngineError } from '../errors.js';
 import { defaultRecipientRef, payoutIdFor, taskId, taskRefFor, type Hex32 } from '../ids.js';
+import { errorCode, logLine, type Log } from '../log.js';
 import { minorUnits } from '../money.js';
 import {
   PartialSettlementError,
@@ -71,6 +72,12 @@ export interface EngineOptions {
   readonly now?: () => Date;
   /** How long a request stays acceptable to the mandate after it is built. */
   readonly requestTtlSeconds?: number;
+  /**
+   * One line for each step of a payout, keyed by its payout id. Lines name
+   * the mandate, the rail, the outcome and transaction hashes; never the
+   * recipient, the destination or the task id, which a caller chose.
+   */
+  readonly log?: Log;
 }
 
 export interface QuoteResult {
@@ -173,10 +180,12 @@ function wasApproved(entry: PayoutEntry, prior: Receipt | undefined): boolean {
 export class PayoutEngine {
   private readonly o: EngineOptions;
   private readonly now: () => Date;
+  private readonly log: Log;
 
   constructor(options: EngineOptions) {
     this.o = options;
     this.now = options.now ?? (() => new Date());
+    this.log = options.log ?? (() => undefined);
   }
 
   get mandateId(): string {
@@ -309,7 +318,20 @@ export class PayoutEngine {
     // A request hash from an earlier step stays with the receipt as it moves on.
     const carried =
       prior?.request_tx_hash === undefined ? {} : { request_tx_hash: prior.request_tx_hash };
-    return this.o.receipts.upsert({ ...base, ...carried, ...fields });
+    const receipt = await this.o.receipts.upsert({ ...base, ...carried, ...fields });
+    this.log(
+      logLine('payout_recorded', {
+        payoutId: t.payoutId,
+        mandate: this.mandateId,
+        rail: t.rail.name,
+        outcome: receipt.outcome,
+        reason: receipt.reason,
+        blockedBy: receipt.blocked_by,
+        tx: receipt.tx_hash,
+        requestTx: receipt.request_tx_hash,
+      }),
+    );
+    return receipt;
   }
 
   /**
@@ -318,6 +340,30 @@ export class PayoutEngine {
    */
   async requestPayout(raw: unknown): Promise<Receipt> {
     const t = this.target(parseInput(payoutInput, raw));
+    this.log(
+      logLine('payout_requested', {
+        payoutId: t.payoutId,
+        mandate: this.mandateId,
+        rail: t.rail.name,
+        amount: t.amount,
+      }),
+    );
+    try {
+      return await this.requestTarget(t);
+    } catch (error) {
+      this.log(
+        logLine('payout_request_failed', {
+          payoutId: t.payoutId,
+          mandate: this.mandateId,
+          error: errorCode(error),
+          reason: error instanceof ContractRefusedError ? error.reason : undefined,
+        }),
+      );
+      throw error;
+    }
+  }
+
+  private async requestTarget(t: Target): Promise<Receipt> {
     const prior = await this.o.receipts.find(this.mandateId, t.taskId);
     const existing = await this.o.mandate.payout(t.payoutId);
     if (existing !== null) return this.resume(t, existing, prior);

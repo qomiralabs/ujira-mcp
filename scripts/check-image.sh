@@ -125,7 +125,7 @@ echo "check-image: an unknown role exits 1 with: $refused"
 # 2. The default runs both roles, as the live service does.
 both="$run_id-both"
 start "$both" --env-file "$env_file" --publish "127.0.0.1:${base_port}:8080"
-wait_log "$both" 'ujira-server: running web,worker'
+wait_log "$both" '"service":"ujira-server","event":"log","message":"running web,worker"'
 wait_healthy "http://127.0.0.1:${base_port}/healthz" || {
   show_logs "$both"
   fail "/healthz did not answer 200 with both roles"
@@ -135,8 +135,8 @@ uid=$(docker exec "$both" sh -c 'cat /proc/1/status' | awk '/^Uid:/ { print $2 }
 [ "$uid" != "0" ] || fail "the server runs as root"
 stop_within_budget "$both"
 logs=$(docker logs "$both" 2>&1)
-web_line=$(grep -n -F 'ujira-server: web stopped' <<<"$logs" | cut -d: -f1)
-worker_line=$(grep -n -F 'ujira-server: worker stopped' <<<"$logs" | cut -d: -f1)
+web_line=$(grep -n -F '"service":"ujira-server","event":"log","message":"web stopped"' <<<"$logs" | cut -d: -f1)
+worker_line=$(grep -n -F '"service":"ujira-server","event":"log","message":"worker stopped"' <<<"$logs" | cut -d: -f1)
 if [ -z "$web_line" ] || [ -z "$worker_line" ] || [ "$web_line" -ge "$worker_line" ]; then
   fail "the web role did not stop before the worker"
 fi
@@ -145,7 +145,7 @@ echo "check-image: SIGTERM stopped web, then worker"
 # 3. The web role alone.
 web="$run_id-web"
 start "$web" --env-file "$env_file" -e UJIRA_ROLES=web --publish "127.0.0.1:$((base_port + 1)):8080"
-wait_log "$web" 'ujira-server: running web'
+wait_log "$web" '"service":"ujira-server","event":"log","message":"running web"'
 wait_healthy "http://127.0.0.1:$((base_port + 1))/healthz" || {
   show_logs "$web"
   fail "/healthz did not answer 200 with the web role"
@@ -156,7 +156,7 @@ stop_within_budget "$web"
 # 4. The worker role alone: no settings for the web role, and no listener.
 worker="$run_id-worker"
 start "$worker" -e UJIRA_ROLES=worker
-wait_log "$worker" 'ujira-server: running worker'
+wait_log "$worker" '"service":"ujira-server","event":"log","message":"running worker"'
 if docker exec "$worker" node -e "
   fetch('http://127.0.0.1:' + (process.env.PORT || 8080) + '/healthz')
     .then(() => process.exit(0), () => process.exit(1))

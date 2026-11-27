@@ -71,7 +71,16 @@ VITE_V1_SCREENS=payouts,receipts npx vite build
 Mock mode serves the same routes from `src/lib/fakeV1.ts`, which runs the fake sign in's tenant
 check on every call and keeps the server's money rules: idempotency keys replay or refuse, a task
 pays once per mandate, a refused payout is a `blocked` record with the rule's name. The tests replay
-answers recorded from each route in `src/test/v1Recorded.ts`.
+answers recorded from each route in `src/test/v1Recorded.ts`. In mock mode only, `?v1=mandates`
+in the address adds screens to the flag for that page load, so the browser flows walk both paths
+in one build.
+
+On `/v1` the mandate screens (`mandates`) read `GET /v1/mandates` and `GET /v1/mandates/{id}`,
+keyed by the open project. Create is two wallet signatures, `POST /v1/mandates/prepare` and a
+`fund` action; pause, resume, revoke, adding recipients, funding and withdrawing are each a
+`POST /v1/mandates/{id}/actions` signing request. Every signature goes through
+`POST /v1/signing/submit`, and a step is done only once the mandate read back from the server shows
+it; until then the page says what it waits for. Revoke asks for the mandate's name typed back.
 
 ## Checks
 

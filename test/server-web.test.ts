@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { Agent, createServer, request, type IncomingMessage, type Server } from 'node:http';
 import { createServer as createTcpServer, type AddressInfo } from 'node:net';
@@ -292,9 +293,69 @@ describe('startWeb', () => {
     });
     // Keys cannot manage keys, so this is refused before the database is asked.
     expect(byKey.status).toBe(403);
+    // No key encryption key, so no recipients, and the log says why.
+    expect(lines).toContain('recipients: off');
+    expect(lines).toContain('event=recipients_off level=warn reason=key_encryption_key_missing');
+    expect((await get(port, '/v1/recipients')).status).toBe(404);
     expect(lines.join('\n')).not.toContain('unused');
     await web.stop();
     expect(await tryConnect(port)).toBe('ECONNREFUSED');
+  });
+
+  it('mounts the recipient routes once the key encryption key is set, and never logs it', async () => {
+    const db = `postgresql://ujira_app:unused@127.0.0.1:${String(await freePort())}/ujira`;
+    const kek = randomBytes(32).toString('base64');
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_KEEPALIVE: 'off',
+      UJIRA_SIGN_IN: 'on',
+      UJIRA_PUBLIC_ORIGIN: 'http://127.0.0.1',
+      UJIRA_DB_TLS: 'off',
+      UJIRA_DB_APP_URL: db,
+      UJIRA_DB_WORKER_URL: db,
+      UJIRA_DB_MIGRATOR_URL: db,
+      UJIRA_DB_READER_URL: db,
+      UJIRA_KEY_ENCRYPTION_KEY: kek,
+    };
+    const port = Number(vars['PORT']);
+    const lines: string[] = [];
+    const web = await startWeb(vars, (line) => lines.push(line), 1_000);
+    cleanup.push(() => web.stop());
+    expect(lines).toContain('recipients: on');
+    // Mounted: without a session or a key they refuse before any query.
+    const list = await get(port, '/v1/recipients');
+    expect(list.status).toBe(401);
+    expect((JSON.parse(list.body) as { error: { code: string } }).error.code).toBe(
+      'SESSION_INVALID',
+    );
+    expect(lines.join('\n')).not.toContain(kek);
+    await web.stop();
+  });
+
+  it('keeps serving without recipients when the key encryption key is not usable', async () => {
+    const db = `postgresql://ujira_app:unused@127.0.0.1:${String(await freePort())}/ujira`;
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_KEEPALIVE: 'off',
+      UJIRA_SIGN_IN: 'on',
+      UJIRA_PUBLIC_ORIGIN: 'http://127.0.0.1',
+      UJIRA_DB_TLS: 'off',
+      UJIRA_DB_APP_URL: db,
+      UJIRA_DB_WORKER_URL: db,
+      UJIRA_DB_MIGRATOR_URL: db,
+      UJIRA_DB_READER_URL: db,
+      UJIRA_KEY_ENCRYPTION_KEY: 'not-a-key',
+    };
+    const port = Number(vars['PORT']);
+    const lines: string[] = [];
+    const web = await startWeb(vars, (line) => lines.push(line), 1_000);
+    cleanup.push(() => web.stop());
+    expect(lines).toContain('event=recipients_off level=warn reason=key_encryption_key_invalid');
+    expect(lines).toContain('recipients: off');
+    expect((await get(port, '/v1/recipients')).status).toBe(404);
+    expect((await get(port, '/v1/projects')).status).toBe(401);
+    expect(lines.join('\n')).not.toContain('not-a-key');
+    await web.stop();
   });
 
   it('refuses sign in without its database or its origin, before it listens', async () => {

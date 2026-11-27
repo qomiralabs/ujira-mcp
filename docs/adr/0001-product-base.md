@@ -355,22 +355,24 @@ The response is `202` with `{ "payout": PayoutDetail }`. `PayoutDetail` has `id`
 
 Errors share one envelope: `{ "error": { "code": "...", "message": "...", "requestId": "..." } }`.
 
-| Code                                                  | Status   | When                                                |
-| ----------------------------------------------------- | -------- | --------------------------------------------------- |
-| `INVALID_REQUEST`                                     | 400      | schema failure; `details` names paths, never values |
-| `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`         | 413, 415 |                                                     |
-| `TOKEN_MALFORMED`, `TOKEN_INVALID`, `SESSION_INVALID` | 401      |                                                     |
-| `FORBIDDEN`, `ORIGIN_NOT_ALLOWED`                     | 403      | missing scope or role, cross site write             |
-| `NOT_FOUND`                                           | 404      | also for rows of another tenant                     |
-| `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID` | 400      |                                                     |
-| `IDEMPOTENCY_KEY_REUSED`                              | 422      | same key, different body                            |
-| `IDEMPOTENCY_IN_PROGRESS`                             | 409      | same key while the first request runs               |
-| `TASK_ID_REUSED`                                      | 409      | same task on the same mandate under another key     |
-| `RECIPIENT_LABEL_TAKEN`                               | 409      | a recipient on the mandate has that label, any case |
-| `MANDATE_REFUSED`                                     | 409      | the mandate refuses the change; `details` names why |
-| `RATE_LIMITED`                                        | 429      | with `Retry-After`                                  |
-| `CHAIN_UNAVAILABLE`, `DB_UNAVAILABLE`                 | 503      |                                                     |
-| `INTERNAL`                                            | 500      |                                                     |
+| Code                                                  | Status   | When                                                          |
+| ----------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `INVALID_REQUEST`                                     | 400      | schema failure; `details` names paths, never values           |
+| `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`         | 413, 415 |                                                               |
+| `TOKEN_MALFORMED`, `TOKEN_INVALID`, `SESSION_INVALID` | 401      |                                                               |
+| `TOKEN_ENVIRONMENT_MISMATCH`                          | 401      | a `ujk_live_` key on testnet, or a `ujk_test_` key on mainnet |
+| `FORBIDDEN`, `ORIGIN_NOT_ALLOWED`                     | 403      | missing scope or role, cross site write                       |
+| `NOT_FOUND`                                           | 404      | also for rows of another tenant                               |
+| `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID` | 400      |                                                               |
+| `IDEMPOTENCY_KEY_REUSED`                              | 422      | same key, different body                                      |
+| `IDEMPOTENCY_IN_PROGRESS`                             | 409      | same key while the first request runs                         |
+| `TASK_ID_REUSED`                                      | 409      | same task on the same mandate under another key               |
+| `API_KEY_LIMIT_REACHED`                               | 409      | the project already holds 20 active keys                      |
+| `RECIPIENT_LABEL_TAKEN`                               | 409      | a recipient on the mandate has that label, any case           |
+| `MANDATE_REFUSED`                                     | 409      | the mandate refuses the change; `details` names why           |
+| `RATE_LIMITED`                                        | 429      | with `Retry-After`                                            |
+| `CHAIN_UNAVAILABLE`, `DB_UNAVAILABLE`                 | 503      |                                                               |
+| `INTERNAL`                                            | 500      |                                                               |
 
 A payout the mandate refuses is not an error: it is created with status `blocked` and the spec error name, so the caller has a record and a receipt of the refusal.
 

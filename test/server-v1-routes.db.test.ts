@@ -25,6 +25,7 @@ import {
 import {
   createTestDatabase,
   databaseAsServiceRoles,
+  testContract,
   type TestDatabase,
 } from '../src/db/testing/index.js';
 import type { AgentKeyService } from '../src/keys/agent-keys.js';
@@ -104,8 +105,13 @@ function receivable(): string {
   return address;
 }
 
-/** A principal whose owner is signed in, with a mandate the fake RPC serves. */
-async function owner(): Promise<Owner> {
+/**
+ * A principal whose owner is signed in, with a mandate. The fake RPC serves
+ * only MANDATE, and a contract belongs to one mandate, so the default is for
+ * the one owner in a database whose mandate goes on chain; any other owner
+ * takes a contract of its own.
+ */
+async function owner(contractAddress: string = MANDATE): Promise<Owner> {
   const kp = wallet();
   const made = await db.unscoped((tx) =>
     entryPoints.createPrincipal(tx, {
@@ -131,7 +137,7 @@ async function owner(): Promise<Owner> {
       {
         name: 'Payroll',
         network: TESTNET,
-        contractAddress: MANDATE,
+        contractAddress,
         asset: 'USDC',
         scale: 7,
         agent: { keyId: key.id },
@@ -202,8 +208,10 @@ describe('recipients as the web role serves them', () => {
   });
 
   it('answers FORBIDDEN to a key that may only read, and NOT_FOUND across principals', async () => {
-    const alice = await owner();
-    const bob = await owner();
+    // Nothing here reaches the chain: the refused request stops at its scope,
+    // and a recipient without an address needs no allowlist call.
+    const alice = await owner(testContract());
+    const bob = await owner(testContract());
     const reader = await keyFor(alice, ['recipients:read']);
     const refused = await request('POST', '/v1/recipients', {
       key: reader,

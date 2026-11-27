@@ -121,6 +121,9 @@ describe('agent keys', () => {
       network: TESTNET,
       publicKey: address,
       status: 'active',
+      // Every key starts unfunded; src/db/repositories/agent-key-funding.test.ts
+      // covers how the record moves.
+      funding: { status: 'pending', attempts: 0, lastError: null, fundedAt: null },
       createdAt: expect.any(Date) as Date,
     });
     expect(Object.keys(key)).not.toContain('ciphertext');

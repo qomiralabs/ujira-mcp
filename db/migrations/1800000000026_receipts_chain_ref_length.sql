@@ -18,8 +18,13 @@ set local statement_timeout = '60s';
 
 set local role ujira_owner;
 
+-- Dropped only to be replaced in the same transaction, so no row is ever
+-- written without a reference check.
 -- squawk-ignore ban-drop-constraint
 alter table ujira.receipts drop constraint receipts_chain_ref_format;
+-- Validated as it is added rather than in a second migration: the scan is of
+-- a table that cannot hold a row the check refuses, and that is nearly empty.
+-- squawk-ignore constraint-missing-not-valid
 alter table ujira.receipts
   add constraint receipts_chain_ref_format check (
     chain_receipt_ref ~ '^[A-Za-z0-9:._-]+$' and char_length(chain_receipt_ref) <= 512

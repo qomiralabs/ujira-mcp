@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 
 import { agentSecretAssociatedData } from '../../keys/agent-keys.js';
 import { createSealer, SealError } from '../../keys/sealer.js';
@@ -37,6 +37,11 @@ beforeAll(async () => {
   admin = new pg.Client({ connectionString: database.url });
   await admin.connect();
   db = databaseAsServiceRoles(roleUrls, database, 2);
+});
+
+// A project holds one active key per network, so every test makes its keys
+// in projects of its own.
+beforeEach(async () => {
   tenant = await insertTenant(admin, 'Funding');
   sibling = {
     principalId: tenant.principalId,

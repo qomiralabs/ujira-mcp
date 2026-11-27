@@ -209,6 +209,66 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm audit --omit=dev
 
+  # The image the host runs, built from the Dockerfile and run the way a host
+  # runs it: both roles (the default) and the web role alone answer /healthz,
+  # the worker role alone opens no port, an unknown role refuses to start, and
+  # SIGTERM stops each within 20 s, the web role first. scripts/check-image.sh
+  # holds the checks, so they run the same on a laptop.
+  image:
+    name: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the image
+        run: docker build --tag ujira-mcp:ci .
+
+      - name: Run each role
+        run: scripts/check-image.sh ujira-mcp:ci
+
+  # The local Postgres in docker-compose.yml: it comes up healthy and takes a
+  # password login from the host with the URL the README documents.
+  local-db:
+    name: local-db
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Start Postgres
+        run: docker compose up --detach --wait db
+
+      - name: Connect with the documented URL
+        env:
+          UJIRA_DB_MIGRATOR_URL: postgresql://ujira:ujira@127.0.0.1:54329/ujira
+        run: |
+          version=$(psql "$UJIRA_DB_MIGRATOR_URL" --no-psqlrc --tuples-only --no-align --command 'show server_version')
+          echo "server_version $version"
+          case "$version" in
+            17.*) ;;
+            *)
+              echo "expected Postgres 17, got $version" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Stop Postgres
+        if: ${{ always() }}
+        run: docker compose down --volumes
+
   # The console web app served at /app. Same rules as the server, plus the
   # production build the image ships and the license allowlist.
   console:

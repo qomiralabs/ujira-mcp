@@ -64,10 +64,12 @@ export default defineConfig({
         '**/*.d.ts',
         // Broken on purpose for the lint tests, and never run.
         'src/**/*.fixture.ts',
-        // main.ts and http-main.ts only wire the real network to stdio or a
-        // port; the servers they start are covered in memory and over HTTP.
+        // The entry points only wire the real network to stdio, a port or a
+        // signal; what they start is covered in memory and over HTTP, and
+        // test/server-process.test.ts runs src/server/main.ts as a child.
         'src/mcp/main.ts',
         'src/mcp/http-main.ts',
+        'src/server/main.ts',
         // The only code that runs in the vitest global setup, in the main
         // process, where the workers' coverage cannot see it. Its behaviour is
         // covered by testing/harness.test.ts against the real container.

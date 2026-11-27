@@ -386,6 +386,20 @@ Its login, password and database are all `ujira`, fixed local values that no rea
 
 The local server has no TLS certificate, so turn TLS off in the database settings when you point them at it. The `ujira` login owns the database and is a superuser, so it bypasses row level security: use it to migrate and to create the test databases, never to prove tenant isolation. The app connects as `ujira_app` (section 8.3 of `docs/adr/0001-product-base.md`), a login the migrations create without a password; give it a local password with `ALTER ROLE` and point `UJIRA_DB_APP_URL` at it, and do the same for the worker's login and `UJIRA_DB_WORKER_URL`. The `local-db` CI job starts this service and logs in from the host with the URL above.
 
+### Migrations on deploy
+
+The server runs the pending migrations up before any role starts (`src/db/migrate-start.ts`), so the web role only takes traffic on a schema that is up to date:
+
+- `UJIRA_DB_MIGRATOR_URL` unset: nothing runs, one log line says so, and the server starts as it did before it had a database.
+- `UJIRA_DB_MIGRATOR_URL` set: every pending migration runs under the migrator login, over the pinned TLS, connecting directly on 5432 (the PgBouncer port is refused). A file marked `-- bootstrap` is refused under that login, so a deploy that carries one also needs `UJIRA_DB_BOOTSTRAP_URL`; with it, each file runs under the login it names. `UJIRA_DB_BOOTSTRAP_URL` without the migrator URL refuses to start.
+- A failed or refused run exits 1 before the web role listens. The host's health check never passes, the deploy fails and the previous release keeps serving. A migration that fails rolls back whole (under the migrator alone, so do the files before it, up to any `-- no-transaction` file), and the next deploy starts again where the run stopped.
+- Instances that start together wait for the migration lock: one runs the migrations and the others find nothing to do. An instance gives up after 5 minutes behind a run that never ends.
+- The start step runs the SQL migrations only. The job queue's own tables are installed by the worker when it starts, or by `node dist/db/migrate-cli.js up` with `UJIRA_DB_WORKER_URL` set (see the worker section).
+
+The previous release runs on the new schema until the new one is healthy, which is why every migration is expand and contract. The same run is a command in the image: `node dist/db/migrate-cli.js up`.
+
+`scripts/lint-migrations.sh` lints the up section of every migration with [squawk](https://squawk.dev), and the `migrations` CI job runs it after its self test, `scripts/lint-migrations.test.sh`. An index built without `CONCURRENTLY`, a constraint added without `NOT VALID`, or a statement with no `lock_timeout` fails it. Fix the migration, or accept the finding in the file with `-- squawk-ignore <rule>` on the line before the statement and a comment saying why. The findings in the migrations written before the lint are accepted, each with its reason, in `scripts/migration-lint-baseline.txt`, which can only shrink. To run it locally, put the squawk release CI pins on your PATH or name it in `SQUAWK`.
+
 ## Dashes
 
 No file may contain an em dash or an en dash. `scripts/check-dashes.sh` searches the content git holds for every tracked file, prints each hit as `path:line:text` and exits 1 on any. Every file is read as text, so a NUL byte cannot make one look binary and skip the check; a file is skipped only when its extension is one of a short list of binary formats and its content starts with that format's signature. A dash in a path fails too, reported as the path with a note, and both kinds are reported in one run. Staged content counts; an edit left only in the working tree does not, and a commit time check covers that. `scripts/test-check-dashes.sh` is its self test. The `dashes` CI job runs the self test, then the check, and the check still reports when the self test fails. Both scripts are shared with ujira, ujira-contracts and ujira-docs, identical apart from the licence header, so a change is made in all four.

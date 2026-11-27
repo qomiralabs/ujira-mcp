@@ -293,18 +293,34 @@ const LOCK_RETRY_MS = 250;
 // would deadlock, and where the lock is held on another connection than the build, nothing
 // would ever notice and they would wait forever. So it tries, and sleeps with nothing open
 // between tries.
+//
+// Given a limit, it stops trying once the limit has passed. An instance whose deploy waits
+// behind a run that hangs then fails, and the host keeps the previous release serving,
+// rather than starting a process that never finishes starting and never says why.
 async function untilFree<T>(
   attempt: () => Promise<T>,
   busy: (error: unknown) => boolean,
+  waitMs: number | undefined,
 ): Promise<T> {
+  const deadline = waitMs === undefined ? undefined : Date.now() + waitMs;
   for (;;) {
     try {
       return await attempt();
     } catch (error) {
       if (!busy(error)) throw error;
     }
+    if (deadline !== undefined && Date.now() >= deadline) {
+      throw new MigrationLockTimeoutError(
+        `another migration still held the lock after ${String(waitMs)} ms`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
   }
+}
+
+/** A run told to wait for the lock waited as long as it was allowed to. */
+export class MigrationLockTimeoutError extends Error {
+  override readonly name = 'MigrationLockTimeoutError';
 }
 
 const lockTaken = (error: unknown): boolean =>
@@ -317,6 +333,9 @@ export interface MigrateOptions {
   // command meant to step back one migration wants.
   readonly count?: number;
   readonly lockMode?: LockMode;
+  // With lockMode 'wait', how long to keep trying for the lock. Left out, it tries until
+  // the lock frees.
+  readonly lockWaitMs?: number;
   // Which login this URL is. A file that needs the other one is refused. Left out, a
   // superuser may run anything, and any other login is taken for the migrator.
   readonly login?: MigrationLogin;
@@ -379,7 +398,7 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
   // done nothing to undo.
   const applied =
     options.lockMode === 'wait'
-      ? await untilFree(() => runner(runnerOptions), lockTaken)
+      ? await untilFree(() => runner(runnerOptions), lockTaken, options.lockWaitMs)
       : await runner(runnerOptions);
   return { names: applied.map((migration) => migration.name) };
 }
@@ -392,6 +411,8 @@ export interface TwoLoginMigrateOptions {
   readonly direction: MigrationDirection;
   readonly count?: number;
   readonly lockMode?: LockMode;
+  // As in MigrateOptions, for the run's own lock and for each file's.
+  readonly lockWaitMs?: number;
   // One trust for both logins: they reach the same server.
   readonly tls?: MigrationTls;
   readonly log?: (message: string) => void;
@@ -440,6 +461,7 @@ export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Prom
     dir,
     ...(options.log === undefined ? {} : { log: options.log }),
     ...(options.lockMode === undefined ? {} : { lockMode: options.lockMode }),
+    ...(options.lockWaitMs === undefined ? {} : { lockWaitMs: options.lockWaitMs }),
     ...(options.tls === undefined ? {} : { tls: options.tls }),
   };
   return withConnection(options.bootstrapUrl, options.tls, async (client) => {
@@ -449,7 +471,7 @@ export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Prom
       ]);
       if (lock.rows[0]?.got !== true) throw new Error('Another migration is already running');
     };
-    await (options.lockMode === 'wait' ? untilFree(take, lockTaken) : take());
+    await (options.lockMode === 'wait' ? untilFree(take, lockTaken, options.lockWaitMs) : take());
 
     const files = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort();
     const applied = await appliedNames(client);

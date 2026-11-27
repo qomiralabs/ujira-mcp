@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Qomira Labs
+#
+# The migration linter's settings. scripts/lint-migrations.sh passes this file
+# and decides per migration whether it runs inside a transaction, so that is not
+# set here. Every rule squawk enables by default stays on.
+
+# The product database, Render Postgres ujira-db.
+pg_version = "17.12"

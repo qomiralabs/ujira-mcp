@@ -39,6 +39,8 @@ const POLL_MS = 15_000;
 // Refreshing a very large set every few seconds costs more than it shows.
 const POLL_UP_TO = 1_000;
 const LIST_LIMIT = 200;
+// The recipient route takes at most 100 a page.
+const RECIPIENT_LIMIT = 100;
 
 const FIRST_DIR: Record<SortKey, SortDir> = {
   created: 'desc',
@@ -195,7 +197,7 @@ export function PayoutsV1({
     v1.mandates({ limit: LIST_LIMIT }),
   );
   const recipients = useResource(`v1:payout-recipients:${projectId}`, () =>
-    v1.recipients({ limit: LIST_LIMIT }),
+    v1.recipients({ limit: RECIPIENT_LIMIT }),
   );
 
   const names = useMemo(() => {

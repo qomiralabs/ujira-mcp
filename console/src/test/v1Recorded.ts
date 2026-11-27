@@ -16,6 +16,7 @@ export const IDS = {
   payout: '9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b',
   receipt: '3c2b1a0f-9e8d-4c7b-8a6f-5e4d3c2b1a0f',
   runner: '6f5e4d3c-2b1a-4f0e-9d8c-7b6a5f4e3d2c',
+  invite: '2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a',
   signing: 'sr_01HZX3Q8K4M2',
   contract: 'CB4AYBA5NVQPVPNOWUCSZQK6ZIGOF7KSCS6SF6UV6D2OKPDXLHEPD4V7',
   principalAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
@@ -71,10 +72,23 @@ export const mandate = {
 
 export const recipient = {
   id: IDS.recipient,
+  mandateId: IDS.mandate,
   label: 'Ada',
   address: 'GBT7...I3DT',
   status: 'active',
+  payable: true,
   createdAt: '2026-11-20T09:05:00.000Z',
+};
+
+// One recipient's own page also carries the email, when there is one.
+export const recipientDetail = { ...recipient, email: 'ada@example.com' };
+
+export const embedSession = {
+  id: IDS.invite,
+  recipientId: IDS.recipient,
+  createdAt: '2026-11-26T09:00:00.000Z',
+  expiresAt: '2026-11-27T09:00:00.000Z',
+  revokedAt: null,
 };
 
 export const payout = {
@@ -154,10 +168,16 @@ export const RECORDED = {
   'POST /v1/mandates/{id}/actions': { signingRequest },
   'POST /v1/signing/submit': { txHash: IDS.tx, mandateId: null },
   'GET /v1/recipients': { items: [recipient], nextCursor: null },
-  'GET /v1/recipients/{id}': { recipient },
+  'GET /v1/recipients/{id}': { recipient: recipientDetail },
   'POST /v1/recipients': {
     recipient,
     signingRequest: { ...signingRequest, action: 'allow_recipients' },
+  },
+  'GET /v1/embed/sessions': { items: [embedSession], nextCursor: null },
+  'POST /v1/embed/sessions': {
+    session: embedSession,
+    // A placeholder in the token's shape, not a token.
+    token: `ujes_test_${'0'.repeat(48)}`,
   },
   'POST /v1/payouts': { payout },
   'GET /v1/payouts': { items: [payout, pendingPayout], nextCursor: null },

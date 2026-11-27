@@ -20,6 +20,7 @@ import { formatAmount } from './money';
 import { v1ErrorText, type MandateActionInput, type PrepareMandateInput, type V1Api } from './v1';
 import {
   apiKeySchema,
+  embedSessionSchema,
   mandateSchema,
   overviewSchema,
   payoutSchema,
@@ -47,7 +48,16 @@ const SCOPES = [
 ] as const;
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 200;
+// The recipient and embed session routes take at most 100 a page.
+const SMALL_PAGE_MAX = 100;
 const SIGNING_MS = 10 * 60 * 1000;
+const LABEL_MAX = 100;
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const INVITE_MIN_S = 5 * 60;
+const INVITE_MAX_S = 7 * 24 * 60 * 60;
 const STELLAR_ACCOUNT = /^G[A-Z2-7]{55}$/;
 const STELLAR_CONTRACT = /^C[A-Z2-7]{55}$/;
 // The same set the server takes in the Idempotency-Key header.
@@ -60,11 +70,20 @@ export interface FakeV1Options {
   readonly demo?: boolean;
   /** Contracts the fake chain names this member's wallet on, so import accepts them. */
   readonly importable?: readonly string[];
+  /** What the fake chain says about a wallet; every other wallet can receive. */
+  readonly destinations?: Readonly<Record<string, FakeDestination>>;
 }
+
+/** A wallet as the chain sees it: `down` stands for the network not answering. */
+export type FakeDestination = 'receivable' | 'no_account' | 'no_trustline' | 'needs_memo' | 'down';
 
 export interface FakeV1Api extends V1Api {
   /** How many signing requests wait for a signed transaction; for tests. */
   readonly signingRequests: () => number;
+  /** Changes what the fake chain says about a wallet, as its owner fixing it would. */
+  readonly setDestination: (address: string, state: FakeDestination) => void;
+  /** Puts payouts to a recipient on hold, as support would. */
+  readonly suspendRecipient: (id: string) => void;
 }
 
 interface MandateRow {
@@ -90,11 +109,26 @@ interface MandateRow {
   revoked: boolean;
 }
 
+type StoredCheck = 'receivable' | 'no_account' | 'no_trustline' | 'unchecked';
+
 interface RecipientRow {
   readonly id: string;
+  readonly mandateId: string;
   readonly label: string;
   readonly address: string | null;
+  readonly email: string | null;
   readonly createdAt: string;
+  // What the chain said the last time anyone looked.
+  check: StoredCheck;
+  suspended: boolean;
+}
+
+interface InviteRow {
+  readonly id: string;
+  readonly recipientId: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  revokedAt: string | null;
 }
 
 interface PayoutRow {
@@ -132,6 +166,7 @@ interface ProjectData {
   readonly recipients: Map<string, RecipientRow>;
   readonly payouts: Map<string, PayoutRow>;
   readonly keys: Map<string, ApiKeyRow>;
+  readonly invites: Map<string, InviteRow>;
   readonly idempotency: Map<string, { readonly body: string; readonly payoutId: string }>;
 }
 
@@ -179,6 +214,9 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
   const now = options.now ?? (() => Date.now());
   const demo = options.demo ?? true;
   const importable = new Set(options.importable ?? []);
+  // One chain for every project, as on Stellar.
+  const chain = new Map<string, FakeDestination>(Object.entries(options.destinations ?? {}));
+  const chainSays = (address: string): FakeDestination => chain.get(address) ?? 'receivable';
   const data = new Map<string, ProjectData>();
   const signing = new Map<
     string,
@@ -207,6 +245,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         recipients: new Map(),
         payouts: new Map(),
         keys: new Map(),
+        invites: new Map(),
         idempotency: new Map(),
       };
       data.set(t.projectId, d);
@@ -266,14 +305,37 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     });
   }
 
-  function recipientWire(r: RecipientRow) {
+  /** The server's status words: why a recipient cannot be paid, or active. */
+  function payStatus(r: RecipientRow): string {
+    if (r.suspended) return 'suspended';
+    if (r.address === null) return 'needs_wallet';
+    return r.check === 'receivable' ? 'active' : r.check;
+  }
+
+  function recipientWire(r: RecipientRow, detail = false) {
+    const status = payStatus(r);
     return parse(recipientSchema, {
       id: r.id,
+      mandateId: r.mandateId,
       label: r.label,
       address: r.address === null ? null : mask(r.address),
-      status: 'active',
+      status,
+      payable: status === 'active',
+      ...(detail ? { email: r.email } : {}),
       createdAt: r.createdAt,
     });
+  }
+
+  function inviteWire(i: InviteRow) {
+    return parse(embedSessionSchema, i);
+  }
+
+  /** A wallet still waiting on its owner is asked about again, as the server does. */
+  function recheck(r: RecipientRow): void {
+    if (r.address === null || r.check === 'receivable') return;
+    const said = chainSays(r.address);
+    if (said === 'down' || said === 'needs_memo') return;
+    r.check = said;
   }
 
   function payoutWire(t: { principalId: string; projectId: string }, d: ProjectData, p: PayoutRow) {
@@ -335,9 +397,10 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
   function page<T>(
     items: readonly T[],
     q: { cursor?: string | undefined; limit?: number | undefined } | undefined,
+    max = PAGE_MAX,
   ): Page<T> {
     const limit = q?.limit ?? PAGE_DEFAULT;
-    if (!Number.isInteger(limit) || limit < 1 || limit > PAGE_MAX) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > max) {
       throw fail('INVALID_REQUEST', 400, 'The page size is out of range.');
     }
     let offset = 0;
@@ -372,6 +435,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     if (Date.parse(m.limits.expiresAt) <= now()) return 'MANDATE_EXPIRED';
     if (m.paused) return 'MANDATE_PAUSED';
     if (r.address === null) return 'RECIPIENT_HAS_NO_METHOD';
+    if (payStatus(r) !== 'active') return 'DESTINATION_NOT_RECEIVABLE';
     if (amount > m.limits.perPaymentCap) return 'PAYMENT_CAP_EXCEEDED';
     if (m.spent + m.pending + amount > m.limits.totalBudget) return 'BUDGET_EXCEEDED';
     if (amount > m.balance - committed(m)) return 'INSUFFICIENT_FUNDS';
@@ -446,20 +510,27 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       revoked: false,
     };
     d.mandates.set(m.id, m);
-    const ada: RecipientRow = {
-      id: crypto.randomUUID(),
-      label: 'Ada',
-      address: strkey('G'),
-      createdAt: iso(t0),
+    const person = (label: string, address: string | null, check: StoredCheck = 'receivable') => {
+      const r: RecipientRow = {
+        id: crypto.randomUUID(),
+        mandateId: m.id,
+        label,
+        address,
+        email: null,
+        createdAt: iso(t0),
+        check,
+        suspended: false,
+      };
+      d.recipients.set(r.id, r);
+      return r;
     };
-    const kofi: RecipientRow = {
-      id: crypto.randomUUID(),
-      label: 'Kofi',
-      address: strkey('G'),
-      createdAt: iso(t0),
-    };
-    d.recipients.set(ada.id, ada);
-    d.recipients.set(kofi.id, kofi);
+    const ada = person('Ada', strkey('G'));
+    const kofi = person('Kofi', strkey('G'));
+    // One who still has to add USDC to their wallet, and one with no wallet yet.
+    const musa = strkey('G');
+    chain.set(musa, 'no_trustline');
+    person('Musa', musa, 'no_trustline');
+    person('Zainab', null);
     addPayout(d, m, ada, 'task-101', 120n * UNIT, iso(t0 + day));
     addPayout(d, m, kofi, 'task-102', 300n * UNIT, iso(t0 + 2 * day));
     addPayout(d, m, kofi, 'task-103', 900n * UNIT, iso(t0 + 2 * day + 3_600_000));
@@ -696,35 +767,75 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         return parse(submittedSchema, { txHash, mandateId: null });
       }),
     recipients: (q) =>
-      step((_t, d) =>
-        page(
+      step((_t, d) => {
+        if (q?.mandateId !== undefined && !UUID.test(q.mandateId)) {
+          throw fail('INVALID_REQUEST', 400, 'The mandate ID is not valid.');
+        }
+        return page(
           [...d.recipients.values()]
+            .filter((r) => q?.mandateId === undefined || r.mandateId === q.mandateId)
             .sort((a, b) => a.label.localeCompare(b.label))
-            .map(recipientWire),
+            .map((r) => recipientWire(r)),
           q,
-        ),
-      ),
+          SMALL_PAGE_MAX,
+        );
+      }),
     recipient: (id) =>
       step((_t, d) => {
         const r = d.recipients.get(id);
         if (r === undefined) throw fail('NOT_FOUND', 404);
-        return recipientWire(r);
+        recheck(r);
+        return recipientWire(r, true);
       }),
     createRecipient: (input) =>
       step((t, d) => {
         const label = input.label.trim();
-        if (label === '' || label.length > 80) {
-          throw fail('INVALID_REQUEST', 400, 'Enter a name of up to 80 characters.');
+        if (label === '' || label.length > LABEL_MAX || CONTROL.test(label)) {
+          throw fail('INVALID_REQUEST', 400, 'Enter a name of up to 100 characters.');
+        }
+        const email = input.email ?? null;
+        if (email !== null && (email.length > 254 || !EMAIL.test(email))) {
+          throw fail('INVALID_REQUEST', 400, 'That is not an email address.');
         }
         const address = input.address ?? null;
         if (address !== null && !STELLAR_ACCOUNT.test(address)) {
-          throw fail('INVALID_REQUEST', 400, 'That is not a Stellar account address.');
+          throw fail('INVALID_REQUEST', 400, 'The address is not an account address');
         }
-        const m = input.mandateId === undefined ? null : mandateOf(d, input.mandateId);
-        const r: RecipientRow = { id: crypto.randomUUID(), label, address, createdAt: iso() };
+        const m = mandateOf(d, input.mandateId);
+        const lower = label.toLowerCase();
+        if (
+          [...d.recipients.values()].some(
+            (r) => r.mandateId === m.id && r.label.toLowerCase() === lower,
+          )
+        ) {
+          throw fail('RECIPIENT_LABEL_TAKEN', 409);
+        }
+        let check: StoredCheck = 'receivable';
+        if (address !== null) {
+          const said = chainSays(address);
+          if (said === 'down') throw fail('CHAIN_UNAVAILABLE', 503);
+          if (said === 'needs_memo') {
+            throw fail(
+              'INVALID_REQUEST',
+              400,
+              'That address needs a memo, which a wallet payout does not send',
+            );
+          }
+          check = said;
+        }
+        const r: RecipientRow = {
+          id: crypto.randomUUID(),
+          mandateId: m.id,
+          label,
+          address,
+          email,
+          createdAt: iso(),
+          check,
+          suspended: false,
+        };
         d.recipients.set(r.id, r);
         const signingRequest =
-          m === null || address === null
+          address === null
             ? null
             : newSigningRequest(t, m.principal, 'allow_recipients', `Allow ${label}`, {
                 kind: 'action',
@@ -732,6 +843,45 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
                 action: { kind: 'allow_recipients', recipientIds: [r.id] },
               });
         return { recipient: recipientWire(r), signingRequest };
+      }),
+    embedSessions: (q) =>
+      step((_t, d) => {
+        if (!d.recipients.has(q.recipientId)) throw fail('NOT_FOUND', 404);
+        return page(
+          [...d.invites.values()]
+            .filter((i) => i.recipientId === q.recipientId)
+            .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
+            .map(inviteWire),
+          q,
+          SMALL_PAGE_MAX,
+        );
+      }),
+    createEmbedSession: (input) =>
+      step((_t, d) => {
+        const r = d.recipients.get(input.recipientId);
+        if (r === undefined) throw fail('NOT_FOUND', 404);
+        const s = input.expiresInSeconds;
+        if (!Number.isInteger(s) || s < INVITE_MIN_S || s > INVITE_MAX_S) {
+          throw fail('INVALID_REQUEST', 400, 'An invite lasts from 5 minutes to 7 days.');
+        }
+        if (r.suspended) throw fail('FORBIDDEN', 403);
+        const at = now();
+        const i: InviteRow = {
+          id: crypto.randomUUID(),
+          recipientId: r.id,
+          createdAt: iso(at),
+          expiresAt: iso(at + s * 1000),
+          revokedAt: null,
+        };
+        d.invites.set(i.id, i);
+        // Like the server, only the session is kept; the token leaves once.
+        return { session: inviteWire(i), token: `ujes_test_${hex(24)}` };
+      }),
+    revokeEmbedSession: (id) =>
+      step((_t, d) => {
+        const i = d.invites.get(id);
+        if (i === undefined) throw fail('NOT_FOUND', 404);
+        i.revokedAt ??= iso();
       }),
     createPayout: (input, idempotencyKey) =>
       step((t, d) => {
@@ -890,5 +1040,14 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         });
       }),
     signingRequests: () => signing.size,
+    setDestination: (address, state) => {
+      chain.set(address, state);
+    },
+    suspendRecipient: (id) => {
+      for (const d of data.values()) {
+        const r = d.recipients.get(id);
+        if (r !== undefined) r.suspended = true;
+      }
+    },
   };
 }

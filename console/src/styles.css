@@ -3317,3 +3317,161 @@ input.mono {
     margin: 2px -16px;
   }
 }
+
+/* Recipients on /v1: one line per person, the reason and the fix in the sheet. */
+
+.rlist {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.rrow {
+  display: grid;
+  grid-template-columns: 32px minmax(90px, 1fr) minmax(0, 150px) minmax(0, 170px) 132px 18px;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% + 20px);
+  margin: 0 -10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.25s var(--ease);
+}
+
+.rrow:hover {
+  background: var(--surface-2);
+}
+
+/* The pill sits in a fixed column, so the columns line up from row to row. */
+.rrow > .pill {
+  justify-self: end;
+}
+
+.rrow:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.rrow > .icon {
+  color: var(--text-3);
+  transition: transform 0.35s var(--ease);
+}
+
+.rrow:hover > .icon {
+  transform: translateX(3px);
+}
+
+.rrow-name {
+  font-weight: 500;
+}
+
+.rrow-name,
+.rrow-address,
+.rrow-mandate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rrow-address,
+.rrow-mandate {
+  font-size: 14px;
+}
+
+.add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.recipient-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+}
+
+.recipient-hero strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.avatar-lg {
+  width: 44px;
+  height: 44px;
+  font-size: 17px;
+}
+
+.invite-form .field {
+  flex: 0 1 160px;
+}
+
+.invite-out {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.invite-out input {
+  height: 40px;
+  font-size: 13px;
+}
+
+.invite-out p {
+  grid-column: 1 / -1;
+}
+
+.invite-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+}
+
+.invite-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.invite-list li:last-child {
+  border-bottom: 0;
+}
+
+.invite-list .btn {
+  margin-left: auto;
+}
+
+@media (max-width: 860px) {
+  .rrow {
+    grid-template-columns: 32px minmax(80px, 1fr) minmax(0, 130px) 132px 18px;
+  }
+
+  .rrow-mandate {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .rrow {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .rrow-address,
+  .rrow > .icon {
+    display: none;
+  }
+}

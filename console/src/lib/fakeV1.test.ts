@@ -11,6 +11,7 @@ import type { TokenAmount } from './v1Schemas';
 
 const ALICE = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const BOB = 'GBT7ITQKEX3Z2YWIYLPRQ5W3JLA2TJ3JTABB765ZYNG7VLX5YYUPI3DT';
+const CAROL = 'GCAROLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const UNIT = 10_000_000n;
 
 const usdc = (whole: bigint): TokenAmount => ({
@@ -49,7 +50,13 @@ async function ready(v1: FakeV1Api) {
   const id = mandateId ?? '';
   const fund = await v1.mandateAction(id, { kind: 'fund', amount: 500n * UNIT });
   await v1.submitSigned(fund.id, 'signed');
-  const { recipient } = await v1.createRecipient({ label: 'Ada', address: BOB });
+  const { recipient, signingRequest } = await v1.createRecipient({
+    mandateId: id,
+    label: 'Ada',
+    address: BOB,
+  });
+  // Adding a wallet asks the owner to allow it on the mandate.
+  await v1.submitSigned(signingRequest?.id ?? '', 'signed');
   return { mandateId: id, recipientId: recipient.id };
 }
 
@@ -230,14 +237,14 @@ describe('the fake /v1 API', () => {
   });
 
   it('keeps the name a mandate was created with, and checks its recipients', async () => {
-    const { v1, recipientId } = await setup();
+    const { v1, mandateId: first, recipientId } = await setup();
     await expect(v1.prepareMandate({ ...RULES, name: '  ' })).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
     });
     await expect(
       v1.prepareMandate({ ...RULES, name: 'Grants', recipients: ['not-a-recipient'] }),
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-    const { recipient: noWallet } = await v1.createRecipient({ label: 'Kofi' });
+    const { recipient: noWallet } = await v1.createRecipient({ mandateId: first, label: 'Kofi' });
     await expect(
       v1.prepareMandate({ ...RULES, name: 'Grants', recipients: [noWallet.id] }),
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
@@ -283,7 +290,11 @@ describe('the fake /v1 API', () => {
 
   it('exports receipts as CSV, with a formula looking label made safe', async () => {
     const { v1, mandateId } = await setup();
-    const { recipient } = await v1.createRecipient({ label: '=SUM(A1)', address: BOB });
+    const { recipient } = await v1.createRecipient({
+      mandateId,
+      label: '=SUM(A1)',
+      address: CAROL,
+    });
     await v1.createPayout(
       { mandateId, recipientId: recipient.id, amount: usdc(2n), taskId: 'csv' },
       'csv',
@@ -349,6 +360,169 @@ describe('the fake /v1 API', () => {
     expect(o.paid[0]?.amount).toBe(7n * UNIT);
     expect(o.byStatus).toEqual({ paid: 2, pending_approval: 1 });
     expect(o.approvalsWaiting).toBe(1);
+  });
+
+  describe('recipients, as the server answers them', () => {
+    it('needs a mandate, and keeps each label once per mandate in any case', async () => {
+      const { v1, mandateId } = await setup();
+      await expect(v1.createRecipient({ mandateId, label: 'ADA' })).rejects.toMatchObject({
+        code: 'RECIPIENT_LABEL_TAKEN',
+        status: 409,
+      });
+      await expect(
+        v1.createRecipient({ mandateId: crypto.randomUUID(), label: 'Ada' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      const other = await v1.prepareMandate(RULES);
+      const { mandateId: second } = await v1.submitSigned(other.id, 'signed');
+      const { recipient } = await v1.createRecipient({ mandateId: second ?? '', label: 'Ada' });
+      expect(recipient.mandateId).toBe(second);
+      expect((await v1.recipients({ mandateId })).items.map((r) => r.label)).toEqual(['Ada']);
+      expect((await v1.recipients()).items).toHaveLength(2);
+    });
+
+    it('masks the address and asks to allow it only when there is one', async () => {
+      const { v1, mandateId } = await setup();
+      const withWallet = await v1.createRecipient({ mandateId, label: 'Kofi', address: CAROL });
+      expect(withWallet.recipient).toMatchObject({
+        address: 'GCAR...AAAA',
+        status: 'active',
+        payable: true,
+      });
+      expect(withWallet.signingRequest?.action).toBe('allow_recipients');
+      const without = await v1.createRecipient({ mandateId, label: 'Musa' });
+      expect(without.recipient).toMatchObject({
+        address: null,
+        status: 'needs_wallet',
+        payable: false,
+      });
+      expect(without.signingRequest).toBeNull();
+    });
+
+    it('says why a wallet cannot receive, and looks again when one recipient is read', async () => {
+      const { v1, mandateId } = await setup();
+      v1.setDestination(CAROL, 'no_trustline');
+      const { recipient } = await v1.createRecipient({ mandateId, label: 'Kofi', address: CAROL });
+      expect(recipient).toMatchObject({ status: 'no_trustline', payable: false });
+      const blocked = await v1.createPayout(
+        { mandateId, recipientId: recipient.id, amount: usdc(1n), taskId: 'nt' },
+        'nt',
+      );
+      expect(blocked).toMatchObject({ status: 'blocked', blockedBy: 'DESTINATION_NOT_RECEIVABLE' });
+      v1.setDestination(CAROL, 'receivable');
+      // A list shows what was stored; reading the one recipient checks again.
+      const listed = (await v1.recipients({ mandateId })).items.find((r) => r.id === recipient.id);
+      expect(listed?.status).toBe('no_trustline');
+      expect(await v1.recipient(recipient.id)).toMatchObject({ status: 'active', payable: true });
+    });
+
+    it('refuses a wallet that needs a memo, and says when the chain is down', async () => {
+      const { v1, mandateId } = await setup();
+      v1.setDestination(CAROL, 'needs_memo');
+      await expect(
+        v1.createRecipient({ mandateId, label: 'Kofi', address: CAROL }),
+      ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+      v1.setDestination(CAROL, 'down');
+      await expect(
+        v1.createRecipient({ mandateId, label: 'Kofi', address: CAROL }),
+      ).rejects.toMatchObject({ code: 'CHAIN_UNAVAILABLE', status: 503 });
+      expect((await v1.recipients({ mandateId })).items).toHaveLength(1);
+    });
+
+    it('returns an email only for one recipient, never in a list', async () => {
+      const { v1, mandateId } = await setup();
+      const { recipient } = await v1.createRecipient({
+        mandateId,
+        label: 'Kofi',
+        email: 'kofi@example.com',
+      });
+      expect(recipient.email).toBeUndefined();
+      expect(JSON.stringify(await v1.recipients())).not.toContain('kofi@example.com');
+      expect((await v1.recipient(recipient.id)).email).toBe('kofi@example.com');
+      await expect(
+        v1.createRecipient({ mandateId, label: 'Ama', email: 'not an email' }),
+      ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    });
+
+    it('takes at most 100 recipients a page, like the server', async () => {
+      const { v1 } = await setup();
+      await expect(v1.recipients({ limit: 101 })).rejects.toMatchObject({
+        code: 'INVALID_REQUEST',
+      });
+      expect((await v1.recipients({ limit: 100 })).items).toHaveLength(1);
+    });
+
+    it('calls a suspended recipient suspended, and not payable', async () => {
+      const { v1, recipientId } = await setup();
+      v1.suspendRecipient(recipientId);
+      expect(await v1.recipient(recipientId)).toMatchObject({
+        status: 'suspended',
+        payable: false,
+      });
+    });
+
+    it('starts the demo with one recipient of each kind a person meets first', async () => {
+      const { auth } = await signedIn(ALICE);
+      const v1 = createFakeV1Api(auth, { delayMs: 0 });
+      const byLabel = Object.fromEntries(
+        (await v1.recipients()).items.map((r) => [r.label, r.status]),
+      );
+      expect(byLabel).toEqual({
+        Ada: 'active',
+        Kofi: 'active',
+        Musa: 'no_trustline',
+        Zainab: 'needs_wallet',
+      });
+    });
+  });
+
+  describe('invite links', () => {
+    it('hands the token over once and lists the link without it', async () => {
+      const { v1, recipientId } = await setup();
+      const made = await v1.createEmbedSession({ recipientId, expiresInSeconds: 3600 });
+      expect(made.token).toMatch(/^ujes_test_[0-9a-f]{48}$/);
+      expect(made.session).toMatchObject({ recipientId, revokedAt: null });
+      expect(Date.parse(made.session.expiresAt) - Date.parse(made.session.createdAt)).toBe(
+        3_600_000,
+      );
+      const listed = await v1.embedSessions({ recipientId });
+      expect(listed.items.map((s) => s.id)).toEqual([made.session.id]);
+      expect(JSON.stringify(listed)).not.toContain(made.token);
+    });
+
+    it('revokes a link once, and keeps it revoked', async () => {
+      const { v1, recipientId } = await setup();
+      const { session } = await v1.createEmbedSession({ recipientId, expiresInSeconds: 3600 });
+      await v1.revokeEmbedSession(session.id);
+      const at = (await v1.embedSessions({ recipientId })).items[0]?.revokedAt;
+      expect(at).not.toBeNull();
+      await v1.revokeEmbedSession(session.id);
+      expect((await v1.embedSessions({ recipientId })).items[0]?.revokedAt).toBe(at);
+      await expect(v1.revokeEmbedSession(crypto.randomUUID())).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
+
+    it('keeps a lifetime between 5 minutes and 7 days, in whole seconds', async () => {
+      const { v1, recipientId } = await setup();
+      for (const s of [60, 8 * 24 * 3600, 3600.5]) {
+        await expect(
+          v1.createEmbedSession({ recipientId, expiresInSeconds: s }),
+        ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+      }
+    });
+
+    it('makes links only for a recipient of this project that is not on hold', async () => {
+      const { auth, v1, project, recipientId } = await setup();
+      v1.suspendRecipient(recipientId);
+      await expect(
+        v1.createEmbedSession({ recipientId, expiresInSeconds: 3600 }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      const other = await auth.createProject(project.principalId, 'Other');
+      auth.useProject(other.id);
+      await expect(v1.embedSessions({ recipientId })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
   });
 
   it('imports only a contract the chain names this member on', async () => {

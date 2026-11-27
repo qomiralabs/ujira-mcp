@@ -6,6 +6,8 @@ import { useId, useState } from 'react';
 import { explorerAccount, useApp } from '../app/context';
 import { useAction } from '../app/hooks';
 import { loaded, usePortfolio } from '../app/portfolio';
+import { useSession } from '../app/session';
+import { useV1 } from '../app/switch';
 import { ConnectPrompt } from '../components/Connect';
 import { Link } from '../components/Link';
 import {
@@ -24,6 +26,7 @@ import type { Mandate } from '../lib/schemas';
 import { buildSignSubmit } from '../lib/sign';
 import { accountAddressProblem, shortAddress } from '../lib/strkey';
 import { MANDATE_STATUS, mandateStatus } from '../lib/words';
+import { RecipientsV1 } from './RecipientsV1';
 
 function AllowRecipient({ m, onDone }: { m: Mandate; onDone: () => void }) {
   const { api, config, wallet, notify } = useApp();
@@ -165,6 +168,15 @@ function MandateRecipients({ m, onDone }: { m: Mandate; onDone: () => void }) {
 }
 
 export function RecipientsPage() {
+  const v1 = useV1('recipients');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <RecipientsV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
+  return <RecipientsOnApi />;
+}
+
+function RecipientsOnApi() {
   const { wallet } = useApp();
   const portfolio = usePortfolio();
   if (wallet === null || portfolio === null) {

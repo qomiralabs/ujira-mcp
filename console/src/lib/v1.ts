@@ -14,7 +14,9 @@ import { ApiError, NETWORK_ERROR } from './api';
 import {
   apiKeyPageSchema,
   createdApiKeySchema,
+  createdEmbedSessionSchema,
   createdRecipientSchema,
+  embedSessionPageSchema,
   mandateEnvelope,
   mandatePageSchema,
   overviewSchema,
@@ -28,6 +30,7 @@ import {
   signingRequestEnvelope,
   submittedSchema,
   type ApiKey,
+  type EmbedSession,
   type Overview,
   type Page,
   type PayoutDetail,
@@ -76,6 +79,8 @@ const V1_ERRORS: Record<string, string> = {
   IDEMPOTENCY_KEY_REUSED: 'That request was already sent with different details. Start it again.',
   IDEMPOTENCY_IN_PROGRESS: 'That request is still being handled. Wait a moment and refresh.',
   TASK_ID_REUSED: 'This task already has a payout on this mandate. Use a new task ID.',
+  RECIPIENT_LABEL_TAKEN: 'Someone on this mandate already has that name.',
+  MANDATE_REFUSED: 'The mandate refused this change.',
   RATE_LIMITED: 'Too many tries in a short time. Wait a minute and try again.',
   CHAIN_UNAVAILABLE: 'The Stellar network is not answering right now. Try again in a moment.',
   DB_UNAVAILABLE: 'UJIRA is busy for a moment. Try again shortly.',
@@ -261,6 +266,27 @@ export interface PageQuery {
   readonly limit?: number | undefined;
 }
 
+export interface RecipientQuery extends PageQuery {
+  /** Only the recipients of this mandate. */
+  readonly mandateId?: string | undefined;
+}
+
+export interface CreateRecipientInput {
+  /** The mandate the recipient belongs to; the label is unique there. */
+  readonly mandateId: string;
+  readonly label: string;
+  /** A Stellar account. Without one, the recipient adds a wallet through an invite link. */
+  readonly address?: string | undefined;
+  /** Stored sealed and shown only on the recipient's own page. */
+  readonly email?: string | undefined;
+}
+
+export interface CreateEmbedSessionInput {
+  readonly recipientId: string;
+  /** How long the invite link works. */
+  readonly expiresInSeconds: number;
+}
+
 export interface PayoutQuery extends PageQuery {
   readonly status?: string | undefined;
   readonly mandateId?: string | undefined;
@@ -322,13 +348,19 @@ export interface V1Api {
   mandateAction: (id: string, action: MandateActionInput) => Promise<SigningRequest>;
   /** Sends what the wallet signed; the server fee bumps, relays and records it. */
   submitSigned: (signingRequestId: string, xdr: string) => Promise<Submitted>;
-  recipients: (q?: PageQuery) => Promise<Page<V1Recipient>>;
+  recipients: (q?: RecipientQuery) => Promise<Page<V1Recipient>>;
+  /** Checks a wallet that could not receive on the chain again. */
   recipient: (id: string) => Promise<V1Recipient>;
-  createRecipient: (input: {
-    label: string;
-    address?: string | undefined;
-    mandateId?: string | undefined;
-  }) => Promise<{ recipient: V1Recipient; signingRequest: SigningRequest | null }>;
+  createRecipient: (
+    input: CreateRecipientInput,
+  ) => Promise<{ recipient: V1Recipient; signingRequest: SigningRequest | null }>;
+  /** The invite links made for one recipient, newest first. Never their tokens. */
+  embedSessions: (q: PageQuery & { readonly recipientId: string }) => Promise<Page<EmbedSession>>;
+  /** The token comes back once; the server keeps only its hash. */
+  createEmbedSession: (
+    input: CreateEmbedSessionInput,
+  ) => Promise<{ session: EmbedSession; token: string }>;
+  revokeEmbedSession: (id: string) => Promise<void>;
   /** The key makes a retry safe: the same key and body return the same payout. */
   createPayout: (input: CreatePayoutInput, idempotencyKey: string) => Promise<PayoutDetail>;
   payouts: (q?: PayoutQuery) => Promise<Page<PayoutDetail>>;
@@ -400,12 +432,29 @@ export function createHttpV1Api(transport: V1Transport): V1Api {
         body: { signingRequestId, xdr },
       }),
     recipients: (q) =>
-      t.json(recipientPageSchema, { method: 'GET', path: '/v1/recipients', query: pageQuery(q) }),
+      t.json(recipientPageSchema, {
+        method: 'GET',
+        path: '/v1/recipients',
+        query: { ...pageQuery(q), mandateId: q?.mandateId },
+      }),
     recipient: async (id) =>
       (await t.json(recipientEnvelope, { method: 'GET', path: `/v1/recipients/${enc(id)}` }))
         .recipient,
     createRecipient: (input) =>
       t.json(createdRecipientSchema, { method: 'POST', path: '/v1/recipients', body: input }),
+    embedSessions: (q) =>
+      t.json(embedSessionPageSchema, {
+        method: 'GET',
+        path: '/v1/embed/sessions',
+        query: { ...pageQuery(q), recipientId: q.recipientId },
+      }),
+    createEmbedSession: (input) =>
+      t.json(createdEmbedSessionSchema, {
+        method: 'POST',
+        path: '/v1/embed/sessions',
+        body: input,
+      }),
+    revokeEmbedSession: (id) => t.send({ method: 'DELETE', path: `/v1/embed/sessions/${enc(id)}` }),
     createPayout: async (input, idempotencyKey) =>
       (
         await t.json(payoutEnvelope, {

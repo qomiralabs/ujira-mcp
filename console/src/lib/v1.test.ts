@@ -145,8 +145,8 @@ const ROUTES: readonly {
   {
     key: 'GET /v1/recipients',
     method: 'GET',
-    url: '/v1/recipients',
-    run: (a) => a.recipients(),
+    url: `/v1/recipients?limit=100&mandateId=${IDS.mandate}`,
+    run: (a) => a.recipients({ limit: 100, mandateId: IDS.mandate }),
   },
   {
     key: 'GET /v1/recipients/{id}',
@@ -161,6 +161,19 @@ const ROUTES: readonly {
     run: (a) =>
       a.createRecipient({ label: 'Ada', address: IDS.principalAddress, mandateId: IDS.mandate }),
     body: { label: 'Ada', address: IDS.principalAddress, mandateId: IDS.mandate },
+  },
+  {
+    key: 'GET /v1/embed/sessions',
+    method: 'GET',
+    url: `/v1/embed/sessions?limit=20&recipientId=${IDS.recipient}`,
+    run: (a) => a.embedSessions({ recipientId: IDS.recipient, limit: 20 }),
+  },
+  {
+    key: 'POST /v1/embed/sessions',
+    method: 'POST',
+    url: '/v1/embed/sessions',
+    run: (a) => a.createEmbedSession({ recipientId: IDS.recipient, expiresInSeconds: 86_400 }),
+    body: { recipientId: IDS.recipient, expiresInSeconds: 86_400 },
   },
   {
     key: 'POST /v1/payouts',
@@ -264,6 +277,44 @@ describe('the /v1 client, against recorded answers', () => {
       }
     });
   }
+
+  it('reads what a recipient can be paid, and an email only on its own page', async () => {
+    const { api } = recorder((c) =>
+      json(
+        200,
+        c.url.endsWith(IDS.recipient)
+          ? RECORDED['GET /v1/recipients/{id}']
+          : RECORDED['GET /v1/recipients'],
+      ),
+    );
+    const [listed] = (await api.recipients()).items;
+    expect(listed).toMatchObject({ mandateId: IDS.mandate, status: 'active', payable: true });
+    expect(listed?.email).toBeUndefined();
+    expect((await api.recipient(IDS.recipient)).email).toBe('ada@example.com');
+  });
+
+  it('refuses a recipient answer without the payable flag', async () => {
+    const { recipient } = RECORDED['GET /v1/recipients/{id}'];
+    const without = Object.fromEntries(Object.entries(recipient).filter(([k]) => k !== 'payable'));
+    const { api } = recorder(() => json(200, { recipient: without }));
+    await expect(api.recipient(IDS.recipient)).rejects.toMatchObject({ code: 'bad_response' });
+  });
+
+  it('revokes an invite link with a DELETE and no body', async () => {
+    const { api, calls } = recorder(() => new Response(null, { status: 204 }));
+    await api.revokeEmbedSession(IDS.invite);
+    expect(calls[0]?.url).toBe(`/v1/embed/sessions/${IDS.invite}`);
+    expect(calls[0]?.init.method).toBe('DELETE');
+    expect(calls[0]?.init.body).toBeUndefined();
+  });
+
+  it('refuses an invite token that would not survive in a link', async () => {
+    const created = RECORDED['POST /v1/embed/sessions'];
+    const { api } = recorder(() => json(200, { ...created, token: 'ujes test <b>' }));
+    await expect(
+      api.createEmbedSession({ recipientId: IDS.recipient, expiresInSeconds: 3600 }),
+    ).rejects.toMatchObject({ code: 'bad_response' });
+  });
 
   it('sends the idempotency key only on payout creation', async () => {
     const { api, calls } = recorder((c) =>

@@ -96,6 +96,14 @@ an `approve` or `reject` action in the approver's wallet; the row waits until th
 from the server has left `pending_approval`. A member the mandate does not name as an approver sees
 the item and the reason, and cannot sign. J and K move through the queue; A and R open the confirm.
 
+The receipts screen (`receipts`) reads `GET /v1/receipts`, newest issued first, one line each, with
+the outcome, the mandate and the filters (outcome, mandate, recipient, issue days) in the URL.
+Export CSV downloads `GET /v1/receipts/export.csv` for the same filters, so the file is the
+server's, not the rows on screen. A receipt opens in a side sheet (`receipt=` in the URL), and
+Verify calls `GET /v1/receipts/{id}/verify`: it shows "Matches Stellar" or the field that differs,
+with the transaction on Stellar Expert, and nothing until the server has answered. A blocked
+receipt has no transaction, so it has nothing to verify. The payout sheet offers the same Verify.
+
 ## Checks
 
 ```sh

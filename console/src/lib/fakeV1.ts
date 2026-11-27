@@ -618,6 +618,22 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     );
   }
 
+  /**
+   * The payouts that have a receipt, as the receipt routes filter them: the
+   * status is the outcome, the days are the issue date, newest issued first.
+   */
+  function withReceipts(d: ProjectData, q: Parameters<typeof filtered>[1]): PayoutRow[] {
+    const issued = (p: PayoutRow) => p.settledAt ?? p.updatedAt;
+    return filtered(d, { ...q, createdFrom: undefined, createdTo: undefined })
+      .filter(
+        (p) =>
+          p.receiptId !== null &&
+          (q?.createdFrom === undefined || issued(p) >= q.createdFrom) &&
+          (q?.createdTo === undefined || issued(p) < q.createdTo),
+      )
+      .sort((a, b) => (issued(a) < issued(b) ? 1 : issued(a) > issued(b) ? -1 : 0));
+  }
+
   return {
     mandates: (q) =>
       step((_t, d) => {
@@ -967,9 +983,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     receipts: (q) =>
       step((_t, d) =>
         page(
-          filtered(d, q)
-            .filter((p) => p.receiptId !== null)
-            .map((p) => receiptWire(d, p)),
+          withReceipts(d, q).map((p) => receiptWire(d, p)),
           q,
         ),
       ),
@@ -981,25 +995,23 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       }),
     receiptsCsv: (q) =>
       step((_t, d) => {
-        const rows = filtered(d, q)
-          .filter((p) => p.receiptId !== null)
-          .map((p) => {
-            const r = receiptWire(d, p);
-            return [
-              r.id,
-              r.payoutId,
-              r.taskId,
-              r.recipient.label,
-              formatAmount(r.amount.amount, { decimals: r.amount.scale, grouping: false }),
-              r.amount.asset,
-              r.outcome,
-              r.blockedBy ?? '',
-              r.txHash ?? '',
-              r.issuedAt,
-            ]
-              .map(csvCell)
-              .join(',');
-          });
+        const rows = withReceipts(d, q).map((p) => {
+          const r = receiptWire(d, p);
+          return [
+            r.id,
+            r.payoutId,
+            r.taskId,
+            r.recipient.label,
+            formatAmount(r.amount.amount, { decimals: r.amount.scale, grouping: false }),
+            r.amount.asset,
+            r.outcome,
+            r.blockedBy ?? '',
+            r.txHash ?? '',
+            r.issuedAt,
+          ]
+            .map(csvCell)
+            .join(',');
+        });
         const header =
           'receipt_id,payout_id,task_id,recipient,amount,asset,outcome,blocked_by,tx_hash,issued_at';
         return [header, ...rows].join('\n') + '\n';

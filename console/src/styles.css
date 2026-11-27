@@ -3485,6 +3485,33 @@ input.mono {
   }
 }
 
+/* Receipts on /v1: the table and Verify, which share the payout styles above */
+
+.receipt-actions {
+  align-items: center;
+}
+
+/* Takes the notice's own ink, so it reads on the paid and the blocked tint alike. */
+.verify-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.receipt-table .c-tx .mono-link {
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .receipt-table .c-mandate {
+    display: none;
+  }
+}
+
 /* Developers on /v1: API keys, the key dialog and the examples */
 
 .key-list {

@@ -352,6 +352,34 @@ describe('the fake /v1 API', () => {
     expect(row).toContain(",'=SUM(A1),2.00,USDC,paid,");
   });
 
+  it('filters receipts by outcome and issue day, newest issued first, the CSV alike', async () => {
+    let at = Date.parse('2026-11-20T10:00:00.000Z');
+    const auth = createFakeAuthApi({ delayMs: 0 });
+    await signedIn(ALICE, auth);
+    const v1 = createFakeV1Api(auth, { delayMs: 0, demo: false, now: () => at });
+    const { mandateId, recipientId } = await ready(v1);
+    const pay = (taskId: string, whole: bigint) =>
+      v1.createPayout({ mandateId, recipientId, amount: usdc(whole), taskId }, taskId);
+    await pay('old', 1n);
+    at = Date.parse('2026-11-22T10:00:00.000Z');
+    await pay('new', 2n);
+    await pay('refused', 500n);
+
+    expect((await v1.receipts()).items.map((r) => r.taskId)).toEqual(['refused', 'new', 'old']);
+    const blocked = await v1.receipts({ status: 'blocked' });
+    expect(blocked.items.map((r) => r.taskId)).toEqual(['refused']);
+    const day = await v1.receipts({
+      status: 'paid',
+      createdFrom: '2026-11-22T00:00:00.000Z',
+      createdTo: '2026-11-23T00:00:00.000Z',
+    });
+    expect(day.items.map((r) => r.taskId)).toEqual(['new']);
+    const csv = await v1.receiptsCsv({ status: 'paid', createdTo: '2026-11-21T00:00:00.000Z' });
+    const lines = csv.trim().split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain(',old,');
+  });
+
   it('verifies a paid receipt and names the field a refused one lacks', async () => {
     const { v1, mandateId, recipientId } = await setup();
     const paid = await v1.createPayout(

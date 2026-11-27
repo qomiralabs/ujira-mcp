@@ -13,6 +13,7 @@ import type { V1Api } from '../lib/v1';
 import type { PayoutDetail, PayoutLeg } from '../lib/v1Schemas';
 import { reasonText, statusWord } from '../lib/words';
 import { Link } from './Link';
+import { ReceiptActions } from './ReceiptVerify';
 import { when } from './ReceiptsTable';
 import {
   Amount,
@@ -145,17 +146,14 @@ function Receipt({ v1, projectId, id }: { v1: V1Api; projectId: string; id: stri
           </div>
         )}
       </dl>
-      <div className="actions">
+      <ReceiptActions key={r.id} v1={v1} receipt={r}>
         <Link to="/receipts" className="card-link">
           All receipts
         </Link>
         <span className="soon-inline">
-          Verify <SoonTag />
-        </span>
-        <span className="soon-inline">
           PDF <SoonTag />
         </span>
-      </div>
+      </ReceiptActions>
     </div>
   );
 }

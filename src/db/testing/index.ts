@@ -6,5 +6,6 @@
 // container itself starts in this package's global setup, which a test project
 // names in the root vitest config.
 
-export { createTestDatabase, type TestDatabase } from './harness.js';
+export { createTestDatabase, roleUrl, type TestDatabase } from './harness.js';
 export { databaseAsServiceRoles } from './databases.js';
+export { queueFixture, type QueueFixture, type QueueRow } from './queue-fixture.js';

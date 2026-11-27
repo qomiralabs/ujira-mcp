@@ -26,12 +26,14 @@
 
 import { pathToFileURL } from 'node:url';
 
+import { loadQueueInstallConfig } from './config.js';
 import {
   MIGRATIONS_TABLE,
   runMigrations,
   runMigrationsByFile,
   type MigrationTls,
 } from './migrate.js';
+import { installJobQueue, QUEUE_SCHEMA } from './queue.js';
 import { PINNED_TLS } from './tls.js';
 
 export interface CliOutput {
@@ -141,6 +143,27 @@ export async function main(
       ? `db:migrate: nothing to do, ${MIGRATIONS_TABLE} is up to date`
       : `db:migrate: ${direction} applied ${String(names.length)} migration(s) recorded in ${MIGRATIONS_TABLE}: ${names.join(', ')}`,
   );
+  // The job queue's own tables come after the migration that makes their
+  // schema, and before any worker of this release starts, so two pools never
+  // race to upgrade them. They are installed as the worker, which owns them.
+  // Without the worker's URL the first worker to start installs them itself.
+  const workerUrl = env['UJIRA_DB_WORKER_URL'];
+  if (direction === 'up' && workerUrl !== undefined && workerUrl !== '') {
+    try {
+      await installJobQueue(
+        loadQueueInstallConfig({
+          UJIRA_DB_WORKER_URL: workerUrl,
+          UJIRA_DB_TLS: env['UJIRA_DB_TLS'],
+          UJIRA_DB_ACQUIRE_TIMEOUT_MS: env['UJIRA_DB_ACQUIRE_TIMEOUT_MS'],
+        }),
+      );
+    } catch (error) {
+      return fail(
+        `the job queue was not installed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+    output.out(`db:migrate: the job queue in ${QUEUE_SCHEMA} is installed and up to date`);
+  }
   return 0;
 }
 

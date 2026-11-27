@@ -9,7 +9,9 @@
 // runs in its own worker process, which does not see a change made to the
 // environment here.
 
+import { loadQueueInstallConfig } from '../config.js';
 import { runMigrations } from '../migrate.js';
+import { installJobQueue } from '../queue.js';
 import { startHarness } from './container.js';
 import { ADMIN_URL_KEY, ROLE_URLS_KEY } from './harness.js';
 
@@ -23,9 +25,21 @@ interface SetupContext {
 }
 
 export default async function setup({ provide }: SetupContext): Promise<() => Promise<void>> {
-  const harness = await startHarness(async (url) => {
-    await runMigrations({ databaseUrl: url, direction: 'up' });
-  });
+  const harness = await startHarness(
+    async (url) => {
+      await runMigrations({ databaseUrl: url, direction: 'up' });
+    },
+    // As a deployment does it: the worker login installs the queue it owns,
+    // holding no right on the database beyond what the migrations gave it.
+    async (templateUrlOf) => {
+      await installJobQueue(
+        loadQueueInstallConfig({
+          UJIRA_DB_WORKER_URL: templateUrlOf('ujira_worker'),
+          UJIRA_DB_TLS: 'off',
+        }),
+      );
+    },
+  );
   provide(ADMIN_URL_KEY, harness.adminUrl);
   provide(ROLE_URLS_KEY, { ...harness.roleUrls });
   return async () => {

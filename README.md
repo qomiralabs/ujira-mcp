@@ -174,12 +174,27 @@ One image, and one entry point (`dist/server/main.js`, `npm start`), runs the ro
 | --- | --- |
 | unset or empty | `web,worker`, both in one process. The Railway service runs this, so a deploy that does not set the variable serves exactly as before. |
 | `web` | The site, `/app`, `/api`, `/mcp`, `/m/<mandate>/mcp` and `/healthz`: everything the HTTP server has always served. |
-| `worker` | Queued jobs only, with no HTTP listener and none of the web settings. It has no tasks yet; it starts, stays up and stops cleanly. |
+| `worker` | Queued payout jobs only, with no HTTP listener and none of the web settings. See The job queue below. |
 | `web,worker` | Both. Order and spaces do not matter. |
 
 Anything else, such as a typo, an empty entry or a role named twice, refuses to start with exit code 1 and a message such as `ujira-server: UJIRA_ROLES must be web, worker or web,worker; "jobs" is not a role`.
 
 On SIGTERM or SIGINT the web role stops first: it stops taking connections at once, gives requests in flight up to 10 seconds, then closes the rest. The worker stops next. The whole stop has a 20 second budget; the process exits 0 when every role stopped in time and 1 when one did not, and a second signal while stopping changes nothing. The image's health check asks `/healthz` unless the container runs the worker role alone, which has no port; a host running a worker alone needs no HTTP health check either.
+
+### The job queue
+
+The worker role runs payout jobs on Graphile Worker 0.18.0, in schema `graphile_worker`, as the `ujira_worker` login over a session connection (`UJIRA_DB_WORKER_URL`, never the transaction pooler). Without that variable the queue is off: the role logs `ready, queue off: UJIRA_DB_WORKER_URL is not set`, stays up and stops cleanly, so the image deploys ahead of its database. With it, every database setting must be valid or the process refuses to start; a database that is down at start only makes the queue retry every 10 seconds, so the web role in the same process keeps serving.
+
+| Setting | Meaning |
+| --- | --- |
+| `UJIRA_DB_WORKER_URL` | The worker login. Turns the queue on. |
+| `UJIRA_WORKER_CONCURRENCY` | Jobs at once across every queue, 1 to 16, default 4. One queue still runs one job at a time. |
+
+- **Install.** Migration `1800000000024_job_queue.sql` creates the queue's schemas, owned by `ujira_worker`. `npm run db:migrate -- up` then installs the library's tables as the worker login when `UJIRA_DB_WORKER_URL` is set, before any worker of the release starts; without it, the first worker to start installs them. The worker never needs CREATE on the database.
+- **Enqueue.** A payout's job is added with `jobs.enqueuePayout(tx, task, payoutId)` inside the transaction that writes the payout, so a rollback leaves neither. It goes through `ujira_jobs.enqueue_payout`, the only way in, which takes the tenant from the transaction. The payload is `{ principalId, projectId, payoutId }`; the job key is `<project id>:payout:<payout id>:<task>`, so a second enqueue of a waiting job collapses into it.
+- **Queues.** `payout.advance` runs on `agent:<project id>`, one job at a time per agent key; `payout.execute` on `executor`, one at a time for the executor key; `receipt.issue` on none.
+- **Retries and dead letters.** Each job gets 10 attempts with the library's backoff (about 3.6 hours in all). The last failure moves the payout to `needs_attention` and logs `event=payout_dead_letter` with the tenant, the payout, the attempt and an error code, never a message. A job whose payout the tenant does not have ends at once the same way, with `payout_status=not_found`, and moves nothing.
+- **Stop.** On SIGTERM the queue takes no new jobs, lets running ones finish, and after 5 seconds aborts them; an aborted job is released to retry, and the next worker picks it up.
 
 ### Deploy on Railway
 

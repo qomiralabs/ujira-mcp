@@ -104,7 +104,7 @@ describe('src/server/main.ts', { timeout: 60_000 }, () => {
     const port = await freePort();
     const run = start({ UJIRA_ROLES: 'worker', PORT: String(port) });
     await until(() => run.out().includes('ujira-server: running worker'), 15_000);
-    expect(run.out()).toContain('ujira-worker: ready, no tasks registered');
+    expect(run.out()).toContain('ujira-worker: ready, queue off: UJIRA_DB_WORKER_URL is not set');
     expect(await tryConnect(port)).toBe('ECONNREFUSED');
 
     const sent = Date.now();
@@ -113,6 +113,16 @@ describe('src/server/main.ts', { timeout: 60_000 }, () => {
     expect(Date.now() - sent).toBeLessThan(20_000);
     expect(run.out()).toContain('ujira-server: worker stopped');
     expect(run.err()).toBe('');
+  });
+
+  it('names a bad database setting of the worker without its value, and exits 1', async () => {
+    const run = start({
+      UJIRA_ROLES: 'worker',
+      UJIRA_DB_WORKER_URL: 'postgresql://login:not-shown@127.0.0.1:54329/ujira',
+    });
+    expect(await run.exited).toEqual({ code: 1, signal: null });
+    expect(run.err()).toBe('ujira-server: UJIRA_DB_APP_URL is required\n');
+    expect(run.out()).not.toContain('not-shown');
   });
 
   it('runs web and worker when UJIRA_ROLES is unset, answers /healthz, and stops web first', async () => {

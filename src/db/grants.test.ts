@@ -16,6 +16,8 @@ import { createTestDatabase, PLATFORM_ROLES, type TestDatabase } from './testing
 
 const adminUrl = inject('dbAdminUrl');
 
+const QUEUE_SCHEMAS = ['graphile_worker', 'ujira_jobs'] as const;
+
 let database: TestDatabase;
 let client: pg.Client;
 
@@ -437,19 +439,29 @@ describe('roles', () => {
   it('ujira_app has no BYPASSRLS and owns nothing, and neither do the worker and the reader', async () => {
     // Ownership skips row level security unless it is forced, and an owner
     // can turn the forcing off, so a login that owned one table could read
-    // every tenant's rows in it.
+    // every tenant's rows in it. The worker is the one exception, for the job
+    // queue alone: the library's tables allow their owner and nobody else,
+    // and they hold job ids, not tenant rows.
     for (const role of SERVICE_ROLES) {
+      const queue = role === 'ujira_worker' ? QUEUE_SCHEMAS : [];
       const owned = await client.query<{ object: string }>(
-        `select format('schema %I', nspname) as object from pg_namespace where nspowner = $1::regrole
+        `select format('schema %I', nspname) as object from pg_namespace
+          where nspowner = $1::regrole and nspname <> all($2::text[])
          union all
-         select format('relation %s', oid::regclass) from pg_class where relowner = $1::regrole
+         select format('relation %s', c.oid::regclass)
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where c.relowner = $1::regrole and n.nspname <> all($2::text[])
          union all
-         select format('function %s', oid::regprocedure) from pg_proc where proowner = $1::regrole
+         select format('function %s', p.oid::regprocedure)
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where p.proowner = $1::regrole and n.nspname <> all($2::text[])
          union all
-         select format('type %s', oid::regtype) from pg_type where typowner = $1::regrole
+         select format('type %s', t.oid::regtype)
+           from pg_type t join pg_namespace n on n.oid = t.typnamespace
+          where t.typowner = $1::regrole and n.nspname <> all($2::text[])
          union all
          select format('database %I', datname) from pg_database where datdba = $1::regrole`,
-        [role],
+        [role, queue],
       );
       expect(owned.rows, role).toEqual([]);
       const bypass = await client.query<{ rolbypassrls: boolean }>(
@@ -458,6 +470,13 @@ describe('roles', () => {
       );
       expect(bypass.rows, role).toEqual([{ rolbypassrls: false }]);
     }
+  });
+
+  it('the worker owns the two queue schemas and no other schema', async () => {
+    const schemas = await client.query<{ nspname: string }>(
+      `select nspname from pg_namespace where nspowner = 'ujira_worker'::regrole order by 1`,
+    );
+    expect(schemas.rows.map((row) => row.nspname)).toEqual([...QUEUE_SCHEMAS]);
   });
 
   it('runs every security definer function as its own narrow role, never as the owner', async () => {

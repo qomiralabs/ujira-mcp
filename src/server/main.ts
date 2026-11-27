@@ -9,6 +9,7 @@
 // web role, the name the HTTP server has always logged as) or ujira-worker.
 // A failure to start is one plain line on stderr, before any logging runs.
 
+import { DatabaseConfigError } from '../db/index.js';
 import { EngineError } from '../errors.js';
 import { jsonLog } from '../log.js';
 import { startWorker } from '../worker/index.js';
@@ -21,8 +22,11 @@ const prefixed = (service: string) =>
 const log = prefixed('ujira-server');
 
 function failed(error: unknown): never {
+  // These messages name a setting or a code, never a value or a URL.
   const message =
-    error instanceof EngineError || error instanceof ListenError
+    error instanceof EngineError ||
+    error instanceof ListenError ||
+    error instanceof DatabaseConfigError
       ? error.message
       : 'failed to start';
   process.stderr.write(`ujira-server: ${message}\n`);
@@ -36,7 +40,12 @@ try {
     roles,
     factories: {
       web: () => startWeb(process.env, prefixed('ujira-mcp-http')),
-      worker: () => Promise.resolve<RoleHandle>({ role: 'worker', ...startWorker(workerLog) }),
+      // No payout task is registered yet: the payout handlers bring their own
+      // definitions, and until then a queued job waits rather than runs.
+      worker: async (): Promise<RoleHandle> => ({
+        role: 'worker',
+        ...(await startWorker(process.env, workerLog)),
+      }),
     },
     proc: process,
     log,

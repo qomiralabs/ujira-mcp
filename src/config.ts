@@ -47,6 +47,11 @@ export interface Settings {
   readonly assetIssuer?: string;
   /** Recipient names to wallets, from the mandate file's named recipients. */
   readonly namedRecipients: Readonly<Record<string, string>>;
+  /**
+   * Pays the network fee of every transaction a principal signs, so no
+   * principal needs XLM. The keep alive pass pays from the same account.
+   */
+  readonly feeSponsor?: TxSigner;
 }
 
 /** The parts of a mandate file this package reads; anything else in it is ignored. */
@@ -136,6 +141,7 @@ export function loadSettings(env: Env = process.env): Settings {
   }
   // Without its own key the agent executes, which the mandate allows.
   const executor = signerFromEnv(env, 'UJIRA_EXECUTOR') ?? agent;
+  const feeSponsor = signerFromEnv(env, 'UJIRA_FEE_SPONSOR');
 
   const recipientRefs = new Map<string, Hex32>();
   const namedRecipients: Record<string, string> = {};
@@ -158,6 +164,7 @@ export function loadSettings(env: Env = process.env): Settings {
       join(set(env, 'UJIRA_DATA_DIR') ?? join(homedir(), '.ujira-mcp'), 'receipts.json'),
     ...(assetIssuer === undefined ? {} : { assetIssuer }),
     namedRecipients,
+    ...(feeSponsor === undefined ? {} : { feeSponsor }),
   };
 }
 
@@ -224,6 +231,7 @@ export function createEngine(
     chain: network,
     factory: TESTNET_FACTORY,
     asset: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
+    ...(settings.feeSponsor === undefined ? {} : { feeSponsor: settings.feeSponsor }),
   });
   const mandate = adapter.mandate(settings.mandateId);
   const rails: PayoutRail[] = [new WalletRail(mandate, settings.executor)];

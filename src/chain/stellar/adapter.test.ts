@@ -7,6 +7,7 @@ import {
   Account,
   FeeBumpTransaction,
   Keypair,
+  SorobanDataBuilder,
   TransactionBuilder,
   type Transaction,
 } from '@stellar/stellar-sdk';
@@ -38,8 +39,10 @@ import {
   callOptions,
   type CallOptions,
   type ChainAdapter,
+  type FeeBudget,
   type PayoutIntent,
   type SigningRequest,
+  type SponsoredFee,
 } from '../adapter.js';
 import { StellarChainAdapter } from './adapter.js';
 import { classify } from './allowlist.js';
@@ -61,9 +64,13 @@ const never = <T>() => new Promise<T>(() => undefined);
 /** Accounts, preparing and sending, all in memory. */
 class FakeNetwork implements StellarNetworkPort {
   facts = new Map<string, AccountFacts>();
-  submitted: Transaction[] = [];
+  submitted: (Transaction | FeeBumpTransaction)[] = [];
   answers: Partial<Submitted>[] = [];
+  /** Thrown by the next sends, in order, before anything is recorded as sent. */
+  refusals: ChainError[] = [];
   ledgerFails = false;
+  /** Prepared transactions carry this Soroban resource fee, as simulation sets one. */
+  resourceFee = 0;
 
   account() {
     return Promise.resolve({ exists: true, xlm: '100', usdc: null });
@@ -77,9 +84,13 @@ class FakeNetwork implements StellarNetworkPort {
     return Promise.resolve(new Account(address, '100'));
   }
   prepare(tx: Transaction): Promise<Transaction> {
-    return Promise.resolve(tx);
+    if (this.resourceFee === 0) return Promise.resolve(tx);
+    const data = new SorobanDataBuilder().setResourceFee(this.resourceFee).build();
+    return Promise.resolve(TransactionBuilder.cloneFrom(tx, { sorobanData: data }).build());
   }
-  submit(tx: Transaction): Promise<Submitted> {
+  submit(tx: Transaction | FeeBumpTransaction): Promise<Submitted> {
+    const refused = this.refusals.shift();
+    if (refused !== undefined) return Promise.reject(refused);
     this.submitted.push(tx);
     return Promise.resolve({
       hash: Buffer.from(tx.hash()).toString('hex'),
@@ -117,6 +128,34 @@ class SilentNetwork implements StellarNetworkPort {
 
 const sponsor = testSigner('fee-sponsor');
 
+/** A budget that records what it was asked, and refuses when told to. */
+class RecordingBudget implements FeeBudget {
+  events: (
+    | { kind: 'reserve'; fee: SponsoredFee }
+    | { kind: 'settle'; fee: SponsoredFee; charged: bigint }
+    | { kind: 'release'; fee: SponsoredFee }
+  )[] = [];
+  refuseWith: Error | undefined;
+
+  reserve(fee: SponsoredFee): Promise<void> {
+    this.events.push({ kind: 'reserve', fee });
+    return this.refuseWith === undefined ? Promise.resolve() : Promise.reject(this.refuseWith);
+  }
+  settle(fee: SponsoredFee, charged: bigint): Promise<void> {
+    this.events.push({ kind: 'settle', fee, charged });
+    return Promise.resolve();
+  }
+  release(fee: SponsoredFee): Promise<void> {
+    this.events.push({ kind: 'release', fee });
+    return Promise.resolve();
+  }
+  kinds(): string[] {
+    return this.events.map((e) => e.kind);
+  }
+}
+
+const hex = (tx: Transaction | FeeBumpTransaction) => Buffer.from(tx.hash()).toString('hex');
+
 function world(over: { gateway?: SorobanGateway; chain?: StellarNetworkPort } = {}) {
   const rpc = new FakeMandateRpc();
   rpc.allowRecipient(defaultRecipientRef(alice), alice);
@@ -129,7 +168,20 @@ function world(over: { gateway?: SorobanGateway; chain?: StellarNetworkPort } = 
     feeSponsor: sponsor,
     now: () => NOW_MS,
   });
-  return { rpc, chain, adapter };
+  return { rpc, chain, adapter, budget: new RecordingBudget() };
+}
+
+/** The same world without a fee sponsor, where a principal pays its own fee. */
+function unsponsored() {
+  const chain = new FakeNetwork();
+  const adapter = new StellarChainAdapter({
+    gateway: new FakeMandateRpc(),
+    chain,
+    factory: FACTORY,
+    asset: { code: 'USDC', issuer: ISSUER, contract: USDC_CONTRACT },
+    now: () => NOW_MS,
+  });
+  return { chain, adapter };
 }
 
 const o = (): CallOptions => callOptions('test');
@@ -284,16 +336,104 @@ describe('signing requests', () => {
   });
 
   it('submits exactly the envelope it prepared, signed by its signer', async () => {
-    const { adapter, chain } = world();
+    const { adapter, chain } = unsponsored();
     const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
     const envelope = signed(req);
     const { txHash } = await adapter.submitSigned(envelope, req, o());
     expect(chain.submitted).toHaveLength(1);
-    expect(txHash).toBe(Buffer.from(parse(req).hash()).toString('hex'));
+    expect(chain.submitted[0]?.toXdr()).toBe(envelope);
+    expect(txHash).toBe(hex(parse(req)));
+  });
+
+  it('sends a principal signed envelope inside a fee bump the sponsor pays, charged to the budget', async () => {
+    const { adapter, chain, budget } = world();
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    const envelope = signed(req);
+    chain.answers.push({ feeCharged: 150n });
+    const { txHash } = await adapter.submitSigned(envelope, req, o(), budget);
+
+    const sent = chain.submitted[0];
+    if (!(sent instanceof FeeBumpTransaction)) throw new Error('expected a fee bump');
+    expect(chain.submitted).toHaveLength(1);
+    expect(sent.feeSource).toBe(sponsor.publicKey);
+    expect(sent.innerTransaction.toXdr()).toBe(envelope);
+    expect(sent.signatures).toHaveLength(1);
+    expect(txHash).toBe(hex(sent));
+    const fee = { innerTxHash: hex(parse(req)), maxFee: BigInt(sent.fee) };
+    expect(budget.events).toEqual([
+      { kind: 'reserve', fee },
+      { kind: 'settle', fee, charged: 150n },
+    ]);
+  });
+
+  it('bids the inner inclusion fee and passes the resource fee on, so the cap counts what it may cost', async () => {
+    const { adapter, chain, budget } = world();
+    chain.resourceFee = 1_000_000;
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    expect(parse(req).fee).toBe('1010000');
+    await adapter.submitSigned(signed(req), req, o(), budget);
+    // The inner inclusion bid for the operation and again for the bump itself,
+    // and the resource fee once.
+    expect(chain.submitted[0]?.fee).toBe('1020000');
+    expect(budget.events[0]).toMatchObject({ kind: 'reserve', fee: { maxFee: 1_020_000n } });
+  });
+
+  it('settles at the maximum when the network does not say what it charged', async () => {
+    const { adapter, budget } = world();
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    await adapter.submitSigned(signed(req), req, o(), budget);
+    const [reserved, settled] = budget.events;
+    expect(settled).toEqual({ kind: 'settle', fee: reserved?.fee, charged: reserved?.fee.maxFee });
+  });
+
+  it('sends nothing when the budget refuses the fee, and answers with its error', async () => {
+    const { adapter, chain, budget } = world();
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    const capped = new Error('over the cap');
+    budget.refuseWith = capped;
+    await expect(adapter.submitSigned(signed(req), req, o(), budget)).rejects.toBe(capped);
+    expect(chain.submitted).toHaveLength(0);
+    expect(budget.kinds()).toEqual(['reserve']);
+  });
+
+  it('refuses to sponsor without a budget, and sends nothing', async () => {
+    const { adapter, chain } = world();
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    expect((await chainError(() => adapter.submitSigned(signed(req), req, o()))).code).toBe(
+      'UNAVAILABLE',
+    );
+    expect(chain.submitted).toHaveLength(0);
+  });
+
+  it('releases the fee when the network refused the transaction, and keeps it when the answer was lost', async () => {
+    const { adapter, chain, budget } = world();
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    chain.refusals.push(
+      new ChainError('TX_FAILED', 'not accepted', { reason: 'tx_rejected' }),
+      new ChainError('TIMEOUT', 'lost', { reason: 'submission_unknown' }),
+    );
+    expect((await chainError(() => adapter.submitSigned(signed(req), req, o(), budget))).code).toBe(
+      'TX_FAILED',
+    );
+    expect(budget.kinds()).toEqual(['reserve', 'release']);
+    budget.events = [];
+    expect((await chainError(() => adapter.submitSigned(signed(req), req, o(), budget))).code).toBe(
+      'TIMEOUT',
+    );
+    expect(budget.kinds()).toEqual(['reserve']);
+  });
+
+  it('settles the fee of a transaction that landed and failed, since the network charged for it', async () => {
+    const { adapter, chain, budget } = world();
+    const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    chain.answers.push({ status: 'FAILED', reason: 'already_paused', feeCharged: 90n });
+    const refused = await chainError(() => adapter.submitSigned(signed(req), req, o(), budget));
+    expect([refused.code, refused.specError]).toEqual(['CONTRACT_REFUSED', 'ALREADY_PAUSED']);
+    expect(budget.events[1]).toMatchObject({ kind: 'settle', charged: 90n });
   });
 
   it('refuses an envelope that differs from its request with SIGNING_REQUEST_MISMATCH', async () => {
-    const { adapter, chain } = world();
+    const { adapter, chain, budget } = world();
     const pause = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
     const resume = await adapter.prepareMandateAction(MANDATE, { kind: 'resume' }, o());
     const reject = await adapter.prepareMandateAction(
@@ -337,32 +477,35 @@ describe('signing requests', () => {
       ],
     ];
     for (const [what, envelope, expected] of refusals) {
-      const error = await chainError(() => adapter.submitSigned(envelope, expected, o()));
+      const error = await chainError(() => adapter.submitSigned(envelope, expected, o(), budget));
       expect(error.code, what).toBe('SIGNING_REQUEST_MISMATCH');
     }
     expect(bump).toBeInstanceOf(FeeBumpTransaction);
     expect(chain.submitted).toHaveLength(0);
+    // Refused before any fee is reserved, so a bad envelope costs the cap nothing.
+    expect(budget.events).toEqual([]);
   });
 
   it('refuses an unsigned envelope or one signed by another key with SIGNATURE_INVALID', async () => {
-    const { adapter, chain } = world();
+    const { adapter, chain, budget } = world();
     const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
     for (const envelope of [req.xdr, signed(req, stranger)]) {
-      expect((await chainError(() => adapter.submitSigned(envelope, req, o()))).code).toBe(
+      expect((await chainError(() => adapter.submitSigned(envelope, req, o(), budget))).code).toBe(
         'SIGNATURE_INVALID',
       );
     }
     expect(chain.submitted).toHaveLength(0);
+    expect(budget.events).toEqual([]);
   });
 
   it('names the contract refusal when a submitted transaction fails on chain', async () => {
-    const { adapter, chain } = world();
+    const { adapter, chain, budget } = world();
     const req = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
     chain.answers.push({ status: 'FAILED', reason: 'already_paused' });
-    const refused = await chainError(() => adapter.submitSigned(signed(req), req, o()));
+    const refused = await chainError(() => adapter.submitSigned(signed(req), req, o(), budget));
     expect([refused.code, refused.specError]).toEqual(['CONTRACT_REFUSED', 'ALREADY_PAUSED']);
     chain.answers.push({ status: 'FAILED' });
-    expect((await chainError(() => adapter.submitSigned(signed(req), req, o()))).code).toBe(
+    expect((await chainError(() => adapter.submitSigned(signed(req), req, o(), budget))).code).toBe(
       'TX_FAILED',
     );
   });
@@ -474,13 +617,13 @@ describe('deadlines', () => {
     const live = world();
     const pause = await live.adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
     const envelope = signed(pause);
-    const { adapter } = world({ gateway: new SilentGateway(), chain: new SilentNetwork() });
+    const { adapter, budget } = world({ gateway: new SilentGateway(), chain: new SilentNetwork() });
     const id = payoutIdFor(MANDATE, 't1');
     const calls: [string, (o: CallOptions) => Promise<unknown>][] = [
       ['health', (c) => adapter.health(c)],
       ['readMandate', (c) => adapter.readMandate(MANDATE, c)],
       ['prepareMandateAction', (c) => adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, c)],
-      ['submitSigned', (c) => adapter.submitSigned(envelope, pause, c)],
+      ['submitSigned', (c) => adapter.submitSigned(envelope, pause, c, budget)],
       ['checkPayout', (c) => adapter.checkPayout(intent('t1', UNIT), agent.publicKey, c)],
       ['requestPayout', (c) => adapter.requestPayout(intent('t1', UNIT), agent, c)],
       ['executePayout', (c) => adapter.executePayout(MANDATE, id, executor, c)],
@@ -505,6 +648,12 @@ describe('deadlines', () => {
     expect(
       (await chainError(() => adapter.sponsorFee(signed(req), principal.publicKey, past))).code,
     ).toBe('TIMEOUT');
+    const { budget } = world();
+    expect(
+      (await chainError(() => adapter.submitSigned(signed(req), req, past, budget))).code,
+    ).toBe('TIMEOUT');
+    // A deadline already gone reserves nothing.
+    expect(budget.events).toEqual([]);
     expect((await chainError(() => adapter.readMandate(MANDATE, past))).code).toBe('TIMEOUT');
   });
 });

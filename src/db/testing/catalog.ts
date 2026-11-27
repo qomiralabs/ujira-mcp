@@ -66,12 +66,13 @@ const DEFAULT_COLUMNS: TenantColumns = { principal: 'principal_id', project: 'pr
 // is its own principal, a project its own project, and a membership belongs
 // to the whole principal, since a person's role holds in every project of it.
 // So does an audit head, because one chain runs across all of a principal's
-// projects.
+// projects, and a fee sponsor day, because the daily fee cap does too.
 export const TENANT_COLUMNS: Readonly<Record<string, TenantColumns>> = {
   'ujira.principals': { principal: 'id', project: null },
   'ujira.projects': { principal: 'principal_id', project: 'id' },
   'ujira.principal_members': { principal: 'principal_id', project: null },
   'ujira.audit_heads': { principal: 'principal_id', project: null },
+  'ujira.fee_sponsor_days': { principal: 'principal_id', project: null },
 };
 
 // The logins that serve traffic. Every grant to one of them on a tenant

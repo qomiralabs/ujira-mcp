@@ -279,6 +279,19 @@ Soroban storage lives a set number of ledgers and is then archived, and the next
 
 `UJIRA_TESTNET=1 npx vitest run test/keep-alive.testnet.test.ts` prints the live numbers for the demo mandate and the factory; add `UJIRA_TESTNET_KEEPALIVE_SEND=1` and a fee sponsor key to run one paid pass.
 
+#### Fee sponsorship
+
+Principals never need XLM. Every transaction a principal signs through UJIRA (create, fund, allow recipients, pause, resume, revoke, approve, reject, withdraw) is sent inside a fee bump that the fee sponsor pays. The principal's own envelope is checked against the signing request it was built from before anything is reserved or sent.
+
+Each principal may use the sponsor up to a daily cap, counted across all of its projects for the UTC day and kept in Postgres, so every instance sees the same total. A transaction reserves the fee bump's maximum before it is sent and is settled at what the network charged once it is final; one the network refused without applying is released. Retrying the same signed envelope counts once. Past the cap nothing is sent: the API answers `429 RATE_LIMITED` with `Retry-After` set to the seconds left in the UTC day, and the server logs `event=fee_sponsor_cap_reached`. The sponsor's own balance is watched by the `fee_sponsor_low` alert above.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `UJIRA_FEE_SPONSOR_SECRET` or `UJIRA_FEE_SPONSOR_KEY_FILE` | none | The fee sponsor, the same account the keep alive pass pays from. Without it a principal pays its own fee. |
+| `UJIRA_FEE_SPONSOR_DAILY_CAP` | `50000000` (5 XLM) | Stroops the sponsor pays for one principal in one UTC day. A testnet mandate create costs about 0.13 XLM. |
+
+`UJIRA_TESTNET=1 UJIRA_FEE_SPONSOR_KEY_FILE=... npx vitest run test/fee-sponsorship.testnet.test.ts` makes a principal that holds only its reserve and has it sign a mandate create, sent with the sponsor paying.
+
 Every page of the product is served from this one server:
 
 | Path | Serves |

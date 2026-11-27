@@ -16,6 +16,7 @@ import { HTTPException } from 'hono/http-exception';
 import { routePath } from 'hono/route';
 
 import { DatabaseUnavailableError } from '../db/index.js';
+import { FeeSponsorCapError } from '../payouts/errors.js';
 import { bodyGuard, MAX_BODY_BYTES } from './body.js';
 import { REQUEST_ID_HEADER, type V1Context, type V1Env } from './context.js';
 import { ApiError, envelope, type ApiErrorCode, type ErrorDetail } from './errors.js';
@@ -147,6 +148,13 @@ export function createV1App(options: V1AppOptions = {}): V1App {
       );
       return errorResponse(c, 'DB_UNAVAILABLE', 503, 'The service is busy; try again shortly', [], {
         'retry-after': DB_RETRY_AFTER_SECONDS,
+      });
+    }
+    // Any route that relays a principal signed transaction can hit the daily
+    // fee cap, so it is answered here once rather than in each of them.
+    if (error instanceof FeeSponsorCapError) {
+      return errorResponse(c, 'RATE_LIMITED', 429, error.message, undefined, {
+        'retry-after': String(error.retryAfterSeconds),
       });
     }
     if (error instanceof HTTPException) {

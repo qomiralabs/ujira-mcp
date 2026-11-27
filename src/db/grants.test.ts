@@ -107,6 +107,10 @@ describe('grants on ujira', () => {
       ujira_app: [
         ...REFERENCE,
         'relation agent_keys INSERT',
+        'relation fee_sponsor_days INSERT',
+        'relation fee_sponsor_days SELECT',
+        'relation fee_sponsorships INSERT',
+        'relation fee_sponsorships SELECT',
         'relation mandates INSERT',
         'relation mandates SELECT',
         'relation payout_methods INSERT',
@@ -148,6 +152,8 @@ describe('grants on ujira', () => {
       ],
       ujira_reader: [
         ...REFERENCE,
+        'relation fee_sponsor_days SELECT',
+        'relation fee_sponsorships SELECT',
         'relation mandates SELECT',
         'relation payout_methods SELECT',
         'relation recipients SELECT',
@@ -183,6 +189,24 @@ describe('grants on ujira', () => {
         order by 1`,
     );
     expect(columns.rows.map((row) => row.column_name)).toEqual(['role', 'status']);
+  });
+
+  it('lets the app move a fee sponsorship and its day total, and never whose it is or which transaction', async () => {
+    const columns = await client.query<{ table_name: string; column_name: string }>(
+      `select table_name::text as table_name, column_name::text as column_name
+         from information_schema.column_privileges
+        where table_schema = 'ujira'
+          and table_name = any($1::text[])
+          and grantee = 'ujira_app' and privilege_type = 'UPDATE'`,
+      [['fee_sponsor_days', 'fee_sponsorships']],
+    );
+    expect(columns.rows.map((row) => `${row.table_name}.${row.column_name}`).sort()).toEqual([
+      'fee_sponsor_days.used_stroops',
+      'fee_sponsorships.charged_stroops',
+      'fee_sponsorships.day',
+      'fee_sponsorships.max_fee_stroops',
+      'fee_sponsorships.status',
+    ]);
   });
 
   it('lets the app change only what is meant to change on a mandate, a recipient, a destination and a key', async () => {

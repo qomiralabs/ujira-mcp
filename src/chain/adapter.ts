@@ -84,6 +84,30 @@ export type ChainPayoutState =
 
 export type CheckResult = { ok: true } | { ok: false; specError: string }; // e.g. DAILY_CAP_EXCEEDED
 
+/** A network fee the fee sponsor is about to pay for a principal signed transaction. */
+export interface SponsoredFee {
+  /** The principal signed transaction, as 64 hex digits; the same for every retry of one envelope. */
+  readonly innerTxHash: Hex32;
+  /** The most the sponsor can be charged, in the network's smallest fee unit. */
+  readonly maxFee: bigint;
+}
+
+/**
+ * What a sponsored submission is charged to. The adapter reserves the fee
+ * before anything is sent, so a refusal there sends nothing; once the network
+ * has answered it settles at what was charged, or releases the reservation
+ * when the network never took the transaction. A timeout does neither: the
+ * transaction may still land, so the reservation stands at its maximum.
+ */
+export interface FeeBudget {
+  /** Throws to refuse the fee; nothing is sent then. */
+  reserve(fee: SponsoredFee): Promise<void>;
+  /** The transaction is final and `charged` was paid. Must not throw. */
+  settle(fee: SponsoredFee, charged: bigint): Promise<void>;
+  /** The network refused the transaction before applying it, so nothing was paid. Must not throw. */
+  release(fee: SponsoredFee): Promise<void>;
+}
+
 export interface ChainAdapter {
   readonly version: typeof CHAIN_ADAPTER_VERSION;
   readonly network: NetworkId;
@@ -98,10 +122,16 @@ export interface ChainAdapter {
     action: MandateAction,
     o: CallOptions,
   ): Promise<SigningRequest>;
+  /**
+   * Relays a principal signed envelope. When the adapter has a fee sponsor the
+   * envelope goes out inside a fee bump the sponsor pays, charged to `budget`,
+   * which is then required; the hash returned is the fee bump's.
+   */
   submitSigned(
     signedXdr: string,
     expected: SigningRequest,
     o: CallOptions,
+    budget?: FeeBudget,
   ): Promise<{ txHash: string }>;
   sponsorFee(signedXdr: string, principal: string, o: CallOptions): Promise<string>; // fee bump envelope
   checkPayout(intent: PayoutIntent, agent: string, o: CallOptions): Promise<CheckResult>; // simulation only

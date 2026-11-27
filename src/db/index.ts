@@ -147,6 +147,12 @@ export {
   type SealedEmail,
 } from './repositories/recipients.js';
 export {
+  feeSponsorships,
+  type NewSponsoredFee,
+  type SettledFee,
+  type SponsoredFeeReservation,
+} from './repositories/fee-sponsorships.js';
+export {
   SECURITY_EVENT_KINDS,
   securityEvents,
   type NewSecurityEvent,

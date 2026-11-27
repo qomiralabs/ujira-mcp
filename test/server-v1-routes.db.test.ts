@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import { createV1App } from '../src/api/app.js';
 import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
+import { StellarAgentAccounts } from '../src/chain/stellar/agent-accounts.js';
 import { TESTNET_USDC_ISSUER } from '../src/chain/stellar/testnet.js';
 import {
   agentKeys,
@@ -26,6 +27,8 @@ import {
   databaseAsServiceRoles,
   type TestDatabase,
 } from '../src/db/testing/index.js';
+import type { AgentKeyService } from '../src/keys/agent-keys.js';
+import { createSealer } from '../src/keys/sealer.js';
 import { RECIPIENT_DESTINATION_ASSET, v1Routes } from '../src/server/v1-routes.js';
 import { codeOf, requestFor, type Request } from './api-key-helpers.js';
 import { FakeNetwork } from './fake-network.js';
@@ -44,6 +47,7 @@ let network: FakeNetwork;
 let adapter: StellarChainAdapter;
 let request: Request;
 let call: Call;
+let keyService: AgentKeyService;
 const lines: string[] = [];
 const kek = randomBytes(32).toString('base64');
 
@@ -62,10 +66,18 @@ beforeAll(async () => {
     adapter,
     origin: ORIGIN,
     network: 'testnet',
-    env: { UJIRA_KEY_ENCRYPTION_KEY: kek },
     log: (line) => lines.push(line),
+    sealer: createSealer(kek),
+    // Friendbot always obliges here; funding failures are the key module's tests.
+    agentAccounts: new StellarAgentAccounts({
+      network: TESTNET,
+      chain: {
+        friendbot: () => Promise.resolve(),
+        accountFacts: () => Promise.resolve({ exists: true, trustlines: [], memoRequired: false }),
+      },
+    }),
   });
-  expect(composed.recipients).toBe('on');
+  keyService = composed.agentKeys;
   const { app } = createV1App({ routes: composed.routes, log: (line) => lines.push(line) });
   request = requestFor(app);
   call = clientFor(app);
@@ -218,20 +230,34 @@ describe('recipients as the web role serves them', () => {
     expect(onAlices.status).toBe(404);
   });
 
-  it('leaves the recipient routes out without a key encryption key, and serves the rest', () => {
-    const offLines: string[] = [];
-    const composed = v1Routes({
-      db,
-      adapter,
-      origin: ORIGIN,
-      network: 'testnet',
-      env: {},
-      log: (line) => offLines.push(line),
+  it('gives a principal made through the routes a funded agent key for its first project', async () => {
+    const kp = wallet();
+    const { token } = await signInWith(call, kp, { client: `client-${randomUUID()}` });
+    if (token === undefined) throw new Error('sign in failed');
+    const made = await request('POST', '/v1/principals', {
+      cookie: token,
+      body: { name: 'Keyed' },
     });
-    expect(composed.recipients).toBe('off');
-    expect(composed.routes.some((r) => r.path.startsWith('/v1/recipients'))).toBe(false);
-    expect(composed.routes.some((r) => r.path === '/v1/api-keys')).toBe(true);
-    expect(offLines).toEqual(['event=recipients_off level=warn reason=key_encryption_key_missing']);
+    expect(made.status).toBe(201);
+    const project = made.json?.['project'] as { id: string; principalId: string };
+    const context = { principalId: project.principalId, projectId: project.id };
+    const key = await keyService.active(context);
+    expect(key?.network).toBe(TESTNET);
+    expect(key?.funding.status).toBe('funded');
+    expect((await keyService.activeSigner(context)).publicKey).toBe(key?.publicKey);
+
+    const second = await request('POST', '/v1/projects', {
+      cookie: token,
+      body: { principalId: context.principalId, name: 'Second' },
+    });
+    expect(second.status).toBe(201);
+    const next = second.json?.['project'] as { id: string };
+    const other = await keyService.active({ principalId: context.principalId, projectId: next.id });
+    expect(other?.publicKey).toBeDefined();
+    expect(other?.publicKey).not.toBe(key?.publicKey);
+    await expect(keyService.signer(context, other?.id ?? randomUUID())).rejects.toMatchObject({
+      code: 'KEY_NOT_FOUND',
+    });
   });
 
   it('never logs the key encryption key, an API key or an email', () => {

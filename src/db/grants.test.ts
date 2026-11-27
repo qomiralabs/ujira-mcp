@@ -242,6 +242,10 @@ describe('grants on ujira', () => {
       ],
     );
     expect(columns.rows.map((row) => `${row.table_name}.${row.column_name}`).sort()).toEqual([
+      'agent_keys.funded_at',
+      'agent_keys.funding_attempts',
+      'agent_keys.funding_error',
+      'agent_keys.funding_status',
       'agent_keys.status',
       'mandates.name',
       'payout_methods.destination_checked_at',
@@ -333,6 +337,10 @@ describe('grants on ujira', () => {
     };
     const publicColumns = [
       'created_at',
+      'funded_at',
+      'funding_attempts',
+      'funding_error',
+      'funding_status',
       'id',
       'network',
       'principal_id',

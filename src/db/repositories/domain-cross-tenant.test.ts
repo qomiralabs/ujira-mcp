@@ -217,6 +217,22 @@ const cases: Record<string, () => Promise<void>> = {
       expect(await columnOf('ujira.agent_keys', 'status', other.keyId)).toBe('active');
     }
   },
+  'agentKeys.recordFunding': async () => {
+    for (const other of foreign()) {
+      expect(
+        await asA(async (tx) => agentKeys.recordFunding(tx, other.keyId, { kind: 'funded' })),
+      ).toBeUndefined();
+      expect(await columnOf('ujira.agent_keys', 'funding_status', other.keyId)).toBe('pending');
+    }
+    const own = await asA(async (tx) =>
+      agentKeys.recordFunding(tx, a.first.keyId, {
+        kind: 'failed',
+        error: 'UNAVAILABLE',
+        final: false,
+      }),
+    );
+    expect(own?.funding.attempts).toBe(1);
+  },
   'agentKeys.sealedSecret': async () => {
     for (const other of foreign()) {
       expect(

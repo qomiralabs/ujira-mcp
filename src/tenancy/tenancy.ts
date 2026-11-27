@@ -75,6 +75,14 @@ export interface TenancyOptions {
   readonly log?: (line: string) => void;
   /** Ids for new projects; random UUIDs unless a test fixes them. */
   readonly newId?: () => string;
+  /**
+   * Runs once a project has committed, to give it what every project needs,
+   * such as its agent key. It must be safe to run again, because a failure
+   * here is logged and repaired by the next call, not answered as a failed
+   * request: the project already exists, and a client retrying the create
+   * would make a second one.
+   */
+  readonly onProjectCreated?: (context: ProjectContext, requestId: string) => Promise<void>;
 }
 
 export class Tenancy {
@@ -84,6 +92,18 @@ export class Tenancy {
   constructor(private readonly o: TenancyOptions) {
     this.log = o.log ?? (() => undefined);
     this.newId = o.newId ?? randomUUID;
+  }
+
+  private async afterCreate(context: ProjectContext, requestId: string): Promise<void> {
+    try {
+      await this.o.onProjectCreated?.(context, requestId);
+    } catch (error) {
+      // The name only: a message from below can carry a host or a value.
+      const kind = error instanceof Error ? error.name : 'unknown';
+      this.log(
+        `event=project_setup_failed level=error requestId=${requestId} principal=${context.principalId} project=${context.projectId} error=${kind}`,
+      );
+    }
   }
 
   /** A new principal with its first project, and the actor as its owner. */
@@ -103,6 +123,10 @@ export class Tenancy {
     }
     this.log(
       `event=principal_created requestId=${requestId} principal=${created.principalId} member=${actor.memberId}`,
+    );
+    await this.afterCreate(
+      { principalId: created.principalId, projectId: created.project.projectId },
+      requestId,
     );
     return {
       principal: { id: created.principalId, name, role: 'owner' },
@@ -136,6 +160,7 @@ export class Tenancy {
     this.log(
       `event=project_created requestId=${requestId} principal=${principalId} project=${project.id} member=${actor.memberId}`,
     );
+    await this.afterCreate({ principalId, projectId: project.id }, requestId);
     return project;
   }
 }

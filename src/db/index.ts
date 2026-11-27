@@ -147,7 +147,10 @@ export { RepositoryInputError, type AccountParser } from './repositories/values.
 export {
   agentKeys,
   type AgentKey,
+  type AgentKeyFunding,
+  type AgentKeyFundingStatus,
   type AgentKeyStatus,
+  type FundingAttempt,
   type NewAgentKey,
   type SealedAgentSecret,
 } from './repositories/agent-keys.js';

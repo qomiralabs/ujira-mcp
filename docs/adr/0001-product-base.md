@@ -366,6 +366,8 @@ Errors share one envelope: `{ "error": { "code": "...", "message": "...", "reque
 | `IDEMPOTENCY_KEY_REUSED`                              | 422      | same key, different body                            |
 | `IDEMPOTENCY_IN_PROGRESS`                             | 409      | same key while the first request runs               |
 | `TASK_ID_REUSED`                                      | 409      | same task on the same mandate under another key     |
+| `RECIPIENT_LABEL_TAKEN`                               | 409      | a recipient on the mandate has that label, any case |
+| `MANDATE_REFUSED`                                     | 409      | the mandate refuses the change; `details` names why |
 | `RATE_LIMITED`                                        | 429      | with `Retry-After`                                  |
 | `CHAIN_UNAVAILABLE`, `DB_UNAVAILABLE`                 | 503      |                                                     |
 | `INTERNAL`                                            | 500      |                                                     |

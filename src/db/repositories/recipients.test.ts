@@ -4,6 +4,8 @@
 // Recipients, their sealed email and their payout methods against a real
 // database, as the app writes them and the reader shows them.
 
+import { randomUUID } from 'node:crypto';
+
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 
@@ -21,6 +23,7 @@ import { insertTenant } from '../testing/admin-tenants.js';
 import { databaseAsServiceRoles } from '../testing/databases.js';
 import { createTestDatabase, type TestDatabase } from '../testing/harness.js';
 import { mandates } from './mandates.js';
+import { PageRequestError } from './page.js';
 import {
   PayoutMethodRefusedError,
   payoutMethods,
@@ -224,6 +227,26 @@ describe('recipients', () => {
     expect(rest.next).toBeNull();
   });
 
+  it('lists every recipient of the project, whichever mandate, in pages', async () => {
+    const made = [
+      await addRecipient('A'),
+      await addRecipient('B', otherMandateId),
+      await addRecipient('C'),
+    ];
+    const ids = made.map((recipient) => recipient.id).sort();
+    const first = await db
+      .tenant(tenant)
+      .transaction(async (tx) => recipients.listInProject(tx, { limit: 2 }));
+    expect(first.items.map((recipient) => recipient.id)).toEqual(ids.slice(0, 2));
+    const rest = await db
+      .tenant(tenant)
+      .transaction(async (tx) =>
+        recipients.listInProject(tx, { limit: 2, after: first.next ?? '' }),
+      );
+    expect(rest.items.map((recipient) => recipient.id)).toEqual(ids.slice(2));
+    expect(rest.next).toBeNull();
+  });
+
   it('never lets the app move a recipient to another mandate or ref', async () => {
     const ada = await addRecipient('Ada');
     const moved = db
@@ -301,6 +324,8 @@ describe('payout methods', () => {
       method: 'stellar_wallet',
       destination,
       verifiedAt: null,
+      destinationStatus: 'receivable',
+      checkedAt: expect.any(Date) as Date,
       createdAt: expect.any(Date) as Date,
     });
     expect(
@@ -356,8 +381,9 @@ describe('payout methods', () => {
 
   it('keeps a destination that has no account or trustline yet', async () => {
     const ada = await addRecipient('Ada');
+    const statuses: string[] = [];
     for (const reason of ['NO_ACCOUNT', 'NO_TRUSTLINE'] as const) {
-      await db
+      const method = await db
         .tenant(tenant)
         .transaction(async (tx) =>
           payoutMethods.addWallet(
@@ -366,8 +392,85 @@ describe('payout methods', () => {
             testAccounts,
           ),
         );
+      statuses.push(method.destinationStatus);
     }
+    expect(statuses).toEqual(['no_account', 'no_trustline']);
     expect(await count('ujira.payout_methods')).toBe(2);
+  });
+
+  it('records what the chain says about a destination later, and nothing else', async () => {
+    const ada = await addRecipient('Ada');
+    const method = await db
+      .tenant(tenant)
+      .transaction(async (tx) =>
+        payoutMethods.addWallet(
+          tx,
+          wallet(ada.id, { destinationCheck: { receivable: false, reason: 'NO_TRUSTLINE' } }),
+          testAccounts,
+        ),
+      );
+    const before = method.checkedAt;
+    expect(
+      await db
+        .tenant(tenant)
+        .transaction(async (tx) => payoutMethods.recordCheck(tx, method.id, { receivable: true })),
+    ).toBe(true);
+    const fixed = await db
+      .tenant(tenant)
+      .transaction(async (tx) => payoutMethods.get(tx, method.id));
+    expect(fixed?.destinationStatus).toBe('receivable');
+    expect(fixed?.checkedAt?.getTime()).toBeGreaterThanOrEqual(before?.getTime() ?? 0);
+    expect(fixed?.destination).toBe(method.destination);
+    expect(
+      await db
+        .tenant(tenant)
+        .transaction(async (tx) =>
+          payoutMethods.recordCheck(tx, randomUUID(), { receivable: false, reason: 'NO_ACCOUNT' }),
+        ),
+    ).toBe(false);
+  });
+
+  it('refuses a destination status the column does not know, and a check without a time', async () => {
+    const ada = await addRecipient('Ada');
+    const method = await db
+      .tenant(tenant)
+      .transaction(async (tx) => payoutMethods.addWallet(tx, wallet(ada.id), testAccounts));
+    for (const set of [
+      { destination_status: 'needs_memo' },
+      { destination_checked_at: null },
+      { destination_status: 'unchecked' },
+    ]) {
+      const refused = db
+        .tenant(tenant)
+        .transaction(async (tx) =>
+          tx.updateTable('ujira.payout_methods').set(set).where('id', '=', method.id).execute(),
+        );
+      expect(await codeOf(refused)).toBe('23514');
+    }
+  });
+
+  it('reads the methods of a page of recipients in one call, oldest first', async () => {
+    const ada = await addRecipient('Ada');
+    const bo = await addRecipient('Bo');
+    const cy = await addRecipient('Cy');
+    const made: string[] = [];
+    for (const id of [ada.id, bo.id, ada.id]) {
+      const method = await db
+        .tenant(tenant)
+        .transaction(async (tx) => payoutMethods.addWallet(tx, wallet(id), testAccounts));
+      made.push(method.id);
+    }
+    const found = await db
+      .tenant(tenant)
+      .transaction(async (tx) => payoutMethods.forRecipients(tx, [ada.id, bo.id, cy.id]));
+    expect(found.map((method) => method.id)).toEqual(made);
+    expect(
+      await db.tenant(tenant).transaction(async (tx) => payoutMethods.forRecipients(tx, [])),
+    ).toEqual([]);
+    const tooMany = Array.from({ length: 101 }, () => randomUUID());
+    await expect(
+      db.tenant(tenant).transaction(async (tx) => payoutMethods.forRecipients(tx, tooMany)),
+    ).rejects.toBeInstanceOf(PageRequestError);
   });
 
   it('refuses an address the adapter refuses, before any row is written', async () => {

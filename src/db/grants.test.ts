@@ -119,6 +119,8 @@ describe('grants on ujira', () => {
         'relation recipient_pii SELECT',
         'relation recipients INSERT',
         'relation recipients SELECT',
+        'relation signing_requests INSERT',
+        'relation signing_requests SELECT',
         'relation audit_heads SELECT',
         'relation audit_log INSERT',
         'relation audit_log SELECT',
@@ -157,6 +159,7 @@ describe('grants on ujira', () => {
         'relation mandates SELECT',
         'relation payout_methods SELECT',
         'relation recipients SELECT',
+        'relation signing_requests SELECT',
         'relation audit_heads SELECT',
         'relation audit_log SELECT',
         'relation outbox_events SELECT',
@@ -216,16 +219,29 @@ describe('grants on ujira', () => {
         where table_schema = 'ujira'
           and table_name = any($1::text[])
           and grantee = 'ujira_app' and privilege_type = 'UPDATE'`,
-      [['agent_keys', 'mandates', 'recipients', 'recipient_pii', 'payout_methods']],
+      [
+        [
+          'agent_keys',
+          'mandates',
+          'recipients',
+          'recipient_pii',
+          'payout_methods',
+          'signing_requests',
+        ],
+      ],
     );
     expect(columns.rows.map((row) => `${row.table_name}.${row.column_name}`).sort()).toEqual([
       'agent_keys.status',
       'mandates.name',
+      'payout_methods.destination_checked_at',
+      'payout_methods.destination_status',
       'payout_methods.verified_at',
       'recipient_pii.email_ciphertext',
       'recipient_pii.email_nonce',
       'recipients.label',
       'recipients.status',
+      'signing_requests.submitted_at',
+      'signing_requests.submitted_tx_hash',
     ]);
   });
 

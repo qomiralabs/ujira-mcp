@@ -39,6 +39,8 @@ describe('error codes', () => {
       NOT_FOUND: 404,
       IDEMPOTENCY_IN_PROGRESS: 409,
       TASK_ID_REUSED: 409,
+      RECIPIENT_LABEL_TAKEN: 409,
+      MANDATE_REFUSED: 409,
       PAYLOAD_TOO_LARGE: 413,
       UNSUPPORTED_MEDIA_TYPE: 415,
       IDEMPOTENCY_KEY_REUSED: 422,
@@ -47,7 +49,7 @@ describe('error codes', () => {
       CHAIN_UNAVAILABLE: 503,
       DB_UNAVAILABLE: 503,
     });
-    expect(API_ERROR_CODES).toHaveLength(18);
+    expect(API_ERROR_CODES).toHaveLength(20);
     expect(new ApiError('RATE_LIMITED', 'slow down').status).toBe(429);
   });
 

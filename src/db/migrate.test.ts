@@ -24,8 +24,23 @@ const adminUrl = inject('dbAdminUrl');
 
 let database: TestDatabase;
 
+// The template has the job queue installed, and the queue migration's down
+// refuses an installed queue (src/db/job-queue.test.ts holds it to that). A
+// test here runs migrations down, so it starts from the SQL files alone, the
+// state a deploy is in between the migrations and the queue install.
+async function migratedDatabase(label: string): Promise<TestDatabase> {
+  const fresh = await createTestDatabase(adminUrl, label, { empty: true });
+  try {
+    await runMigrations({ databaseUrl: fresh.url, direction: 'up' });
+  } catch (error) {
+    await fresh.drop();
+    throw error;
+  }
+  return fresh;
+}
+
 beforeAll(async () => {
-  database = await createTestDatabase(adminUrl, import.meta.url);
+  database = await migratedDatabase(import.meta.url);
 });
 
 afterAll(async () => {
@@ -70,7 +85,7 @@ describe('migrations', () => {
   });
 
   it('runs every migration down to an empty database and back up', async () => {
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#empty`);
+    const fresh = await migratedDatabase(`${import.meta.url}#empty`);
     const schemaOf = async (): Promise<string | null> => {
       const client = new pg.Client({ connectionString: fresh.url });
       await client.connect();
@@ -103,7 +118,7 @@ describe('migrations', () => {
 
   it('passes the tool output to a caller that asks for it', async () => {
     const lines: string[] = [];
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#logging`);
+    const fresh = await migratedDatabase(`${import.meta.url}#logging`);
     try {
       const down = await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       await runMigrations({
@@ -136,7 +151,7 @@ describe('migrations', () => {
     // fast rather than queue: one run applies the migration and the other
     // throws "Another migration is already running". That is the behaviour
     // this module keeps, so two deploys cannot both think they migrated.
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#concurrent`);
+    const fresh = await migratedDatabase(`${import.meta.url}#concurrent`);
     try {
       await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       const results = await Promise.allSettled([
@@ -165,7 +180,7 @@ describe('migrations', () => {
 
   it('waits for the lock instead when a run asks it to', async () => {
     // The option a deployment would use if every instance migrated at boot.
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#waiting`);
+    const fresh = await migratedDatabase(`${import.meta.url}#waiting`);
     try {
       await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       const results = await Promise.all([
@@ -350,7 +365,7 @@ describe('one ledger', () => {
   // table, while this function records into ours. A migration run through
   // one path then looks pending to the other.
   it('records into our table and never creates the tool default', async () => {
-    const fresh = await createTestDatabase(adminUrl, `${import.meta.url}#ledger`);
+    const fresh = await migratedDatabase(`${import.meta.url}#ledger`);
     try {
       await runMigrations({ databaseUrl: fresh.url, direction: 'down' });
       await runMigrations({ databaseUrl: fresh.url, direction: 'up' });

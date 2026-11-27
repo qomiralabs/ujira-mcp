@@ -459,6 +459,16 @@ describe('roles', () => {
          select format('relation %s', c.oid::regclass)
            from pg_class c join pg_namespace n on n.oid = c.relnamespace
           where c.relowner = $1::regrole and n.nspname <> all($2::text[])
+            -- A toast table and its index live in pg_toast and take the owner
+            -- of the table they store for, so they count as that table's.
+            and not exists (
+              select from pg_class t join pg_namespace tn on tn.oid = t.relnamespace
+               where tn.nspname = any($2::text[])
+                 and t.reltoastrelid in (
+                   c.oid,
+                   (select i.indrelid from pg_index i where i.indexrelid = c.oid)
+                 )
+            )
          union all
          select format('function %s', p.oid::regprocedure)
            from pg_proc p join pg_namespace n on n.oid = p.pronamespace

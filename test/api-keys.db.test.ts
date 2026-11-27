@@ -182,8 +182,13 @@ describe('API keys on Postgres', () => {
     const entries = await db
       .tenant(tenantOf(alice))
       .transaction((tx) => audit.list(tx, { limit: 50 }));
-    expect(entries.items.map((e) => e.action)).toEqual(['api_key.created', 'api_key.revoked']);
-    expect(entries.items[1]).toMatchObject({ actorId: alice.memberId });
+    // create_principal writes the principal's own first row.
+    expect(entries.items.map((e) => e.action)).toEqual([
+      'principal.created',
+      'api_key.created',
+      'api_key.revoked',
+    ]);
+    expect(entries.items[2]).toMatchObject({ action: 'api_key.revoked', actorId: alice.memberId });
   });
 
   it('answers FORBIDDEN to a key without the scope, and to developers managing keys', async () => {

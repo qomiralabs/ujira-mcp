@@ -1077,6 +1077,32 @@ describe('receipts', () => {
     expect(await rowsOf('ujira.receipts')).toBe(0);
   });
 
+  it('holds a chain reference to 512 characters in the database itself', async () => {
+    // Written past the repository's own check, so this is the table's rule.
+    // Postgres caps a regular expression bound at 255, and a check written as
+    // {1,512} threw on every reference instead of judging it.
+    const issue = async (ref: string) => {
+      const { payout } = await create();
+      await drive(payout.id, ['failed']);
+      return asWorker(async (tx) =>
+        tx
+          .insertInto('ujira.receipts')
+          .values({
+            principal_id: world.context.principalId,
+            project_id: world.context.projectId,
+            payout_id: payout.id,
+            chain_receipt_ref: ref,
+          })
+          .execute(),
+      );
+    };
+    expect(await codeOf(issue('a'.repeat(512)))).toBeUndefined();
+    expect(await codeOf(issue('a'.repeat(513)))).toBe('23514');
+    expect(await codeOf(issue('has space'))).toBe('23514');
+    expect(await codeOf(issue(''))).toBe('23514');
+    expect(await rowsOf('ujira.receipts')).toBe(1);
+  });
+
   it('writes what it copies whatever the caller names, and never changes', async () => {
     const { payout } = await create();
     await drive(payout.id, ['failed']);

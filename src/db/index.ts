@@ -220,6 +220,11 @@ export {
   type PayoutJobQueue,
   type PayoutTask,
 } from './repositories/payout-jobs.js';
+export {
+  payoutViews,
+  type PayoutView,
+  type PayoutViewFilter,
+} from './repositories/payout-views.js';
 export { receipts, type IssuedReceipt, type Receipt } from './repositories/receipts.js';
 export {
   SECURITY_EVENT_KINDS,

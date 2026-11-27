@@ -43,12 +43,13 @@ import {
   payoutDetailSchema,
   payoutWire,
   quotePayoutBody,
+  type PayoutWireSource,
 } from '../api/routes/payouts.js';
 import type { ApiScope } from '../auth/scopes.js';
 import { PageRequestError } from '../db/index.js';
 import { taskId } from '../ids.js';
 import { logLine } from '../log.js';
-import type { PayoutRecord, PayoutService } from '../payouts/payout-service.js';
+import type { PayoutService } from '../payouts/payout-service.js';
 import type { McpReads, ReceiptWithPayout } from './v1-reads.js';
 
 export const V1_MCP_PATH = '/v1/mcp';
@@ -195,7 +196,7 @@ function tool<S extends z.ZodType>(t: Tool<S>): ErasedTool {
 }
 
 function mcpPayout(
-  record: PayoutRecord,
+  record: PayoutWireSource,
   receiptId: string | null,
 ): z.input<typeof mcpPayoutSchema> {
   const { recipient, ...rest } = payoutWire(record, receiptId);

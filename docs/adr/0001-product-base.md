@@ -353,6 +353,8 @@ Idempotency-Key: 7c1d0b2e-run-42
 
 The response is `202` with `{ "payout": PayoutDetail }`. `PayoutDetail` has `id`, `principalId`, `projectId`, `mandate { id, contractId }`, `recipient { id, label }`, `taskId`, `amount`, `fee`, `status`, `blockedBy` (spec error name or null), `legs [{ index, method, destination (masked), amount, status, txHash }]`, `onChainPayoutId`, `requestTxHash`, `receiptId`, `createdAt`, `updatedAt`, `settledAt`. Metadata holds at most 16 keys of 256 characters and is never shown to recipients.
 
+Reading payouts back (2026-11-27). `GET /v1/payouts` is newest first on `(createdAt, id)`; `status` is a comma list of codes, `createdFrom` is inclusive and `createdTo` exclusive, and an unknown filter or value is `INVALID_REQUEST`. `limit` may ask for up to 200; a page holds at most 100 and `nextCursor` carries on. Each list's cursor names its list, so one handed to the other is refused. `GET /v1/payouts/{id}` adds `timeline`: the steps the record proves, each with its time where one is kept. `GET /v1/approvals` lists `pending_approval` oldest first and adds `budgetLeft`, the total budget less what is spent and committed as the chain reports it, or null when the chain does not answer within one deadline for the page; the queue still loads, and the contract checks the budget again when the approver signs. A leg's `status` is the leg's own (`planned`, `submitted`, `settled`, `failed`, `cancelled`), not the payout's. Metadata is never sent back by these routes.
+
 Errors share one envelope: `{ "error": { "code": "...", "message": "...", "requestId": "..." } }`.
 
 | Code                                                  | Status   | When                                                          |

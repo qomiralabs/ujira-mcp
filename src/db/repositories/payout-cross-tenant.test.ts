@@ -26,6 +26,7 @@ import {
   type PayoutWorld,
 } from '../testing/payout-fixture.js';
 import { unwiredJobQueue } from './payout-jobs.js';
+import { payoutViewRepositories, payoutViews } from './payout-views.js';
 import { payoutLegs, payoutRepositories, payouts } from './payouts.js';
 import { receiptRepositories, receipts } from './receipts.js';
 
@@ -40,6 +41,8 @@ interface Rows {
   readonly legId: string;
   readonly finishedPayoutId: string;
   readonly receiptId: string;
+  // In pending_approval, for the approvals queue.
+  readonly waitingPayoutId: string;
 }
 
 interface Tenant {
@@ -47,7 +50,7 @@ interface Tenant {
   readonly second: Rows;
 }
 
-const REPOSITORIES = { ...payoutRepositories, ...receiptRepositories };
+const REPOSITORIES = { ...payoutRepositories, ...receiptRepositories, ...payoutViewRepositories };
 
 let database: TestDatabase;
 let admin: pg.Client;
@@ -98,6 +101,17 @@ async function rows(context: ProjectContext): Promise<Rows> {
     await payouts.transition(tx, finished.payout.id, { from: 'queued', to: 'failed' });
     return receipts.issue(tx, finished.payout.id, null);
   });
+  const waiting = await db
+    .tenant(context)
+    .transaction(async (tx) => payouts.create(tx, newPayout(world), unwiredJobQueue));
+  await db.withTenant('worker', { ...context, scope: 'project' }, async (tx) => {
+    await payouts.transition(tx, waiting.payout.id, { from: 'queued', to: 'submitting' });
+    await payouts.transition(tx, waiting.payout.id, {
+      from: 'submitting',
+      to: 'pending_approval',
+      requestTxHash: testHex32(),
+    });
+  });
   return {
     context,
     world,
@@ -106,6 +120,7 @@ async function rows(context: ProjectContext): Promise<Rows> {
     legId: leg.id,
     finishedPayoutId: finished.payout.id,
     receiptId: receipt.receipt.id,
+    waitingPayoutId: waiting.payout.id,
   };
 }
 
@@ -236,6 +251,62 @@ const cases: Record<string, () => Promise<void>> = {
         await asA(async (tx) => receipts.forPayout(tx, other.finishedPayoutId)),
       ).toBeUndefined();
     }
+  },
+  'payoutViews.get': async () => {
+    for (const other of foreign()) {
+      for (const id of [other.payoutId, other.finishedPayoutId, other.waitingPayoutId]) {
+        expect(await asA(async (tx) => payoutViews.get(tx, id))).toBeUndefined();
+      }
+    }
+    const own = await asA(async (tx) => payoutViews.get(tx, a.first.finishedPayoutId));
+    expect(own?.receiptId).toBe(a.first.receiptId);
+  },
+  'payoutViews.findByTask': async () => {
+    for (const other of foreign()) {
+      expect(
+        await asA(async (tx) => payoutViews.findByTask(tx, other.world.mandateId, other.taskId)),
+      ).toBeUndefined();
+    }
+    const own = await asA(async (tx) =>
+      payoutViews.findByTask(tx, a.first.world.mandateId, a.first.taskId),
+    );
+    expect(own?.payout.id).toBe(a.first.payoutId);
+  },
+  'payoutViews.list': async () => {
+    const across = await acrossA(async (tx) => payoutViews.list(tx, {}, { limit: 100 }));
+    const ids = across.items.map((view) => view.payout.id);
+    expect(ids).toContain(a.first.payoutId);
+    expect(ids).toContain(a.second.payoutId);
+    expect(across.items.every((view) => view.principalId === a.first.context.principalId)).toBe(
+      true,
+    );
+    for (const other of [b.first, b.second]) {
+      for (const id of [other.payoutId, other.finishedPayoutId, other.waitingPayoutId]) {
+        expect(ids).not.toContain(id);
+      }
+    }
+    for (const other of foreign()) {
+      const filtered = await asA(async (tx) =>
+        payoutViews.list(
+          tx,
+          { mandateId: other.world.mandateId, recipientId: other.world.recipientId },
+          { limit: 100 },
+        ),
+      );
+      expect(filtered.items).toEqual([]);
+    }
+    const own = await asA(async (tx) => payoutViews.list(tx, {}, { limit: 100 }));
+    expect(own.items.map((view) => view.payout.id).sort()).toEqual(
+      [a.first.payoutId, a.first.finishedPayoutId, a.first.waitingPayoutId].sort(),
+    );
+  },
+  'payoutViews.waitingApproval': async () => {
+    const across = await acrossA(async (tx) => payoutViews.waitingApproval(tx, { limit: 100 }));
+    expect(across.items.map((view) => view.payout.id).sort()).toEqual(
+      [a.first.waitingPayoutId, a.second.waitingPayoutId].sort(),
+    );
+    const own = await asA(async (tx) => payoutViews.waitingApproval(tx, { limit: 100 }));
+    expect(own.items.map((view) => view.payout.id)).toEqual([a.first.waitingPayoutId]);
   },
   'receipts.list': async () => {
     const across = await acrossA(async (tx) => receipts.list(tx, { limit: 100 }));

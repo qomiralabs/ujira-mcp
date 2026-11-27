@@ -159,7 +159,9 @@ export interface PayoutFilter {
   readonly createdTo?: Date;
 }
 
-const payoutColumns = [
+// Exported with the row mappers below for the read views, which page
+// payouts and attach what a person needs beside them.
+export const payoutColumns = [
   'principal_id',
   'id',
   'project_id',
@@ -184,7 +186,7 @@ const payoutColumns = [
   'settled_at',
 ] as const;
 
-interface PayoutRow {
+export interface PayoutRow {
   principal_id: string;
   id: string;
   project_id: string;
@@ -241,7 +243,7 @@ function metadataOf(value: unknown): PayoutMetadata {
   return Object.freeze(Object.fromEntries(entries) as Record<string, string>);
 }
 
-function toPayout(row: PayoutRow): Payout {
+export function toPayout(row: PayoutRow): Payout {
   const unit = { asset: row.asset, chain: row.chain, scale: row.scale };
   return {
     id: row.id,
@@ -264,7 +266,7 @@ function toPayout(row: PayoutRow): Payout {
   };
 }
 
-const legColumns = [
+export const legColumns = [
   'id',
   'payout_id',
   'leg_index',
@@ -283,7 +285,7 @@ const legColumns = [
   'updated_at',
 ] as const;
 
-function toLeg(row: {
+export function toLeg(row: {
   id: string;
   payout_id: string;
   leg_index: number;

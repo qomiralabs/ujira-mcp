@@ -300,3 +300,40 @@ describe('recipients as the web role serves them', () => {
     }
   });
 });
+
+describe('payout reads as the web role serves them', () => {
+  it('serves the list and the detail to a session and a key holding payouts:read', async () => {
+    const alice = await owner();
+    const bySession = await request('GET', '/v1/payouts', {
+      cookie: alice.cookie,
+      project: alice.projectId,
+    });
+    expect(bySession.status).toBe(200);
+    expect(bySession.json).toEqual({ items: [], nextCursor: null });
+
+    const reader = await keyFor(alice, ['payouts:read']);
+    const byKey = await request('GET', '/v1/payouts?status=queued,paid', { key: reader });
+    expect(byKey.status).toBe(200);
+    const missing = await request('GET', `/v1/payouts/${randomUUID()}`, { key: reader });
+    expect(missing.status).toBe(404);
+
+    const other = await keyFor(alice, ['recipients:read']);
+    const refused = await request('GET', '/v1/payouts', { key: other });
+    expect(refused.status).toBe(403);
+    expect(codeOf(refused)).toBe('FORBIDDEN');
+  });
+
+  it('serves the approvals queue to a session only', async () => {
+    const alice = await owner();
+    const bySession = await request('GET', '/v1/approvals', {
+      cookie: alice.cookie,
+      project: alice.projectId,
+    });
+    expect(bySession.status).toBe(200);
+    expect(bySession.json).toEqual({ items: [], nextCursor: null });
+    const key = await keyFor(alice, ['payouts:read']);
+    const byKey = await request('GET', '/v1/approvals', { key });
+    expect(byKey.status).toBe(403);
+    expect(codeOf(byKey)).toBe('FORBIDDEN');
+  });
+});

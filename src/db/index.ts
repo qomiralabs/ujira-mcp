@@ -169,6 +169,30 @@ export {
   type StoredSigningRequest,
 } from './repositories/signing-requests.js';
 export {
+  PayoutConflictError,
+  payoutLegs,
+  payouts,
+  type CreatedPayout,
+  type LegTransition,
+  type NewPayout,
+  type NewPayoutLeg,
+  type Payout,
+  type PayoutConflict,
+  type PayoutFilter,
+  type PayoutLeg,
+  type PayoutMetadata,
+  type PayoutTransition,
+} from './repositories/payouts.js';
+export {
+  payoutJob,
+  unwiredJobQueue,
+  type PayoutJob,
+  type PayoutJobPayload,
+  type PayoutJobQueue,
+  type PayoutTask,
+} from './repositories/payout-jobs.js';
+export { receipts, type IssuedReceipt, type Receipt } from './repositories/receipts.js';
+export {
   SECURITY_EVENT_KINDS,
   securityEvents,
   type NewSecurityEvent,

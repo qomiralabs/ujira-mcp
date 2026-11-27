@@ -115,6 +115,9 @@ describe('grants on ujira', () => {
         'relation mandates SELECT',
         'relation payout_methods INSERT',
         'relation payout_methods SELECT',
+        'relation payout_legs SELECT',
+        'relation payouts SELECT',
+        'relation receipts SELECT',
         'relation recipient_pii INSERT',
         'relation recipient_pii SELECT',
         'relation recipients INSERT',
@@ -150,6 +153,9 @@ describe('grants on ujira', () => {
         'relation outbox_events INSERT',
         'relation outbox_events SELECT',
         'relation payout_methods SELECT',
+        'relation payout_legs SELECT',
+        'relation payouts SELECT',
+        'relation receipts SELECT',
         'relation recipients SELECT',
       ],
       ujira_reader: [
@@ -158,6 +164,9 @@ describe('grants on ujira', () => {
         'relation fee_sponsorships SELECT',
         'relation mandates SELECT',
         'relation payout_methods SELECT',
+        'relation payout_legs SELECT',
+        'relation payouts SELECT',
+        'relation receipts SELECT',
         'relation recipients SELECT',
         'relation signing_requests SELECT',
         'relation audit_heads SELECT',
@@ -243,6 +252,70 @@ describe('grants on ujira', () => {
       'signing_requests.submitted_at',
       'signing_requests.submitted_tx_hash',
     ]);
+  });
+
+  it('lets the roles write only what a payout, a leg and a receipt are meant to take', async () => {
+    const columns = await client.query<{ grant: string }>(
+      `select format('%s %s %s.%s', grantee, privilege_type, table_name, column_name) as grant
+         from information_schema.column_privileges
+        where table_schema = 'ujira'
+          and table_name in ('payouts', 'payout_legs', 'receipts')
+          and grantee in ('ujira_app', 'ujira_worker', 'ujira_reader')
+          and privilege_type in ('INSERT', 'UPDATE')`,
+    );
+    const grantsOf = (role: string, privilege: string, table: string, names: string[]) =>
+      names.map((name) => `${role} ${privilege} ${table}.${name}`);
+    const moves = (role: string) => [
+      ...grantsOf(role, 'UPDATE', 'payouts', ['blocked_by', 'request_tx_hash', 'status']),
+      ...grantsOf(role, 'UPDATE', 'payout_legs', ['chain_tx_hash', 'status']),
+    ];
+    // A new payout starts queued with nothing recorded, a leg starts planned
+    // with its key derived, and a receipt names its payout and chain reference.
+    expect(columns.rows.map((row) => row.grant).sort()).toEqual(
+      [
+        ...grantsOf('ujira_app', 'INSERT', 'payouts', [
+          'amount',
+          'asset',
+          'chain',
+          'fee_amount',
+          'idempotency_key',
+          'mandate_id',
+          'metadata',
+          'network',
+          'onchain_payout_id',
+          'principal_id',
+          'project_id',
+          'recipient_id',
+          'request_hash',
+          'scale',
+          'task_id',
+        ]),
+        ...grantsOf('ujira_app', 'INSERT', 'payout_legs', [
+          'amount',
+          'asset',
+          'chain',
+          'destination_address',
+          'fee_amount',
+          'leg_index',
+          'method',
+          'network',
+          'payout_id',
+          'payout_method_id',
+          'principal_id',
+          'project_id',
+          'recipient_id',
+          'scale',
+        ]),
+        ...grantsOf('ujira_worker', 'INSERT', 'receipts', [
+          'chain_receipt_ref',
+          'payout_id',
+          'principal_id',
+          'project_id',
+        ]),
+        ...moves('ujira_app'),
+        ...moves('ujira_worker'),
+      ].sort(),
+    );
   });
 
   it('lets only the worker read an agent secret, and the reader no personal data', async () => {

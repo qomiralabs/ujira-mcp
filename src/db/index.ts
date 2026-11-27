@@ -41,7 +41,14 @@ export {
   type MigrationRun,
 } from './migrate.js';
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
-export { DatabaseConfigError, SessionStateError, TenantContextError } from './errors.js';
+export {
+  constraintViolation,
+  DatabaseConfigError,
+  SessionStateError,
+  TenantContextError,
+  type ConstraintKind,
+  type ConstraintViolation,
+} from './errors.js';
 export { DatabaseUnavailableError } from './unavailable.js';
 export {
   MAX_PAGE_SIZE,
@@ -137,6 +144,7 @@ export {
   recipientPii,
   recipients,
   type DestinationCheck,
+  type DestinationStatus,
   type NewRecipient,
   type NewWalletMethod,
   type PayoutMethod,
@@ -145,6 +153,7 @@ export {
   type Recipient,
   type RecipientStatus,
   type SealedEmail,
+  type StorableCheck,
 } from './repositories/recipients.js';
 export {
   feeSponsorships,
@@ -152,6 +161,13 @@ export {
   type SettledFee,
   type SponsoredFeeReservation,
 } from './repositories/fee-sponsorships.js';
+export {
+  SIGNING_ACTIONS,
+  signingRequests,
+  type NewSigningRequest,
+  type SigningAction,
+  type StoredSigningRequest,
+} from './repositories/signing-requests.js';
 export {
   SECURITY_EVENT_KINDS,
   securityEvents,

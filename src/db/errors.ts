@@ -21,3 +21,28 @@ export class TenantContextError extends Error {
 export class SessionStateError extends Error {
   override readonly name = 'SessionStateError';
 }
+
+// Which integrity rule the database refused a write under, read off the
+// driver's error so code outside this module never has to know SQLSTATE
+// codes. The constraint name is the database's, never a value from the row.
+export type ConstraintKind = 'unique' | 'foreign_key' | 'check' | 'not_null';
+
+export interface ConstraintViolation {
+  readonly kind: ConstraintKind;
+  readonly constraint: string | undefined;
+}
+
+const SQLSTATE_KINDS: Readonly<Record<string, ConstraintKind>> = {
+  '23505': 'unique',
+  '23503': 'foreign_key',
+  '23514': 'check',
+  '23502': 'not_null',
+};
+
+export function constraintViolation(error: unknown): ConstraintViolation | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const { code, constraint } = error as { code?: unknown; constraint?: unknown };
+  const kind = typeof code === 'string' ? SQLSTATE_KINDS[code] : undefined;
+  if (kind === undefined) return undefined;
+  return { kind, constraint: typeof constraint === 'string' ? constraint : undefined };
+}

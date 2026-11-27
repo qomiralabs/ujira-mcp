@@ -28,6 +28,11 @@ import { createTestDatabase, type TestDatabase } from '../testing/harness.js';
 import { agentKeyRepositories, agentKeys } from './agent-keys.js';
 import { mandateRepositories, mandates } from './mandates.js';
 import { payoutMethods, recipientPii, recipientRepositories, recipients } from './recipients.js';
+import {
+  signingRequestRepositories,
+  signingRequests,
+  type NewSigningRequest,
+} from './signing-requests.js';
 
 const adminUrl = inject('dbAdminUrl');
 const roleUrls = inject('dbRoleUrls');
@@ -42,6 +47,7 @@ interface Rows {
   readonly recipientId: string;
   readonly label: string;
   readonly methodId: string;
+  readonly signingRequestId: string;
 }
 
 interface World {
@@ -49,7 +55,12 @@ interface World {
   readonly second: Rows;
 }
 
-const REPOSITORIES = { ...agentKeyRepositories, ...mandateRepositories, ...recipientRepositories };
+const REPOSITORIES = {
+  ...agentKeyRepositories,
+  ...mandateRepositories,
+  ...recipientRepositories,
+  ...signingRequestRepositories,
+};
 
 let database: TestDatabase;
 let admin: pg.Client;
@@ -129,6 +140,7 @@ async function rows(context: ProjectContext): Promise<Rows> {
       },
       testAccounts,
     );
+    const request = await signingRequests.create(tx, signingRequestFor(mandate.id), testAccounts);
     return {
       context,
       keyId: key.id,
@@ -137,8 +149,21 @@ async function rows(context: ProjectContext): Promise<Rows> {
       recipientId: recipient.id,
       label,
       methodId: method.id,
+      signingRequestId: request.id,
     };
   });
+}
+
+function signingRequestFor(mandateId: string): NewSigningRequest {
+  return {
+    mandateId,
+    action: 'allow_recipients',
+    network: TESTNET,
+    signer: testAccount(),
+    envelope: 'AAAAAgAAAAB=',
+    summary: 'Allow a recipient',
+    expiresAt: new Date(Date.now() + 600_000),
+  };
 }
 
 async function world(name: string): Promise<World> {
@@ -292,6 +317,18 @@ const cases: Record<string, () => Promise<void>> = {
       expect(await asA(async (tx) => recipients.get(tx, other.recipientId))).toBeUndefined();
     }
   },
+  'recipients.listInProject': async () => {
+    const own = await asA(async (tx) => recipients.listInProject(tx, { limit: 100 }));
+    const ids = own.items.map((recipient) => recipient.id);
+    expect(ids).toContain(a.first.recipientId);
+    for (const other of foreign()) expect(ids).not.toContain(other.recipientId);
+    // Read across A's projects, A's second shows and B's never does.
+    const across = await acrossA(async (tx) => recipients.listInProject(tx, { limit: 100 }));
+    const all = across.items.map((recipient) => recipient.id);
+    expect(all).toContain(a.second.recipientId);
+    expect(all).not.toContain(b.first.recipientId);
+    expect(all).not.toContain(b.second.recipientId);
+  },
   'recipients.list': async () => {
     for (const other of foreign()) {
       const page = await acrossA(async (tx) =>
@@ -366,6 +403,63 @@ const cases: Record<string, () => Promise<void>> = {
       expect(
         (await asA(async (tx) => payoutMethods.list(tx, other.recipientId, { limit: 100 }))).items,
       ).toEqual([]);
+    }
+  },
+  'payoutMethods.forRecipients': async () => {
+    const ids = foreign().map((other) => other.recipientId);
+    expect(await asA(async (tx) => payoutMethods.forRecipients(tx, ids))).toEqual([]);
+    const own = await asA(async (tx) =>
+      payoutMethods.forRecipients(tx, [...ids, a.first.recipientId]),
+    );
+    expect(own.map((method) => method.id)).toEqual([a.first.methodId]);
+  },
+  'payoutMethods.recordCheck': async () => {
+    for (const other of foreign()) {
+      expect(
+        await asA(async (tx) =>
+          payoutMethods.recordCheck(tx, other.methodId, {
+            receivable: false,
+            reason: 'NO_ACCOUNT',
+          }),
+        ),
+      ).toBe(false);
+      expect(await columnOf('ujira.payout_methods', 'destination_status', other.methodId)).toBe(
+        'receivable',
+      );
+    }
+  },
+  'signingRequests.create': async () => {
+    for (const other of foreign()) {
+      const planted = asA(async (tx) =>
+        signingRequests.create(tx, signingRequestFor(other.mandateId), testAccounts),
+      );
+      expect(await codeOf(planted)).toBe('23503');
+    }
+    const own = await asA(async (tx) =>
+      signingRequests.create(tx, signingRequestFor(a.first.mandateId), testAccounts),
+    );
+    expect(await ownerOf('ujira.signing_requests', own.id)).toEqual(a.first.context);
+  },
+  'signingRequests.get': async () => {
+    for (const other of foreign()) {
+      expect(
+        await asA(async (tx) => signingRequests.get(tx, other.signingRequestId)),
+      ).toBeUndefined();
+    }
+    expect(
+      await asA(async (tx) => signingRequests.get(tx, a.first.signingRequestId)),
+    ).toBeDefined();
+  },
+  'signingRequests.markSubmitted': async () => {
+    for (const other of foreign()) {
+      expect(
+        await asA(async (tx) =>
+          signingRequests.markSubmitted(tx, other.signingRequestId, testHex32()),
+        ),
+      ).toBe(false);
+      expect(
+        await columnOf('ujira.signing_requests', 'submitted_tx_hash', other.signingRequestId),
+      ).toBeNull();
     }
   },
   'payoutMethods.markVerified': async () => {

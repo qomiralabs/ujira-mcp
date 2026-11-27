@@ -273,6 +273,25 @@ export interface PayoutMethodsTable {
   readonly destination_address: string;
   readonly verified_at: NullableTimestamp;
   readonly created_at: Generated<Date>;
+  readonly destination_status: Generated<string>;
+  readonly destination_checked_at: NullableTimestamp;
+}
+
+export interface SigningRequestsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly mandate_id: string | null;
+  readonly action: string;
+  readonly network: string;
+  readonly signer: string;
+  readonly envelope: string;
+  readonly summary: string;
+  readonly expires_at: Timestamp;
+  readonly submitted_tx_hash: Buffer | null;
+  readonly submitted_at: NullableTimestamp;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
 }
 
 // A date reads back as a Date at local midnight, so the repository casts the
@@ -326,6 +345,7 @@ export interface Schema {
   'ujira.payout_methods': PayoutMethodsTable;
   'ujira.fee_sponsor_days': FeeSponsorDaysTable;
   'ujira.fee_sponsorships': FeeSponsorshipsTable;
+  'ujira.signing_requests': SigningRequestsTable;
 }
 
 // Every column above, by table, for the schema test. Checked against the
@@ -514,6 +534,24 @@ export const SCHEMA_COLUMNS = {
     destination_address: true,
     verified_at: true,
     created_at: true,
+    destination_status: true,
+    destination_checked_at: true,
+  },
+  'ujira.signing_requests': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    mandate_id: true,
+    action: true,
+    network: true,
+    signer: true,
+    envelope: true,
+    summary: true,
+    expires_at: true,
+    submitted_tx_hash: true,
+    submitted_at: true,
+    created_at: true,
+    updated_at: true,
   },
   'ujira.fee_sponsor_days': { principal_id: true, day: true, used_stroops: true },
   'ujira.fee_sponsorships': {

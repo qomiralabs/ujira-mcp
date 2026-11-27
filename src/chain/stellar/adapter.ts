@@ -35,6 +35,8 @@ import {
   type MandateAction,
   type NetworkId,
   type PayoutIntent,
+  type RequestedState,
+  type SendHooks,
   type SigningRequest,
   type SponsoredFee,
   type SubmitResult,
@@ -67,6 +69,12 @@ const PASSPHRASES: Record<NetworkId, string> = {
 
 const HEX32 = /^[0-9a-f]{64}$/;
 const ASSET_CODE = /^[A-Za-z0-9]{1,12}$/;
+
+/** What request_payout returns, by the contract's status number. */
+const REQUESTED_STATES: ReadonlyMap<number, RequestedState> = new Map([
+  [PAYOUT_STATUS.pending, 'pending'],
+  [PAYOUT_STATUS.approved, 'approved'],
+]);
 
 export interface StellarAdapterOptions {
   readonly network?: NetworkId;
@@ -615,13 +623,17 @@ export class StellarChainAdapter implements ChainAdapter {
     intent: PayoutIntent,
     agent: TxSigner,
     o: CallOptions,
-  ): Promise<{ txHash: string }> {
+  ): Promise<{ txHash: string; state?: RequestedState }> {
     const m = this.mandate(this.parseContract(intent.mandate));
     const req = this.requestOf(intent);
     return withDeadline(
       o,
       'request the payout',
-      async () => ({ txHash: (await m.requestPayout(agent, req)).txHash }),
+      async () => {
+        const sent = await m.requestPayout(agent, req);
+        const state = REQUESTED_STATES.get(sent.status);
+        return state === undefined ? { txHash: sent.txHash } : { txHash: sent.txHash, state };
+      },
       (e) => toChainError(e, 'request the payout'),
     );
   }
@@ -631,14 +643,39 @@ export class StellarChainAdapter implements ChainAdapter {
     payoutId: Hex32,
     executor: TxSigner,
     o: CallOptions,
+    hooks: SendHooks = {},
   ): Promise<{ txHash: string }> {
     const m = this.mandate(this.parseContract(contract));
     const id = hex32Of(payoutId, 'payoutId');
+    const record = hooks.beforeSend;
+    // A failed record is the caller's own failure and means nothing was sent,
+    // so it is told apart from anything the network did.
+    let recordFailed: unknown;
+    const beforeSend =
+      record === undefined
+        ? undefined
+        : async (txHash: string) => {
+            try {
+              await record(txHash);
+            } catch (error) {
+              recordFailed = error;
+              throw error;
+            }
+          };
     return withDeadline(
       o,
       'execute the payout',
-      async () => ({ txHash: (await m.execute(executor, id)).txHash }),
-      (e) => toChainError(e, 'execute the payout'),
+      async () => {
+        const sent = await m.execute(executor, id, beforeSend === undefined ? {} : { beforeSend });
+        return { txHash: sent.txHash };
+      },
+      (e) =>
+        e !== undefined && e === recordFailed
+          ? new ChainError('UNAVAILABLE', 'The payout was not executed: recording the send failed', {
+              reason: 'before_send_failed',
+              cause: e,
+            })
+          : toChainError(e, 'execute the payout'),
     );
   }
 

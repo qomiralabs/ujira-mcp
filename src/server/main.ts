@@ -21,6 +21,7 @@ import { startWorker } from '../worker/index.js';
 import { parseRoles } from './roles.js';
 import { runServer, type RoleHandle } from './run.js';
 import { ListenError, startWeb } from './web.js';
+import { payoutTasksFromEnv } from './worker-tasks.js';
 
 const prefixed = (service: string) =>
   jsonLog({ service, write: (json) => process.stdout.write(`${json}\n`) });
@@ -47,11 +48,11 @@ try {
     roles,
     factories: {
       web: () => startWeb(process.env, prefixed('ujira-mcp-http')),
-      // No payout task is registered yet: the payout handlers bring their own
-      // definitions, and until then a queued job waits rather than runs.
       worker: async (): Promise<RoleHandle> => ({
         role: 'worker',
-        ...(await startWorker(process.env, workerLog)),
+        ...(await startWorker(process.env, workerLog, {
+          tasksFor: () => payoutTasksFromEnv(process.env, workerLog),
+        })),
       }),
     },
     proc: process,

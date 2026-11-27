@@ -84,6 +84,19 @@ export type ChainPayoutState =
 
 export type CheckResult = { ok: true } | { ok: false; specError: string }; // e.g. DAILY_CAP_EXCEEDED
 
+/** What a request that landed left on chain: waiting for approvers, or ready to execute. */
+export type RequestedState = 'pending' | 'approved';
+
+export interface SendHooks {
+  /**
+   * Runs once the transaction is signed and before it is sent, with the hash
+   * it lands under, so a caller can record the send before it can happen. A
+   * throw sends nothing, and the call fails UNAVAILABLE with reason
+   * before_send_failed.
+   */
+  readonly beforeSend?: (txHash: Hex32) => Promise<void>;
+}
+
 /** A network fee the fee sponsor is about to pay for a principal signed transaction. */
 export interface SponsoredFee {
   /** The principal signed transaction, as 64 hex digits; the same for every retry of one envelope. */
@@ -145,12 +158,18 @@ export interface ChainAdapter {
   ): Promise<SubmitResult>;
   sponsorFee(signedXdr: string, principal: string, o: CallOptions): Promise<string>; // fee bump envelope
   checkPayout(intent: PayoutIntent, agent: string, o: CallOptions): Promise<CheckResult>; // simulation only
-  requestPayout(intent: PayoutIntent, agent: TxSigner, o: CallOptions): Promise<{ txHash: string }>;
+  /** `state` is what the contract answered, when the adapter can tell; read payoutState otherwise. */
+  requestPayout(
+    intent: PayoutIntent,
+    agent: TxSigner,
+    o: CallOptions,
+  ): Promise<{ txHash: string; state?: RequestedState }>;
   executePayout(
     contract: string,
     payoutId: Hex32,
     executor: TxSigner,
     o: CallOptions,
+    hooks?: SendHooks,
   ): Promise<{ txHash: string }>;
   payoutState(contract: string, payoutId: Hex32, o: CallOptions): Promise<ChainPayoutState>;
   transaction(

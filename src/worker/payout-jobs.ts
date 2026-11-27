@@ -50,10 +50,12 @@ export interface PayoutTaskDefinition {
    */
   readonly run: (job: PayoutJob, tenant: TenantSession) => Promise<void>;
   /**
-   * After the last attempt failed: moves the payout to needs_attention.
-   * Resolves false when the tenant has no such payout.
+   * After the last attempt failed: moves the payout to needs_attention where
+   * its status allows it. Resolves to the payout's status afterwards, which a
+   * payout waiting on its approvers or already finished keeps, or null when
+   * the tenant has no such payout.
    */
-  readonly deadLetter: (tx: WorkerTransaction, job: PayoutJob) => Promise<boolean>;
+  readonly deadLetter: (tx: WorkerTransaction, job: PayoutJob) => Promise<string | null>;
 }
 
 /**
@@ -145,14 +147,14 @@ async function deadLetter(
   log: (line: string) => void,
 ): Promise<void> {
   const where = `task=${job.task} principal=${job.principalId} project=${job.projectId} payout=${job.payoutId} job=${job.jobId} attempt=${job.attempt}/${job.maxAttempts} reason=${reason}`;
-  let moved: boolean;
+  let status: string | null;
   try {
-    moved = await tenant.transaction(async (tx) => definition.deadLetter(tx, job));
+    status = await tenant.transaction(async (tx) => definition.deadLetter(tx, job));
   } catch (error) {
     // The job stays failed in the queue, and the reconcile sweep finds the
     // payout stuck past its deadline.
     log(`event=payout_dead_letter_failed ${where} error=${errorCode(error)}`);
     throw error;
   }
-  log(`event=payout_dead_letter ${where} payout_status=${moved ? 'needs_attention' : 'not_found'}`);
+  log(`event=payout_dead_letter ${where} payout_status=${status ?? 'not_found'}`);
 }

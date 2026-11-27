@@ -52,6 +52,11 @@ export const RETRY_START_MS = 10_000;
 export interface WorkerDependencies {
   /** The tasks this process runs. A job of any other task waits in the queue. */
   readonly tasks?: readonly PayoutTaskDefinition[];
+  /**
+   * Builds the tasks, only once the queue is on, so a deployment without a
+   * database needs none of their keys.
+   */
+  readonly tasksFor?: () => readonly PayoutTaskDefinition[];
   readonly openDatabase?: (config: DatabaseConfig) => Database;
   readonly startRunner?: (config: DatabaseConfig, options: JobRunnerOptions) => Promise<JobRunner>;
   readonly retryMs?: number;
@@ -82,7 +87,7 @@ export async function startWorker(
     return keepAlive();
   }
   const config = loadDatabaseConfig(env);
-  const tasks = dependencies.tasks ?? [];
+  const tasks = dependencies.tasks ?? dependencies.tasksFor?.() ?? [];
   const start = dependencies.startRunner ?? startJobRunner;
   const retryMs = dependencies.retryMs ?? RETRY_START_MS;
   const db = (dependencies.openDatabase ?? createDatabase)(config);

@@ -34,6 +34,15 @@ export type SimulateResult =
   | { readonly ok: true; readonly returnValue: xdr.ScVal }
   | { readonly ok: false; readonly error: ContractRefusedError };
 
+export interface InvokeHooks {
+  /**
+   * Runs once the transaction is signed and before it is sent, with the hash
+   * it lands under. A caller that must never lose track of a send records the
+   * hash here; a throw sends nothing.
+   */
+  readonly beforeSend?: (txHash: string) => Promise<void>;
+}
+
 export interface SorobanGateway {
   /** A read only call: simulated, never sent. Throws ContractRefusedError on a contract error. */
   read(contractId: string, method: string, args: readonly xdr.ScVal[]): Promise<xdr.ScVal>;
@@ -53,6 +62,7 @@ export interface SorobanGateway {
     method: string,
     args: readonly xdr.ScVal[],
     signer: TxSigner,
+    hooks?: InvokeHooks,
   ): Promise<InvokeResult>;
   /** What the network says about a transaction hash. */
   transaction(hash: string): Promise<TxLookup>;
@@ -185,6 +195,7 @@ export class RpcGateway implements SorobanGateway {
     method: string,
     args: readonly xdr.ScVal[],
     signer: TxSigner,
+    hooks: InvokeHooks = {},
   ): Promise<InvokeResult> {
     const account = await this.rpcCall(
       () => this.server.getAccount(signer.publicKey),
@@ -196,6 +207,7 @@ export class RpcGateway implements SorobanGateway {
     const prepared = rpc.assembleTransaction(tx, sim).build();
     signer.sign(prepared);
     const hash = Buffer.from(prepared.hash()).toString('hex');
+    if (hooks.beforeSend !== undefined) await hooks.beforeSend(hash);
 
     for (let attempt = 1; ; attempt++) {
       const sent = await this.rpcCall(

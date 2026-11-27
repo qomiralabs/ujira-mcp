@@ -43,6 +43,7 @@ export {
 export {
   jobs,
   MAX_JOB_ATTEMPTS,
+  MAX_JOB_DELAY_SECONDS,
   PAYOUT_JOB_TASKS,
   payoutJobQueue,
   type PayoutJobTask,

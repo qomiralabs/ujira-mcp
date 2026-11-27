@@ -29,7 +29,7 @@ import {
   encodeAllowEntries,
   encodePayoutRequest,
 } from './codec.js';
-import type { SorobanGateway } from './gateway.js';
+import type { InvokeHooks, SorobanGateway } from './gateway.js';
 
 export type { RequestSimulation, StatusTx } from '../adapter.js';
 
@@ -109,12 +109,17 @@ export class MandateClient implements MandateContract {
     return { status: this.statusOf(sent.returnValue, 'approve'), txHash: sent.txHash };
   }
 
-  async execute(executor: TxSigner, payoutId: Hex32): Promise<{ readonly txHash: string }> {
+  async execute(
+    executor: TxSigner,
+    payoutId: Hex32,
+    hooks?: InvokeHooks,
+  ): Promise<{ readonly txHash: string }> {
     const sent = await this.gateway.invoke(
       this.contractId,
       'execute',
       [address(executor.publicKey), bytes32(payoutId)],
       executor,
+      hooks,
     );
     return { txHash: sent.txHash };
   }

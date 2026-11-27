@@ -71,7 +71,7 @@ function definition(
     run,
     deadLetter: (_tx, job) => {
       deadLetters.push(job);
-      return Promise.resolve(moved);
+      return Promise.resolve(moved ? 'needs_attention' : null);
     },
     deadLetters,
   };

@@ -123,7 +123,8 @@ function advance(work: (job: PayoutJob) => Promise<void>): PayoutTaskDefinition 
       if (status === undefined) throw new JobTargetMissingError();
       await work(job);
     },
-    deadLetter: async (tx, job) => fixture.payouts.markNeedsAttention(tx, job.payoutId),
+    deadLetter: async (tx, job) =>
+      (await fixture.payouts.markNeedsAttention(tx, job.payoutId)) ? 'needs_attention' : null,
   };
 }
 

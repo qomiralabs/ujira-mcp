@@ -3485,6 +3485,215 @@ input.mono {
   }
 }
 
+/* Developers on /v1: API keys, the key dialog and the examples */
+
+.key-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.key-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
+  margin: 0 -10px;
+  border-radius: 14px;
+}
+
+.key-row:hover {
+  background: var(--surface-2);
+}
+
+.key-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-btn);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.key-off .key-icon {
+  color: var(--text-3);
+}
+
+.key-main,
+.key-dates {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.key-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.key-prefix {
+  overflow-wrap: anywhere;
+}
+
+.key-scopes {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.key-scopes li {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--neutral-tint);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.key-action {
+  justify-self: end;
+}
+
+.keys-locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-wide {
+  width: min(560px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
+}
+
+.scopes legend {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.scope-list {
+  display: grid;
+  gap: 4px;
+}
+
+.scope-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-row);
+  background: var(--row-bg);
+}
+
+.scope-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.scope-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.scope-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 14px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.scope-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
+}
+
+.scope-check:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+:root[data-theme='dark'] .scope-check input {
+  accent-color: var(--teal-mid);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .scope-check input {
+    accent-color: var(--teal-mid);
+  }
+}
+
+.snippet {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.snippet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.snippet-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.snippet pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-radius: var(--r-row);
+  background: var(--row-bg);
+  border: 1px solid var(--line);
+  font: 400 13px/1.6 var(--mono);
+  color: var(--text);
+}
+
+@media (max-width: 1080px) {
+  .key-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .key-scopes,
+  .key-dates {
+    grid-column: 2 / -1;
+  }
+
+  .key-action {
+    grid-row: 1;
+    grid-column: 3;
+  }
+}
+
 /* Recipients on /v1: one line per person, the reason and the fix in the sheet. */
 
 .rlist {

@@ -197,7 +197,24 @@ The mandate and key settings are the ones under Configure. These are for the HTT
 | `UJIRA_TRUST_PROXY` | `1` | Read the caller's address from a proxy header. Set `0` when the server faces the internet directly, or callers can pick their own address. |
 | `UJIRA_CLIENT_IP_HEADER` | none | The one header holding the caller's address, such as `Fly-Client-IP`. Unset, `X-Real-IP` is read and then the last `X-Forwarded-For` entry. |
 
-`/mcp` is the public demo and answers only with `UJIRA_DEMO_FEATURES=on`; otherwise it is a 404. The SDP rail runs only with the demo on and `UJIRA_SDP_URL` and its companions set; otherwise a call that asks for it answers `rail_unavailable`. Log lines carry the method, path, status and time of each request, never a key, a body or a caller's address, and errors never carry a stack trace.
+`/mcp` is the public demo and answers only with `UJIRA_DEMO_FEATURES=on`; otherwise it is a 404. The SDP rail runs only with the demo on and `UJIRA_SDP_URL` and its companions set; otherwise a call that asks for it answers `rail_unavailable`. Errors never carry a stack trace.
+
+### Logs, health and alerts
+
+`ujira-mcp-http` writes one JSON object per line on stdout: `time`, `level`, `service`, `event`, a readable `message`, then the fields of the event. Every request gets a `requestId`, which `/v1` also returns as `Ujira-Request-Id`; every line written while the request runs carries it, and every line about a payout carries its `payoutId`, so `@payoutId:<id>` or `@requestId:<id>` in the Railway log search finds the whole story (`principalId` and `projectId` join them once callers sign in). Each request logs `event=http_request` with the method, the route (never the raw path), the status and the time; each payout logs `payout_requested`, one `payout_recorded` per step with its outcome and transaction hashes, or `payout_request_failed` with an error code.
+
+All lines pass through one sink (`src/log.ts`) that drops fields named like secrets or personal data (keys, tokens, signatures, envelopes, cookies, sessions, emails, labels, recipients, destinations, addresses) and scrubs every value and every free text line of Stellar secret seeds, API keys, bearer tokens, JWTs, credentials in URLs, emails, phone numbers, IP addresses and long base64 or hex runs such as signatures. Stellar account addresses are shortened to `GABC...WXYZ`; contract ids, transaction hashes and payout ids are kept.
+
+`GET /healthz` stays a shallow `{"status":"ok"}` for the platform's restart check. `GET /healthz/deep` asks the database (an empty transaction on the app login, when `UJIRA_DB_APP_URL` is set), the chain RPC, the worker heartbeat and the last reconcile run, each within 2 seconds, and shares one round of answers for 5 seconds. It answers `ok`; `degraded` with 200 when only the RPC fails or the worker or reconcile is late; and `down` with 503 when the database fails. A part the process does not run reads `not_configured` and does not lower the status. Answers name error codes only.
+
+Alert lines are written at level `error` with `alert` set to their name, so a log alert can match `@alert:executor_low`:
+
+| Alert | When |
+| --- | --- |
+| `payout_dead_letter` | A payout job failed its last attempt and the payout needs a person. The job worker writes it with `deadLetterLine` from `src/worker/alerts.ts`; until the worker runs, nothing does. |
+| `executor_low` | The executor account has under 50 XLM, or does not exist; checked every 15 minutes. |
+| `fee_sponsor_low` | The fee sponsor (`UJIRA_FEE_SPONSOR_*`) has under 50 XLM, or does not exist; checked every 15 minutes. |
+| `reconcile_stale` | The reconcile sweep has not run for 6 minutes; checked every minute, once the sweep registers its heartbeat. |
 
 ### Console
 
@@ -266,7 +283,7 @@ With SDP configured, the console allows each recipient twice, once at their own 
 
 The versioned public API is being built under `/v1`, beside the routes above, which it does not change. Today it serves `GET /v1/ping` and `GET /v1/openapi.json`, the OpenAPI 3.1 document generated from the route schemas.
 
-- Every answer carries a `Ujira-Request-Id` header. Quote it when asking for support; the server log line for the request ends with it.
+- Every answer carries a `Ujira-Request-Id` header. Quote it when asking for support; every server log line written for the request carries it as `requestId`.
 - Every failure is `{ "error": { "code": "...", "message": "...", "requestId": "..." } }`. A schema failure adds `details`, which names paths and issue kinds, never the values sent.
 - Bodies are JSON (`Content-Type: application/json`) and at most 64 KB: a larger one answers `413 PAYLOAD_TOO_LARGE`, another type `415 UNSUPPORTED_MEDIA_TYPE`.
 

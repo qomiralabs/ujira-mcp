@@ -20,6 +20,8 @@ import { REQUEST_ID_HEADER } from '../api/context.js';
 import { envelope } from '../api/errors.js';
 import type { V1Handler } from '../api/node.js';
 import type { PayoutEngine } from '../engine/engine.js';
+import { logLine, withLogContext } from '../log.js';
+import type { HealthReport } from '../server/health.js';
 import { clientAddress, rateKey, type HttpSettings } from './public.js';
 import { createMcpServer, type ServerOptions } from './server.js';
 
@@ -45,12 +47,18 @@ export interface HttpServerOptions {
   readonly settings: HttpSettings;
   /** The binding for /mcp, given the caller's rate limit key. Unset, /mcp is a plain 404. */
   readonly publicMcp?: (client: string) => McpBinding;
-  /** One line per request: method, path, status and time. Never addresses or bodies. */
+  /**
+   * One line per request: method, route, status, time and request id. Never
+   * addresses, raw paths or bodies. Every line written while a request runs
+   * carries its request id through the log context.
+   */
   readonly log?: (line: string) => void;
   readonly now?: () => number;
   readonly extra?: ExtraRoutes;
   /** The public API under /v1. Unset, /v1 is a plain 404 like any unknown path. */
   readonly v1?: V1Handler;
+  /** The deep health check at /healthz/deep. Unset, that path is handled like any other. */
+  readonly deepHealth?: () => Promise<HealthReport>;
 }
 
 export class BodyTooLarge extends Error {}
@@ -115,7 +123,7 @@ function isV1(path: string): boolean {
 
 /** The path label a log line carries: a route, never an address. */
 function routeLabel(path: string): string {
-  if (path === '/mcp' || path === '/healthz') return path;
+  if (path === '/mcp' || path === '/healthz' || path === '/healthz/deep') return path;
   if (isV1(path)) return '/v1';
   if (MANDATE_MCP.test(path)) return '/m/:id/mcp';
   if (path.startsWith('/api/')) return '/api';
@@ -123,7 +131,7 @@ function routeLabel(path: string): string {
 }
 
 export function createHttpServer(options: HttpServerOptions): Server {
-  const { settings, extra, v1, publicMcp } = options;
+  const { settings, extra, v1, publicMcp, deepHealth } = options;
   const log = options.log ?? (() => undefined);
   const now = options.now ?? Date.now;
   const allowed = new Set(settings.allowedOrigins);
@@ -207,6 +215,14 @@ export function createHttpServer(options: HttpServerOptions): Server {
       else send(res, 405, { error: 'method not allowed' }, { allow: 'GET' });
       return;
     }
+    if (path === '/healthz/deep' && deepHealth !== undefined) {
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        const report = await deepHealth();
+        // Only down fails, so a degraded service still reads as reachable.
+        send(res, report.status === 'down' ? 503 : 200, report, { 'cache-control': 'no-store' });
+      } else send(res, 405, { error: 'method not allowed' }, { allow: 'GET' });
+      return;
+    }
     if (path === '/mcp' && publicMcp !== undefined) {
       await mcp(req, res, path, publicMcp);
       return;
@@ -249,22 +265,40 @@ export function createHttpServer(options: HttpServerOptions): Server {
     const started = now();
     const path = (req.url ?? '/').split('?')[0] ?? '/';
     const known = routeLabel(path);
-    // /v1 names every request so a caller can quote it; the id is made here
-    // so even an answer this layer writes, such as a timeout, carries it.
-    const requestId = v1 !== undefined && isV1(path) ? randomUUID() : undefined;
+    // Every request gets an id for the log. /v1 also answers with it, so a
+    // caller can quote it; it is made here so even an answer this layer
+    // writes, such as a timeout, carries it. Other routes keep their answers
+    // as they were.
+    const id = randomUUID();
+    const requestId = v1 !== undefined && isV1(path) ? id : undefined;
     // A payout waits for the ledger, so the limit is generous, but nothing waits forever.
     const deadline = setTimeout(() => {
       failure(res, path, requestId, 504, 'The request took too long');
     }, settings.requestTimeoutMs);
     res.on('close', () => {
       clearTimeout(deadline);
-      const id = requestId === undefined ? '' : ` ${requestId}`;
-      log(`${req.method ?? '?'} ${known} ${res.statusCode} ${now() - started}ms${id}`);
+      log(
+        logLine('http_request', {
+          requestId: id,
+          method: req.method ?? '?',
+          route: known,
+          status: res.statusCode,
+          ms: now() - started,
+        }),
+      );
     });
-    route(req, res, path, requestId).catch((error: unknown) => {
-      log(`request failed (${error instanceof Error ? error.name : 'NonError'})`);
-      failure(res, path, requestId, 500, 'Internal error');
-    });
+    withLogContext({ requestId: id }, () => route(req, res, path, requestId)).catch(
+      (error: unknown) => {
+        log(
+          logLine('http_request_failed', {
+            requestId: id,
+            route: known,
+            error: error instanceof Error ? error.name : 'NonError',
+          }),
+        );
+        failure(res, path, requestId, 500, 'Internal error');
+      },
+    );
   });
   // Receiving the request is bounded separately from answering it, so a slow
   // sender cannot hold a socket open.

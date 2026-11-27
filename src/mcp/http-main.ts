@@ -3,8 +3,9 @@
 // Copyright 2026 Qomira Labs
 
 // Starts the public MCP server over HTTP. Configuration comes only from the
-// environment; see the README. Log lines never carry a key, a caller's
-// address or a request body.
+// environment; see the README. Every log line is one JSON object on stdout,
+// passed through the redacting sink in src/log.ts, so none carries a key, a
+// signature, a caller's address or a request body.
 //
 // This is a composition root, one of the few files allowed to import
 // src/demo, and it builds the demo only when UJIRA_DEMO_FEATURES is on.
@@ -18,12 +19,15 @@ import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
 import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
+import { jsonLog } from '../log.js';
+import { observabilityFromEnv } from '../server/observability.js';
 import { createHttpServer } from './http.js';
 import { loadHttpSettings } from './public.js';
 
-const log = (line: string) => {
-  process.stdout.write(`ujira-mcp-http: ${line}\n`);
-};
+const log = jsonLog({
+  service: 'ujira-mcp-http',
+  write: (json) => process.stdout.write(`${json}\n`),
+});
 
 /**
  * A receipt is written after the money moves, so a log it cannot write to
@@ -51,10 +55,11 @@ function main(): void {
   const http = loadHttpSettings();
   checkReceiptsWritable(settings.receiptsPath);
   const demo = withDemo ? createDemo({ base: settings, log }) : undefined;
-  const wiring = createEngine(
-    settings,
-    demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) },
-  );
+  const wiring = createEngine(settings, {
+    log,
+    ...(demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) }),
+  });
+  const observe = observabilityFromEnv({ env: process.env, settings, wiring, log });
   const { routes, keepAlive } = consoleFromEnv({
     base: settings,
     wiring,
@@ -67,12 +72,14 @@ function main(): void {
     log,
     extra: routes,
     v1: nodeHandler(createV1App({ log }).app),
+    deepHealth: observe.deepHealth,
     ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
   });
   log(demo === undefined ? 'demo off' : demo.summary());
   demo?.start();
   log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
   keepAlive?.start();
+  observe.start();
   server.on('error', (error: NodeJS.ErrnoException) => {
     process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
     process.exit(1);
@@ -85,6 +92,7 @@ function main(): void {
   const stop = () => {
     demo?.stop();
     keepAlive?.stop();
+    void observe.stop();
     server.close();
     // Let a payout in flight finish, but not forever.
     setTimeout(() => process.exit(0), 10_000).unref();

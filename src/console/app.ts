@@ -127,6 +127,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
     executor: o.executor,
     ...(extension === undefined ? {} : { extension }),
     now: () => new Date(now()),
+    log,
   };
   const pages = createWeb({
     siteDir: settings.siteDir,

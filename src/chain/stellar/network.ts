@@ -88,6 +88,19 @@ export function decimalToMinor(value: string, decimals = 7): bigint {
   return BigInt(match[1] ?? '0') * 10n ** BigInt(decimals) + BigInt(frac === '' ? '0' : frac);
 }
 
+/**
+ * An account's XLM in stroops, or null when the account does not exist.
+ * `usdc` is only there because the account read names the asset it looks for.
+ */
+export async function xlmStroops(
+  network: Pick<StellarNetworkPort, 'account'>,
+  address: string,
+  usdc: { code: string; issuer: string },
+): Promise<bigint | null> {
+  const view = await network.account(address, usdc);
+  return !view.exists || view.xlm === null ? null : decimalToMinor(view.xlm);
+}
+
 const horizonAccount = z.object({
   balances: z.array(
     z.object({

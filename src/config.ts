@@ -29,6 +29,7 @@ import {
 import { PayoutEngine } from './engine/engine.js';
 import { EngineError } from './errors.js';
 import { accountAddress, contractAddress, hex32, type Hex32 } from './ids.js';
+import type { Log } from './log.js';
 import type { PayoutRail } from './rails/rail.js';
 import { WalletRail } from './rails/wallet.js';
 import { ReceiptLog } from './receipts/log.js';
@@ -189,6 +190,8 @@ export interface Wiring {
   readonly gateway: SorobanGateway;
   /** One log per process: its writes are serialized in memory, so a second one on the same file would race. */
   readonly receipts: ReceiptLog;
+  /** Horizon and the RPC outside contract calls, such as account balances. */
+  readonly network: StellarNetworkPort;
 }
 
 /**
@@ -202,20 +205,23 @@ export function createEngine(
     network?: StellarNetworkPort;
     extraRails?: (mandate: MandateContract) => readonly PayoutRail[];
     now?: () => Date;
+    /** Where the engine writes a line for each step of a payout. */
+    log?: Log;
   } = {},
 ): Wiring {
   const gateway =
     options.gateway ??
     new RpcGateway({ rpcUrl: settings.rpcUrl, readSource: settings.agent.publicKey });
+  const network =
+    options.network ??
+    new StellarNetwork({
+      rpcUrl: settings.rpcUrl,
+      horizonUrl: TESTNET_HORIZON_URL,
+      friendbotUrl: TESTNET_FRIENDBOT_URL,
+    });
   const adapter = new StellarChainAdapter({
     gateway,
-    chain:
-      options.network ??
-      new StellarNetwork({
-        rpcUrl: settings.rpcUrl,
-        horizonUrl: TESTNET_HORIZON_URL,
-        friendbotUrl: TESTNET_FRIENDBOT_URL,
-      }),
+    chain: network,
     factory: TESTNET_FACTORY,
     asset: { code: 'USDC', issuer: TESTNET_USDC_ISSUER, contract: TESTNET_USDC_CONTRACT },
   });
@@ -232,6 +238,7 @@ export function createEngine(
     network: settings.network,
     recipientRefs: settings.recipientRefs,
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.log === undefined ? {} : { log: options.log }),
   });
-  return { engine, mandate, adapter, gateway, receipts };
+  return { engine, mandate, adapter, gateway, receipts, network };
 }

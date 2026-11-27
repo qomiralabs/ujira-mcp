@@ -17,7 +17,9 @@ export const alice = testSigner('alice').publicKey;
 export const bob = testSigner('bob').publicKey;
 export const mallory = testSigner('mallory').publicKey;
 
-export function setup(options: { rails?: (m: MandateClient) => PayoutRail[] } = {}) {
+export function setup(
+  options: { rails?: (m: MandateClient) => PayoutRail[]; log?: (line: string) => void } = {},
+) {
   const rpc = new FakeMandateRpc();
   for (const who of [alice, bob]) rpc.allowRecipient(defaultRecipientRef(who), who);
   const mandate = new MandateClient(rpc, MANDATE);
@@ -30,6 +32,7 @@ export function setup(options: { rails?: (m: MandateClient) => PayoutRail[] } = 
     assetCode: 'USDC',
     network: 'testnet',
     now: () => new Date(Number(rpc.now) * 1000),
+    ...(options.log === undefined ? {} : { log: options.log }),
   });
   return { rpc, mandate, receipts, engine };
 }

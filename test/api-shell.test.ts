@@ -234,8 +234,9 @@ describe('/v1 request ids', () => {
     expect(root.status).toBe(404);
     expect(await errorOf(root)).toMatchObject({ code: 'NOT_FOUND' });
 
-    expect(lines.some((l) => /^GET \/v1 200 \d+ms /.test(l) && l.endsWith(` ${idA}`))).toBe(true);
-    expect(lines.some((l) => l.startsWith('GET /v1 404 '))).toBe(true);
+    const ok = `event=http_request requestId=${idA} method=GET route=/v1 status=200 ms=`;
+    expect(lines.some((l) => l.startsWith(ok) && /^\d+$/.test(l.slice(ok.length)))).toBe(true);
+    expect(lines.some((l) => / method=GET route=\/v1 status=404 /.test(l))).toBe(true);
   });
 
   it('ignores an id the caller sends, so logs cannot be seeded from outside', async () => {

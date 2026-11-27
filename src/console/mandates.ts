@@ -11,6 +11,7 @@ import { isAccountAddress } from '../chain/stellar/addresses.js';
 import type { StellarChainAdapter } from '../chain/stellar/adapter.js';
 import { PAYOUT_STATUS, type PayoutEntry } from '../chain/types.js';
 import { PayoutEngine } from '../engine/engine.js';
+import type { Log } from '../log.js';
 import { legacyRailName, type PayoutRail } from '../rails/rail.js';
 import { WalletRail } from '../rails/wallet.js';
 import type { Receipt, ReceiptLog } from '../receipts/log.js';
@@ -25,6 +26,8 @@ export interface MandateServices {
   /** Rails beyond the wallet rail come only from here. */
   readonly extension?: Pick<ConsoleExtension, 'rails'>;
   readonly now?: () => Date;
+  /** Where each console mandate's engine writes its payout lines. */
+  readonly log?: Log;
 }
 
 /** Recipient names to wallets, as the rails resolve them. */
@@ -47,6 +50,7 @@ export function engineFor(entry: MandateEntry, s: MandateServices): PayoutEngine
     assetCode: 'USDC',
     network: 'testnet',
     ...(s.now === undefined ? {} : { now: s.now }),
+    ...(s.log === undefined ? {} : { log: s.log }),
   });
 }
 

@@ -16,7 +16,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { z } from 'zod';
 
-import type { TxSigner } from '../chain/adapter.js';
+import {
+  ChainError,
+  callOptions,
+  type MandateAction,
+  type SigningRequest,
+  type TxSigner,
+} from '../chain/adapter.js';
 import type { StellarChainAdapter } from '../chain/stellar/adapter.js';
 import {
   allowEntriesOf,
@@ -27,7 +33,12 @@ import {
 import { address, bytes32, encodeAllowEntries, i128, nativeOf } from '../chain/stellar/codec.js';
 import { TESTNET_PASSPHRASE } from '../chain/stellar/gateway.js';
 import type { Account, Transaction } from '../chain/stellar/network.js';
-import { MAX_ALLOW_ENTRIES, createArgs, invokeTx } from '../chain/stellar/txbuild.js';
+import {
+  MAX_ALLOW_ENTRIES,
+  SIGN_WINDOW_SECONDS,
+  createArgs,
+  invokeTx,
+} from '../chain/stellar/txbuild.js';
 import { accountAddress, defaultRecipientRef, taskId } from '../ids.js';
 import { send, type ExtraRoutes, type McpBinding } from '../mcp/http.js';
 import { WindowLimiter, type HttpSettings } from '../mcp/public.js';
@@ -52,6 +63,27 @@ import {
 import { createWeb } from './web.js';
 
 export const EXPLORER_TX = 'https://stellar.expert/explorer/testnet/tx/';
+
+/** The longest a relay waits for the ledger, inside the HTTP deadline. */
+const RELAY_TIMEOUT_MS = 100_000;
+
+/** Built transactions kept for their signed copy; older ones are dropped first. */
+const MAX_BUILT = 5_000;
+
+/** The adapter's name for what each console action asks the wallet to sign. */
+const ACTION_KIND: Readonly<Record<BuildRequest['action'], MandateAction['kind']>> = {
+  create_mandate: 'create',
+  allow_recipients: 'allow_recipients',
+  fund_mandate: 'fund',
+  pause: 'pause',
+  resume: 'resume',
+  revoke: 'revoke',
+  // A sweep returns the balance to the owner, which is what a withdraw is.
+  sweep: 'withdraw',
+  approve: 'approve',
+  reject: 'reject',
+  withdraw: 'withdraw',
+};
 const EXPLORER_CONTRACT = 'https://stellar.expert/explorer/testnet/contract/';
 const HOUR = 3_600_000;
 
@@ -137,6 +169,28 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
   });
   /** Labels typed for an allow_recipients transaction that has not landed yet. */
   const pendingLabels = new Map<string, Map<string, string>>();
+  /**
+   * What this server built, by transaction hash, so a signed copy is checked
+   * against exactly what was built. The hash covers everything but the
+   * signatures, so the wallet's copy has the same one.
+   */
+  const built = new Map<string, SigningRequest>();
+
+  function remember(req: BuildRequest, xdr: string, hash: string, summary: string): void {
+    const at = now();
+    for (const [key, r] of built) {
+      if (Date.parse(r.expiresAt) <= at || built.size >= MAX_BUILT) built.delete(key);
+      else break;
+    }
+    built.set(hash, {
+      network: o.adapter.network,
+      xdr,
+      signer: req.source,
+      action: ACTION_KIND[req.action],
+      summary,
+      expiresAt: new Date(at + SIGN_WINDOW_SECONDS * 1000).toISOString(),
+    });
+  }
   const allowCtx = {
     factory: settings.factory,
     usdc: settings.usdc,
@@ -303,7 +357,10 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         createArgs(req.params, ctx),
       );
       const prepared = await chain.prepare(tx);
-      return { xdr: prepared.toXdr(), description: describeCreate(req.params, o.agent.publicKey) };
+      const description = describeCreate(req.params, o.agent.publicKey);
+      const xdr = prepared.toXdr();
+      remember(req, xdr, Buffer.from(prepared.hash()).toString('hex'), description);
+      return { xdr, description };
     }
     const mandate = req.params.mandate;
     mandateOr404(mandate);
@@ -342,12 +399,15 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         break;
     }
     const prepared = await chain.prepare(tx(await chain.loadAccount(req.source)));
-    return { xdr: prepared.toXdr(), description: describe(req) };
+    const description = describe(req);
+    const xdr = prepared.toXdr();
+    remember(req, xdr, Buffer.from(prepared.hash()).toString('hex'), description);
+    return { xdr, description };
   }
 
-  async function afterSuccess(kind: AllowedTx, value: unknown, hash: string) {
+  async function afterSuccess(kind: AllowedTx, value: string | undefined, hash: string) {
     if (kind.kind === 'create') {
-      if (typeof value !== 'string') return undefined;
+      if (value === undefined) return undefined;
       await registry.addMandate({
         id: value,
         principal: kind.principal,
@@ -388,16 +448,55 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
         'The transaction has no signature; sign it in your wallet',
       );
     }
-    const sent = await chain.submit(tx);
-    const value: unknown = sent.returnValue === undefined ? undefined : nativeOf(sent.returnValue);
-    const mandate =
-      sent.status === 'SUCCESS' ? await afterSuccess(kind, value, sent.hash) : undefined;
+    if (kind.kind === 'trustline') {
+      // The demo builds trustlines for wallets it onboards; they never touch a mandate.
+      const sent = await chain.submit(tx);
+      const value: unknown =
+        sent.returnValue === undefined ? undefined : nativeOf(sent.returnValue);
+      return {
+        hash: sent.hash,
+        status: sent.status,
+        returnValue: returnText(value),
+        ...(sent.reason === undefined ? {} : { reason: sent.reason }),
+      };
+    }
+    const hash = Buffer.from(tx.hash()).toString('hex');
+    const expected = built.get(hash);
+    if (expected === undefined) {
+      throw new ChainError(
+        'SIGNING_REQUEST_MISMATCH',
+        'This server did not build that transaction, or it ran out of time; build it again',
+        { reason: 'tx_not_allowed' },
+      );
+    }
+    let sent: { txHash: string; contract?: string };
+    try {
+      sent = await o.adapter.submitSigned(envelope, expected, callOptions(hash, RELAY_TIMEOUT_MS));
+    } catch (error) {
+      // A transaction the chain took and failed is an answer, not an error,
+      // as the dashboard has always read it.
+      if (
+        error instanceof ChainError &&
+        (error.code === 'CONTRACT_REFUSED' || error.code === 'TX_FAILED') &&
+        error.txHash !== undefined
+      ) {
+        built.delete(hash);
+        return {
+          hash: error.txHash,
+          status: 'FAILED',
+          returnValue: null,
+          ...(error.reason === undefined ? {} : { reason: error.reason }),
+        };
+      }
+      throw error;
+    }
+    built.delete(hash);
+    const mandate = await afterSuccess(kind, sent.contract, sent.txHash);
     return {
-      hash: sent.hash,
-      status: sent.status,
-      returnValue: returnText(value),
+      hash: sent.txHash,
+      status: 'SUCCESS',
+      returnValue: sent.contract ?? null,
       ...(mandate === undefined ? {} : { mandate }),
-      ...(sent.reason === undefined ? {} : { reason: sent.reason }),
     };
   }
 

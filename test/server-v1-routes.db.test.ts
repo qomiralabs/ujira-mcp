@@ -260,6 +260,37 @@ describe('recipients as the web role serves them', () => {
     });
   });
 
+  it('serves the mandate routes and the signed submit only when it knows the UJIRA executor', () => {
+    const paths = (executor?: string) =>
+      v1Routes({
+        db,
+        adapter,
+        origin: ORIGIN,
+        network: 'testnet',
+        ...(executor === undefined ? {} : { executor }),
+        log: () => undefined,
+        sealer: createSealer(kek),
+        agentAccounts: new StellarAgentAccounts({
+          network: TESTNET,
+          chain: {
+            friendbot: () => Promise.resolve(),
+            accountFacts: () =>
+              Promise.resolve({ exists: true, trustlines: [], memoRequired: false }),
+          },
+        }),
+      }).routes.map((r) => `${r.method} ${r.path}`);
+    const mandateRoutes = [
+      'post /v1/mandates/prepare',
+      'post /v1/mandates/import',
+      'get /v1/mandates',
+      'get /v1/mandates/{id}',
+      'post /v1/mandates/{id}/actions',
+      'post /v1/signing/submit',
+    ];
+    expect(paths(wallet().publicKey())).toEqual(expect.arrayContaining(mandateRoutes));
+    expect(paths().filter((p) => mandateRoutes.includes(p))).toEqual([]);
+  });
+
   it('never logs the key encryption key, an API key or an email', () => {
     expect(lines.length).toBeGreaterThan(0);
     for (const line of lines) {

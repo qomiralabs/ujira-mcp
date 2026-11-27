@@ -20,6 +20,7 @@ import {
   type FeeBudget,
   type Hex32,
   type SigningRequest,
+  type SubmitResult,
 } from '../chain/adapter.js';
 import { feeSponsorships, type Database, type ProjectContext } from '../db/index.js';
 import { EngineError } from '../errors.js';
@@ -139,7 +140,7 @@ export class SponsoredSubmitter {
     signedXdr: string,
     expected: SigningRequest,
     o: CallOptions,
-  ): Promise<{ txHash: string }> {
+  ): Promise<SubmitResult> {
     const at = this.now();
     const day = utcDay(at);
     const { ledger, settings, log } = this.o;

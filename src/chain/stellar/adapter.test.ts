@@ -9,6 +9,7 @@ import {
   Keypair,
   SorobanDataBuilder,
   TransactionBuilder,
+  xdr,
   type Transaction,
 } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
@@ -343,6 +344,49 @@ describe('signing requests', () => {
     expect(chain.submitted).toHaveLength(1);
     expect(chain.submitted[0]?.toXdr()).toBe(envelope);
     expect(txHash).toBe(hex(parse(req)));
+  });
+
+  it('names the contract a submitted create deployed, and only for a create', async () => {
+    const { adapter, chain, budget } = world();
+    const create = await adapter.prepareMandateAction(
+      null,
+      {
+        kind: 'create',
+        principal: principal.publicKey,
+        agent: agent.publicKey,
+        executor: executor.publicKey,
+        approvers: [principal.publicKey],
+        approvalsRequired: 1,
+        limits: {
+          totalBudget: 100n * UNIT,
+          perPaymentCap: 10n * UNIT,
+          perRecipientDailyCap: 20n * UNIT,
+          approvalThreshold: 5n * UNIT,
+          payoutTtlSeconds: 86_400n,
+          expiresAt: 1_900_000_000n,
+        },
+        recipients: [],
+      },
+      o(),
+    );
+    chain.answers.push({ returnValue: address(MANDATE) });
+    expect(await adapter.submitSigned(signed(create), create, o(), budget)).toMatchObject({
+      contract: MANDATE,
+    });
+    // A create whose answer carries no address says so rather than guessing one.
+    chain.answers.push({});
+    expect(await adapter.submitSigned(signed(create), create, o(), budget)).not.toHaveProperty(
+      'contract',
+    );
+    chain.answers.push({ returnValue: xdr.ScVal.scvU32(7) });
+    expect(await adapter.submitSigned(signed(create), create, o(), budget)).not.toHaveProperty(
+      'contract',
+    );
+    const pause = await adapter.prepareMandateAction(MANDATE, { kind: 'pause' }, o());
+    chain.answers.push({ returnValue: address(MANDATE) });
+    expect(await adapter.submitSigned(signed(pause), pause, o(), budget)).not.toHaveProperty(
+      'contract',
+    );
   });
 
   it('sends a principal signed envelope inside a fee bump the sponsor pays, charged to the budget', async () => {

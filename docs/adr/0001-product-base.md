@@ -370,6 +370,15 @@ Errors share one envelope: `{ "error": { "code": "...", "message": "...", "reque
 | `API_KEY_LIMIT_REACHED`                               | 409      | the project already holds 20 active keys                      |
 | `RECIPIENT_LABEL_TAKEN`                               | 409      | a recipient on the mandate has that label, any case           |
 | `MANDATE_REFUSED`                                     | 409      | the mandate refuses the change; `details` names why           |
+| `MANDATE_PRINCIPAL_MISMATCH`                          | 403      | import: the chain names another wallet as principal           |
+| `AGENT_KEY_MISSING`                                   | 409      | the project has no agent key on this network yet              |
+| `MANDATE_TAKEN`                                       | 409      | the contract is attached to another project                   |
+| `SIGNING_REQUEST_USED`                                | 409      | the chain already took a transaction for it                   |
+| `SIGNING_REQUEST_EXPIRED`                             | 410      | the signing window closed; prepare it again                   |
+| `MANDATE_AGENT_MISMATCH`                              | 422      | import: not this project's agent and UJIRA executor           |
+| `RECIPIENT_MODE_UNSUPPORTED`                          | 422      | attested only recipients, refused at prepare                  |
+| `SIGNING_REQUEST_MISMATCH`, `SIGNATURE_INVALID`       | 422      | the signed envelope is not the one prepared                   |
+| `CONTRACT_REFUSED`, `TX_FAILED`                       | 422      | the chain refused it; `details` names the spec error          |
 | `RATE_LIMITED`                                        | 429      | with `Retry-After`                                            |
 | `CHAIN_UNAVAILABLE`, `DB_UNAVAILABLE`                 | 503      |                                                               |
 | `INTERNAL`                                            | 500      |                                                               |

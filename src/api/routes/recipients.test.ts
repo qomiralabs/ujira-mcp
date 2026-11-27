@@ -69,6 +69,8 @@ function signing(): StoredSigningRequest {
     envelope: 'AAAAAgAAAAB=',
     summary: 'Allow a wallet to be paid',
     expiresAt: new Date('2026-11-27T09:10:00.000Z'),
+    mandateName: null,
+    agentKeyId: null,
     submittedTxHash: null,
     submittedAt: null,
     createdAt: CREATED,

@@ -292,6 +292,8 @@ export interface SigningRequestsTable {
   readonly envelope: string;
   readonly summary: string;
   readonly expires_at: Timestamp;
+  readonly mandate_name: string | null;
+  readonly agent_key_id: string | null;
   readonly submitted_tx_hash: Buffer | null;
   readonly submitted_at: NullableTimestamp;
   readonly created_at: Generated<Date>;
@@ -634,6 +636,8 @@ export const SCHEMA_COLUMNS = {
     envelope: true,
     summary: true,
     expires_at: true,
+    mandate_name: true,
+    agent_key_id: true,
     submitted_tx_hash: true,
     submitted_at: true,
     created_at: true,

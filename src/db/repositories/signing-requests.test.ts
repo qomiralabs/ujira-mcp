@@ -10,6 +10,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'v
 
 import type { Database, ProjectContext } from '../database.js';
 import {
+  nonce,
+  sealed,
   testAccount,
   testAccounts,
   TestAddressError,
@@ -19,6 +21,7 @@ import {
 import { insertTenant } from '../testing/admin-tenants.js';
 import { databaseAsServiceRoles } from '../testing/databases.js';
 import { createTestDatabase, type TestDatabase } from '../testing/harness.js';
+import { agentKeys } from './agent-keys.js';
 import { mandates } from './mandates.js';
 import { signingRequests, type NewSigningRequest, type SigningAction } from './signing-requests.js';
 import { RepositoryInputError } from './values.js';
@@ -106,6 +109,8 @@ describe('signing requests', () => {
       envelope: 'AAAAAgAAAAB=',
       summary: 'Allow a recipient to be paid',
       expiresAt: new Date('2030-01-01T00:10:00.000Z'),
+      mandateName: null,
+      agentKeyId: null,
       submittedTxHash: null,
       submittedAt: null,
       createdAt: expect.any(Date) as Date,
@@ -147,6 +152,40 @@ describe('signing requests', () => {
     expect((await create(request({ action: 'create', mandateId: null }))).mandateId).toBeNull();
     expect(await codeOf(create(request({ action: 'create' })))).toBe('23514');
     expect(await codeOf(create(request({ action: 'pause', mandateId: null })))).toBe('23514');
+  });
+
+  it('keeps what a create needs for its mandate row, and only on a create', async () => {
+    const key = await db.tenant(tenant).transaction(async (tx) =>
+      agentKeys.create(
+        tx,
+        {
+          network: 'stellar:testnet',
+          publicKey: testAccount(),
+          secretCiphertext: sealed(1),
+          secretNonce: nonce(2),
+        },
+        testAccounts,
+      ),
+    );
+    const made = await create(
+      request({
+        action: 'create',
+        mandateId: null,
+        mandateName: 'Payroll',
+        agentKeyId: key.id,
+      }),
+    );
+    expect(made).toMatchObject({
+      mandateName: 'Payroll',
+      agentKeyId: key.id,
+    });
+    expect(await codeOf(create(request({ mandateName: 'Payroll' })))).toBe('23514');
+    expect(await codeOf(create(request({ agentKeyId: key.id })))).toBe('23514');
+    expect(
+      await codeOf(
+        create(request({ action: 'create', mandateId: null, agentKeyId: randomUUID() })),
+      ),
+    ).toBe('23503');
   });
 
   it('refuses what no row may hold', async () => {

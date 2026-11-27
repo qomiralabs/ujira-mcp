@@ -31,6 +31,7 @@ import type { AgentKeyService } from '../keys/agent-keys.js';
 import { requireSealer, sealerFromEnv } from '../keys/settings.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
+import { loadFeeSponsorSettings } from '../payouts/fee-sponsorship.js';
 import { observabilityFromEnv } from './observability.js';
 import type { RoleHandle } from './run.js';
 import { v1Routes } from './v1-routes.js';
@@ -52,6 +53,7 @@ function signInWiring(
   env: Env,
   adapter: ChainAdapter & WalletProofVerifier,
   network: 'testnet' | 'pubnet',
+  executor: string,
   log: (line: string) => void,
   agentAccounts: AgentAccounts,
 ): SignInWiring | undefined {
@@ -75,6 +77,8 @@ function signInWiring(
     adapter,
     origin: settings.origin,
     network,
+    executor,
+    feeSponsor: loadFeeSponsorSettings(env),
     log,
     sealer,
     agentAccounts,
@@ -194,6 +198,7 @@ export async function startWeb(
     env,
     wiring.adapter,
     settings.network,
+    settings.executor.publicKey,
     log,
     wiring.agentAccounts,
   );

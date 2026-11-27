@@ -547,3 +547,14 @@ Revisit when:
 - payout throughput needs more than one executor transaction per ledger: bring channel accounts forward;
 - a partner rail arrives: extend 7.2 and the receipts, additively;
 - the owner does not approve the licence change for ported code: keep the ported modules in a private repository and consume them as a package.
+
+## 17. Amendment, 2026-11-27: the database host is Render Postgres
+
+The engineer chose Render Postgres for the product database in place of Supabase, and the CEO approved the spend. One `basic_256mb` instance in Render's Virginia region, the same metro as the Railway service, with Render's PgBouncer in transaction mode on port 6432. What changes:
+
+- The app connects through PgBouncer on 6432; the worker and the migrator connect directly on 5432. Section 7.7's "transaction pooler" and "session pooler" read as PgBouncer and the direct connection.
+- TLS is pinned to the Let's Encrypt roots Render's certificates chain to, instead of the Supabase CA.
+- Render keeps 3 to 7 days of point in time recovery. The 30 days in 8.5 come from the off site backup job.
+- The revisit signal in section 16 now reads "the Railway to Render spike".
+
+The measurements and the open items are in `docs/spikes/render-postgres.md`.

@@ -29,9 +29,9 @@ export {
   type TlsMode,
 } from './config.js';
 export { ConnectionUrl } from './connection-url.js';
-// Exported so a deployment can check which certificate it is pinning
+// Exported so a deployment can check which roots it is pinning
 // without importing the driver.
-export { PINNED_TLS, SUPABASE_ROOT_2021_CA_FINGERPRINT } from './tls.js';
+export { PINNED_ROOT_FINGERPRINTS, PINNED_TLS } from './tls.js';
 export {
   MIGRATIONS_TABLE,
   runMigrations,

@@ -72,6 +72,21 @@ export const DOWN_MARKER = '-- Down Migration';
 
 export type MigrationLogin = 'bootstrap' | 'migrator';
 
+// How a run protects its connection. The command line passes the pinned trust from tls.ts
+// for any real host; left out, the connection has no TLS, which only a local container or a
+// test database accepts. Declared here rather than imported, so this file still imports
+// nothing from the rest of src/db; PINNED_TLS has this shape.
+export interface MigrationTls {
+  readonly ca: string;
+  readonly rejectUnauthorized: true;
+  readonly minVersion: 'TLSv1.2';
+}
+
+// What pg is given for one login. A copy of the trust, because pg may write to the object.
+function clientConfig(url: string, tls: MigrationTls | undefined): pg.ClientConfig {
+  return tls === undefined ? { connectionString: url } : { connectionString: url, ssl: { ...tls } };
+}
+
 // What only the bootstrap login can do. Comments are taken out first, and do blocks are
 // read too, because most role work is inside one.
 export const BOOTSTRAP_STATEMENT =
@@ -212,8 +227,12 @@ interface LoginRights {
   readonly createRole: boolean;
 }
 
-async function withConnection<T>(url: string, work: (client: pg.Client) => Promise<T>): Promise<T> {
-  const client = new pg.Client({ connectionString: url });
+async function withConnection<T>(
+  url: string,
+  tls: MigrationTls | undefined,
+  work: (client: pg.Client) => Promise<T>,
+): Promise<T> {
+  const client = new pg.Client(clientConfig(url, tls));
   await client.connect();
   try {
     return await work(client);
@@ -222,8 +241,8 @@ async function withConnection<T>(url: string, work: (client: pg.Client) => Promi
   }
 }
 
-async function rightsOf(url: string): Promise<LoginRights> {
-  return withConnection(url, async (client) => {
+async function rightsOf(url: string, tls: MigrationTls | undefined): Promise<LoginRights> {
+  return withConnection(url, tls, async (client) => {
     const { rows } = await client.query<{ rolsuper: boolean; rolcreaterole: boolean }>(
       'select rolsuper, rolcreaterole from pg_catalog.pg_roles where rolname = current_user',
     );
@@ -241,8 +260,9 @@ async function rightsOf(url: string): Promise<LoginRights> {
 async function settleLogin(
   url: string,
   named: MigrationLogin | undefined,
+  tls: MigrationTls | undefined,
 ): Promise<MigrationLogin | undefined> {
-  const rights = await rightsOf(url);
+  const rights = await rightsOf(url, tls);
   if (named === undefined && rights.superuser) return undefined;
   const administers = rights.superuser || rights.createRole;
   const login = named ?? 'migrator';
@@ -300,6 +320,8 @@ export interface MigrateOptions {
   // Which login this URL is. A file that needs the other one is refused. Left out, a
   // superuser may run anything, and any other login is taken for the migrator.
   readonly login?: MigrationLogin;
+  // Left out, the connection has no TLS. See MigrationTls.
+  readonly tls?: MigrationTls;
   readonly log?: (message: string) => void;
   // Another folder of migrations, for tests that need a fixture. Everything
   // real runs from MIGRATIONS_DIR.
@@ -318,9 +340,9 @@ export async function runMigrations(options: MigrateOptions): Promise<MigrationR
   // `down` with no count would undo every migration, which is never what a
   // command meant to step back one wants. `up` with no count runs them all.
   const count = options.count ?? (options.direction === 'down' ? 1 : undefined);
-  const login = await settleLogin(options.databaseUrl, options.login);
+  const login = await settleLogin(options.databaseUrl, options.login, options.tls);
   const runnerOptions: RunnerOption = {
-    databaseUrl: options.databaseUrl,
+    databaseUrl: clientConfig(options.databaseUrl, options.tls),
     dir: options.dir ?? MIGRATIONS_DIR,
     migrationsTable: MIGRATIONS_TABLE,
     direction: options.direction,
@@ -370,6 +392,8 @@ export interface TwoLoginMigrateOptions {
   readonly direction: MigrationDirection;
   readonly count?: number;
   readonly lockMode?: LockMode;
+  // One trust for both logins: they reach the same server.
+  readonly tls?: MigrationTls;
   readonly log?: (message: string) => void;
   readonly dir?: string;
 }
@@ -410,14 +434,15 @@ async function letMigratorRecord(client: pg.Client): Promise<void> {
  */
 export async function runMigrationsByFile(options: TwoLoginMigrateOptions): Promise<MigrationRun> {
   const dir = options.dir ?? MIGRATIONS_DIR;
-  await settleLogin(options.bootstrapUrl, 'bootstrap');
+  await settleLogin(options.bootstrapUrl, 'bootstrap', options.tls);
   const shared = {
     direction: options.direction,
     dir,
     ...(options.log === undefined ? {} : { log: options.log }),
     ...(options.lockMode === undefined ? {} : { lockMode: options.lockMode }),
+    ...(options.tls === undefined ? {} : { tls: options.tls }),
   };
-  return withConnection(options.bootstrapUrl, async (client) => {
+  return withConnection(options.bootstrapUrl, options.tls, async (client) => {
     const take = async (): Promise<void> => {
       const lock = await client.query<{ got: boolean }>('select pg_try_advisory_lock($1) as got', [
         RUN_LOCK_KEY,

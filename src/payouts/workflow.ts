@@ -225,17 +225,17 @@ export class PayoutWorkflow {
     );
   }
 
-  /** Applies a change, and logs each status move it made. */
+  /** Applies a change that moves the payout, and logs each move it made. */
   private async move(
     job: PayoutJobContext,
     task: PayoutJobTask,
     store: PayoutStore,
-    change: PayoutChange,
+    change: PayoutChange & { readonly path: readonly PayoutTransition[] },
     detail: { readonly tx?: string; readonly reason?: string } = {},
   ): Promise<boolean> {
     const moved = await store.apply(job.payoutId, change);
     if (!moved) return false;
-    for (const step of change.path ?? []) {
+    for (const step of change.path) {
       this.o.log(
         logLine('payout_moved', {
           principalId: job.principalId,
@@ -251,6 +251,18 @@ export class PayoutWorkflow {
       );
     }
     return true;
+  }
+
+  /** As move, answering `outcome`, or stale when another run moved the payout first. */
+  private async step(
+    outcome: StepOutcome,
+    job: PayoutJobContext,
+    task: PayoutJobTask,
+    store: PayoutStore,
+    change: PayoutChange & { readonly path: readonly PayoutTransition[] },
+    detail: { readonly tx?: string; readonly reason?: string } = {},
+  ): Promise<StepOutcome> {
+    return (await this.move(job, task, store, change, detail)) ? outcome : 'stale';
   }
 
   /** A finished payout whose receipt job was lost gets it queued again. */
@@ -363,19 +375,19 @@ export class PayoutWorkflow {
           });
           return 'waiting';
         }
-        const change: PayoutChange = {
+        const change = {
           path: [{ from, to: 'pending_approval', ...recorded }],
           enqueue: [{ task, afterSeconds: APPROVAL_RECHECK_MIN_SECONDS }],
-        };
-        return (await this.move(job, task, store, change, detail)) ? 'waiting' : 'stale';
+        } as const;
+        return this.step('waiting', job, task, store, change, detail);
       }
       case 'approved':
       case 'executed': {
-        const change: PayoutChange = {
+        const change = {
           path: [{ from, to: 'approved', ...recorded }],
           enqueue: [{ task: 'payout.execute' }],
-        };
-        return (await this.move(job, task, store, change, detail)) ? 'approved' : 'stale';
+        } as const;
+        return this.step('approved', job, task, store, change, detail);
       }
       case 'rejected':
       case 'cancelled': {
@@ -387,12 +399,12 @@ export class PayoutWorkflow {
                 { from: 'pending_approval', to },
               ]
             : [{ from, to }];
-        const change: PayoutChange = {
+        const change = {
           path,
           legs: legsTo(s.legs, 'planned', 'cancelled'),
           enqueue: [{ task: 'receipt.issue' }],
-        };
-        return (await this.move(job, task, store, change, detail)) ? to : 'stale';
+        } as const;
+        return this.step(to, job, task, store, change, detail);
       }
       case 'absent':
         // A payout the chain once held is gone. Reconcile compares it with
@@ -417,12 +429,12 @@ export class PayoutWorkflow {
     s: PayoutSnapshot,
     specError: string,
   ): Promise<StepOutcome> {
-    const change: PayoutChange = {
+    const change = {
       path: [{ from: 'submitting', to: 'blocked', blockedBy: specError }],
       legs: legsTo(s.legs, 'planned', 'cancelled'),
       enqueue: [{ task: 'receipt.issue' }],
-    };
-    return (await this.move(job, 'payout.advance', store, change)) ? 'blocked' : 'stale';
+    } as const;
+    return this.step('blocked', job, 'payout.advance', store, change);
   }
 
   private async needsAttention(
@@ -433,8 +445,8 @@ export class PayoutWorkflow {
     reason: string,
     legs: readonly LegChange[] = [],
   ): Promise<StepOutcome> {
-    const change: PayoutChange = { path: [{ from, to: 'needs_attention' }], legs };
-    return (await this.move(job, task, store, change, { reason })) ? 'needs_attention' : 'stale';
+    const change = { path: [{ from, to: 'needs_attention' }], legs } as const;
+    return this.step('needs_attention', job, task, store, change, { reason });
   }
 
   /** payout.execute: settle an approved payout through the wallet rail and record it. */
@@ -467,7 +479,8 @@ export class PayoutWorkflow {
     const task = 'payout.execute';
     const onChain = await this.state(job, s);
     const hash = sentHash(s.legs);
-    const sentAt = s.legs[0]?.updatedAt.getTime() ?? 0;
+    // When the legs were last written, which for sent legs is when they were sent.
+    const sentAt = Math.max(...s.legs.map((leg) => leg.updatedAt.getTime()));
     const mayStillLand = (): boolean =>
       this.now().getTime() < sentAt + (this.o.sendWindowMs ?? DEFAULT_SEND_WINDOW_MS);
     if (onChain.kind === 'executed') {
@@ -560,16 +573,14 @@ export class PayoutWorkflow {
     s: PayoutSnapshot,
     txHash: string,
   ): Promise<StepOutcome> {
-    const change: PayoutChange = {
+    const change = {
       path: [{ from: 'settling', to: 'paid' }],
       legs: [
         ...legsTo(s.legs, 'submitted', 'settled', txHash),
         ...legsTo(s.legs, 'planned', 'settled', txHash),
       ],
       enqueue: [{ task: 'receipt.issue' }],
-    };
-    return (await this.move(job, 'payout.execute', store, change, { tx: txHash }))
-      ? 'paid'
-      : 'stale';
+    } as const;
+    return this.step('paid', job, 'payout.execute', store, change, { tx: txHash });
   }
 }

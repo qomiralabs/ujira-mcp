@@ -31,7 +31,6 @@ import type {
   StorableCheck,
 } from '../db/index.js';
 import { PayoutConflictError } from '../db/index.js';
-import { EngineError } from '../errors.js';
 import { payoutIdFor } from '../ids.js';
 import type { TokenAmount } from '../money/index.js';
 import {
@@ -52,22 +51,6 @@ const TESTNET = 'stellar:testnet';
 const CHAIN_NOW = new Date(1_800_000_000_000);
 const CONTEXT: ProjectContext = { principalId: randomUUID(), projectId: randomUUID() };
 const CREATED = new Date('2026-11-27T09:00:00.000Z');
-
-class SwitchableRpc extends FakeMandateRpc {
-  down = false;
-
-  override read(...args: Parameters<FakeMandateRpc['read']>): ReturnType<FakeMandateRpc['read']> {
-    if (this.down) return Promise.reject(new EngineError('rpc_unavailable', 'down'));
-    return super.read(...args);
-  }
-
-  override simulate(
-    ...args: Parameters<FakeMandateRpc['simulate']>
-  ): ReturnType<FakeMandateRpc['simulate']> {
-    if (this.down) return Promise.reject(new EngineError('rpc_unavailable', 'down'));
-    return super.simulate(...args);
-  }
-}
 
 class MemoryStore implements PayoutStore {
   mandate: Mandate | undefined;
@@ -160,7 +143,7 @@ class MemoryStore implements PayoutStore {
   }
 }
 
-let rpc: SwitchableRpc;
+let rpc: FakeMandateRpc;
 let network: FakeNetwork;
 let store: MemoryStore;
 let logged: string[];
@@ -200,7 +183,7 @@ function createInput(over: Partial<CreatePayoutInput> = {}): CreatePayoutInput {
 }
 
 beforeEach(() => {
-  rpc = new SwitchableRpc();
+  rpc = new FakeMandateRpc();
   rpc.allowRecipient(recipientRef, destination);
   network = new FakeNetwork();
   network.facts.set(destination, { exists: true, trustlines: [USDC], memoRequired: false });

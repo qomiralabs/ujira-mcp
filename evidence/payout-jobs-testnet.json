@@ -1,0 +1,132 @@
+{
+  "network": "stellar:testnet",
+  "mandate": "CDSC24G27A6RZLOH4PG3ETFYS4HHJ2KI3YV7CTIQ3V5POIZJOYZET2NA",
+  "transactions": {
+    "create": "fc7f244b532ecad714d4dbe6738d1cb13bd87ca8fcdb2c7b484b9b53525d2bad",
+    "fund": "a06fb3a989a14a003f2ede1194a166ec5517f4e9caedf7ac99f28793ddcebd10",
+    "allow": "a908d0aee1becdeed97f5ce5e21fa1048c36921a16d7a0ebf8552b6cca0ed385"
+  },
+  "payouts": [
+    {
+      "amount": "3000000",
+      "outcomes": [
+        "approved",
+        "paid"
+      ],
+      "history": [
+        "queued",
+        "submitting",
+        "approved",
+        "settling",
+        "paid"
+      ],
+      "status": "paid",
+      "blockedBy": null,
+      "onchainPayoutId": "5daa1e0cbf529869c57667e6aa4874f572976e71fefe54978eb141a1f19cb63f",
+      "requestTx": "4d85396df005a8ca3762667491aaab53b9589e3d15ea28f8f6a495a181d90ad7",
+      "approveTx": null,
+      "executeTx": "5e96d51725bfa86f41d25c90ac3994761f837392070fa5d4ada3b70d6b438a86"
+    },
+    {
+      "amount": "4000000",
+      "outcomes": [
+        "approved",
+        "paid"
+      ],
+      "history": [
+        "queued",
+        "submitting",
+        "approved",
+        "settling",
+        "paid"
+      ],
+      "status": "paid",
+      "blockedBy": null,
+      "onchainPayoutId": "d2aad7b139fc8d3b42e420180b9046d528eeac3d2adf132a052e8b5e39dfbfcb",
+      "requestTx": "e57c3f3de32f01fc259cfc12ffa8d6cd8f60a31e8739294fc6e6f98bd822d92b",
+      "approveTx": null,
+      "executeTx": "85fa5ef220782785dcb9d5b22e742c73fa0e89463edb81e86b907e651d8be73d"
+    },
+    {
+      "amount": "5000000",
+      "outcomes": [
+        "approved",
+        "paid"
+      ],
+      "history": [
+        "queued",
+        "submitting",
+        "approved",
+        "settling",
+        "paid"
+      ],
+      "status": "paid",
+      "blockedBy": null,
+      "onchainPayoutId": "48ff5f83cd5663e3eeb83447a7c8ecbe3b297e60e355f783d59b74adbe4ffbb3",
+      "requestTx": "dd88d7be2767396bb73b93197072b6731658c2cf14bc4b33d764dc7c57c26f78",
+      "approveTx": null,
+      "executeTx": "10f907fa10a5ab88f59031f0fcadeb1d8f92c68defed82d51aa33fe2c3bd07f4"
+    },
+    {
+      "amount": "6000000",
+      "outcomes": [
+        "approved",
+        "paid"
+      ],
+      "history": [
+        "queued",
+        "submitting",
+        "approved",
+        "settling",
+        "paid"
+      ],
+      "status": "paid",
+      "blockedBy": null,
+      "onchainPayoutId": "a57603eebcb24dee2bd5c951e70d12da224d97309f93ebdcf7e21452ac977761",
+      "requestTx": "362156ac0f475a4a49cb2c1c4aefd0fcda53348fd8bfdafe6056efce8ffa5611",
+      "approveTx": null,
+      "executeTx": "f2b90c81b1888d690347e688ee556ba10a30685be98409dce5d7b45b0671c6f5"
+    },
+    {
+      "amount": "12000000",
+      "outcomes": [
+        "waiting",
+        "approved",
+        "paid"
+      ],
+      "history": [
+        "queued",
+        "submitting",
+        "pending_approval",
+        "approved",
+        "settling",
+        "paid"
+      ],
+      "status": "paid",
+      "blockedBy": null,
+      "onchainPayoutId": "d0f135f6180b9eb00c436bd45c5aa66aae89089d4a442fd048a182371623d9a2",
+      "requestTx": "ece8d9ee1bb33d585e1a09ec67cb42c7607a46f5b01c9b014f88f65431c85c31",
+      "approveTx": "f77c8bd039ac7cfa7e7861aa45f96eedf1eb0588dde8e194920e660c7d85058f",
+      "executeTx": "1f2f93ccf43b633f5366511e2b0f0ab211bc993e9d8980c5473a5fcdfc1db532"
+    }
+  ],
+  "refused": {
+    "amount": "30000000",
+    "outcomes": [
+      "blocked"
+    ],
+    "history": [
+      "queued",
+      "submitting",
+      "blocked"
+    ],
+    "status": "blocked",
+    "blockedBy": "PAYMENT_CAP_EXCEEDED",
+    "onchainPayoutId": "83eefd905e3ca10fe9ac9ac910de9cb67803b67c684e964cd5f6d674c692e2b2",
+    "requestTx": null,
+    "approveTx": null,
+    "executeTx": null
+  },
+  "writtenAt": "2026-11-27T21:10:05.972Z",
+  "note": "Payouts in USDC minor units at scale 7. Written by test/payout-jobs.testnet.test.ts."
+}

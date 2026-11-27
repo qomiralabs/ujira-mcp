@@ -11,7 +11,12 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import { ChainError } from '../src/chain/adapter.js';
+import {
+  ChainError,
+  type CallOptions,
+  type ChainAdapter,
+  type TxSigner,
+} from '../src/chain/adapter.js';
 import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
 import { address, bytes32 } from '../src/chain/stellar/codec.js';
 import {
@@ -60,6 +65,11 @@ interface WorldOptions {
   readonly allowed?: boolean;
   readonly agentKeyId?: string | null;
   readonly projectKeys?: ProjectKeySigner;
+  /** Stands in for some adapter calls; the rest reach the real adapter. */
+  readonly chain?: (
+    real: StellarChainAdapter,
+    store: () => MemoryPayoutStore,
+  ) => Partial<ChainAdapter>;
 }
 
 function world(o: WorldOptions) {
@@ -89,8 +99,15 @@ function world(o: WorldOptions) {
   );
   const lines: string[] = [];
   const projectKeys = o.projectKeys ?? { signer: () => Promise.resolve(agent) };
+  const wrapped: ChainAdapter =
+    o.chain === undefined
+      ? chain
+      : Object.assign(
+          Object.create(chain) as ChainAdapter,
+          o.chain(chain, () => store),
+        );
   const workflow = new PayoutWorkflow({
-    chain,
+    chain: wrapped,
     signers: payoutSigners({ executor, projectKeys }),
     log: (line) => lines.push(line),
     now,
@@ -554,5 +571,217 @@ describe('timing', () => {
     for (const status of ['pending_approval', 'paid', 'blocked', 'needs_attention'] as const) {
       expect(deadLetterPath(status)).toEqual([]);
     }
+  });
+});
+
+describe('every other path', () => {
+  const refused = (specError?: string) =>
+    new ChainError('CONTRACT_REFUSED', 'refused', specError === undefined ? {} : { specError });
+
+  it('names CONTRACT_REFUSED when a refusal carries no spec error name', async () => {
+    const w = world({
+      amount: 5n * UNIT,
+      chain: () => ({ requestPayout: () => Promise.reject(refused()) }),
+    });
+    expect(await w.advance()).toBe('blocked');
+    expect(w.store.payout.blockedBy).toBe('CONTRACT_REFUSED');
+  });
+
+  it('retries a request that failed on chain, since nothing landed', async () => {
+    const w = world({ amount: 5n * UNIT });
+    w.rpc.failOnChainOf = 'request_payout';
+    await expect(w.advance()).rejects.toMatchObject({ code: 'TX_FAILED' });
+    expect(w.store.payout.status).toBe('submitting');
+    expect(await w.advance()).toBe('approved');
+  });
+
+  it('reads the chain when the adapter does not say what the request left', async () => {
+    const w = world({
+      amount: 5n * UNIT,
+      chain: (real) => ({
+        requestPayout: async (...args: Parameters<ChainAdapter['requestPayout']>) => ({
+          txHash: (await real.requestPayout(...args)).txHash,
+        }),
+      }),
+    });
+    expect(await w.advance()).toBe('approved');
+    expect(w.store.payout.requestTxHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('retries when the chain does not show a request that answered', async () => {
+    const w = world({
+      amount: 5n * UNIT,
+      chain: () => ({ requestPayout: () => Promise.resolve({ txHash: 'ef'.repeat(32) }) }),
+    });
+    await expect(w.advance()).rejects.toMatchObject({ code: 'CHAIN_LAGGING' });
+    expect(w.store.payout.status).toBe('submitting');
+  });
+
+  it('records the hash of a request whose answer was lost, once the network confirms it', async () => {
+    const w = world({
+      amount: 25n * UNIT,
+      chain: (real) => ({
+        requestPayout: async (...args: Parameters<ChainAdapter['requestPayout']>) => {
+          const { txHash } = await real.requestPayout(...args);
+          throw new ChainError('TIMEOUT', 'lost', { txHash });
+        },
+      }),
+    });
+    expect(await w.advance()).toBe('waiting');
+    expect(w.store.payout.requestTxHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('leaves the request hash unset after a lost answer that is not a chain error', async () => {
+    const w = world({
+      amount: 25n * UNIT,
+      chain: (real) => ({
+        requestPayout: async (...args: Parameters<ChainAdapter['requestPayout']>) => {
+          await real.requestPayout(...args);
+          throw new Error('socket closed');
+        },
+      }),
+    });
+    expect(await w.advance()).toBe('waiting');
+    expect(w.store.payout.requestTxHash).toBeNull();
+  });
+
+  it('moves a submitting payout the approver already rejected through pending_approval', async () => {
+    const w = world({ amount: 25n * UNIT });
+    w.store.killWhen = (change) => change.path?.[0]?.to === 'pending_approval';
+    await expect(w.advance()).rejects.toBeInstanceOf(KilledError);
+    w.store.killWhen = undefined;
+    await w.sign('reject');
+    expect(await w.advance()).toBe('rejected');
+    expect(w.store.history).toEqual(['queued', 'submitting', 'pending_approval', 'rejected']);
+  });
+
+  it('answers not_ready for a reserved status', async () => {
+    const w = world({ amount: 5n * UNIT });
+    w.store.payout = { ...w.store.payout, status: 'partly_paid' };
+    expect(await w.advance()).toBe('not_ready');
+  });
+
+  it('runs on the wall clock when no clock is given', async () => {
+    const w = world({ amount: 5n * UNIT });
+    const plain = new PayoutWorkflow({
+      chain: w.chain,
+      signers: payoutSigners({ executor, projectKeys: { signer: () => Promise.resolve(agent) } }),
+      log: () => undefined,
+    });
+    expect(await plain.advance({ ...w.job, payoutId: 'none' }, w.store)).toBe('missing');
+  });
+
+  it('answers stale wherever another run moved the payout first', async () => {
+    const stale = (when: (change: Parameters<MemoryPayoutStore['apply']>[1]) => boolean) => {
+      const w = world({ amount: 5n * UNIT });
+      const original = w.store.apply.bind(w.store);
+      w.store.apply = (id, change) =>
+        when(change) ? Promise.resolve(false) : original(id, change);
+      return w;
+    };
+    const toApproved = stale((change) => change.path?.[0]?.to === 'approved');
+    expect(await toApproved.advance()).toBe('stale');
+
+    const toSettling = stale((change) => change.path?.[0]?.to === 'settling');
+    await toSettling.advance();
+    expect(await toSettling.execute()).toBe('stale');
+
+    const sendRecord = stale((change) => change.legs?.[0]?.change.to === 'submitted');
+    await sendRecord.advance();
+    await expect(sendRecord.execute()).rejects.toMatchObject({ reason: 'before_send_failed' });
+    expect(sendRecord.rpc.paid).toEqual([]);
+
+    const reset = stale((change) => change.legs?.[0]?.change.to === 'planned');
+    await reset.advance();
+    reset.rpc.failOnChainOf = 'execute';
+    await expect(reset.execute()).rejects.toMatchObject({ code: 'TX_FAILED' });
+    expect(await reset.execute()).toBe('stale');
+  });
+
+  it('settles a refused execute from the chain when an earlier send paid it', async () => {
+    const w = world({
+      amount: 5n * UNIT,
+      chain: (real) => ({
+        executePayout: async (...args: Parameters<ChainAdapter['executePayout']>) => {
+          await real.executePayout(...args);
+          throw refused('PAYOUT_WRONG_STATUS');
+        },
+      }),
+    });
+    await w.advance();
+    expect(await w.execute()).toBe('paid');
+    expectPaidOnce(w);
+  });
+
+  it('answers stale when a refused execute finds the payout moved on', async () => {
+    const w = world({
+      amount: 5n * UNIT,
+      chain: (_real, store) => ({
+        executePayout: () => {
+          store().payout = { ...store().payout, status: 'needs_attention' };
+          return Promise.reject(refused('PAYOUT_WRONG_STATUS'));
+        },
+      }),
+    });
+    await w.advance();
+    expect(await w.execute()).toBe('stale');
+  });
+
+  it('settles legs it could not record before the send, for an adapter without the hook', async () => {
+    const w = world({
+      amount: 5n * UNIT,
+      chain: (real) => ({
+        executePayout: (contract: string, id: string, signer: TxSigner, o: CallOptions) =>
+          real.executePayout(contract, id, signer, o),
+      }),
+    });
+    await w.advance();
+    expect(await w.execute()).toBe('paid');
+    expect(w.store.writes.at(-1)?.legs?.[0]?.change.from).toBe('planned');
+  });
+
+  it('waits on an executed payout whose recorded send the network has not shown yet', async () => {
+    const w = world({ amount: 5n * UNIT });
+    await w.advance();
+    w.store.payout = { ...w.store.payout, status: 'settling' };
+    w.store.legs = [{ ...first(w.store.legs), status: 'submitted', txHash: '12'.repeat(32) }];
+    w.rpc.payouts.set(w.store.payout.onchainPayoutId, { tombstone: 3 });
+    await expect(w.execute()).rejects.toMatchObject({ code: 'CHAIN_LAGGING' });
+    w.tick(DEFAULT_SEND_WINDOW_MS + 1);
+    expect(await w.execute()).toBe('needs_attention');
+    expect(w.lines.join('\n')).toContain('reason=EXECUTED_UNRECORDED');
+  });
+
+  it('needs a person for an executed payout whose recorded send failed', async () => {
+    const w = world({ amount: 5n * UNIT });
+    await w.advance();
+    const hash = '34'.repeat(32);
+    w.rpc.txs.set(hash, 'FAILED');
+    w.store.payout = { ...w.store.payout, status: 'settling' };
+    w.store.legs = [{ ...first(w.store.legs), status: 'submitted', txHash: hash }];
+    w.rpc.payouts.set(w.store.payout.onchainPayoutId, { tombstone: 3 });
+    expect(await w.execute()).toBe('needs_attention');
+  });
+
+  it('needs a person when the chain says the payout is not approved at execute', async () => {
+    const w = world({ amount: 25n * UNIT });
+    await w.advance();
+    w.store.payout = { ...w.store.payout, status: 'approved' };
+    expect(await w.execute()).toBe('needs_attention');
+    expect(w.lines.join('\n')).toContain('reason=CHAIN_PENDING');
+    expect(w.rpc.paid).toEqual([]);
+  });
+
+  it('sends legs recorded apart again under one hash', async () => {
+    const w = world({ amount: 6n * UNIT, legs: [4n * UNIT, 2n * UNIT] });
+    await w.advance();
+    const [a, b] = w.store.legs;
+    if (a === undefined || b === undefined) throw new Error('two legs expected');
+    w.store.payout = { ...w.store.payout, status: 'settling' };
+    w.store.legs = [{ ...a, status: 'submitted', txHash: '56'.repeat(32) }, b];
+    // Not every leg was recorded under one hash, so nothing is looked up and the planned leg is sent.
+    expect(await w.execute()).toBe('paid');
+    expect(w.store.legs.map((leg) => leg.status)).toEqual(['settled', 'settled']);
+    expect(w.count('invoke:execute')).toBe(1);
   });
 });

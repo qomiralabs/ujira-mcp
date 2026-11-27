@@ -32,6 +32,9 @@ export interface MemoryPayout {
   readonly onchainPayoutId: string;
   readonly legs?: readonly bigint[];
   readonly agentKeyId?: string | null;
+  /** The fake mandate and its agent unless a testnet run names real ones. */
+  readonly contractAddress?: string;
+  readonly agentAddress?: string;
 }
 
 export class KilledError extends Error {
@@ -88,7 +91,7 @@ export class MemoryPayoutStore implements PayoutStore {
       destination: p.destination,
       amount: usdc(amount),
       fee: usdc(0n),
-      legKey: `${String(index)}`.padStart(64, '0'),
+      legKey: String(index).padStart(64, '0'),
       txHash: null,
       status: 'planned',
       createdAt: at,
@@ -99,12 +102,12 @@ export class MemoryPayoutStore implements PayoutStore {
       projectId: PROJECT,
       name: 'Payroll',
       network: 'stellar:testnet',
-      contractAddress: MANDATE,
+      contractAddress: p.contractAddress ?? MANDATE,
       asset: 'USDC',
       scale: 7,
       agentKeyId: p.agentKeyId === undefined ? PROJECT_AGENT_ROW : p.agentKeyId,
-      agentAddress: agent.publicKey,
-      principalWallet: agent.publicKey,
+      agentAddress: p.agentAddress ?? agent.publicKey,
+      principalWallet: p.agentAddress ?? agent.publicKey,
       createdTxHash: null,
       createdAt: at,
     };

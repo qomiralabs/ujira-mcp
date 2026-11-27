@@ -196,6 +196,15 @@ The worker role runs payout jobs on Graphile Worker 0.18.0, in schema `graphile_
 - **Retries and dead letters.** Each job gets 10 attempts with the library's backoff (about 3.6 hours in all). The last failure moves the payout to `needs_attention` and logs `event=payout_dead_letter` with the tenant, the payout, the attempt and an error code, never a message. A job whose payout the tenant does not have ends at once the same way, with `payout_status=not_found`, and moves nothing.
 - **Stop.** On SIGTERM the queue takes no new jobs, lets running ones finish, and after 5 seconds aborts them; an aborted job is released to retry, and the next worker picks it up.
 
+### The payout jobs
+
+With the queue on, the worker runs `payout.advance` and `payout.execute`. It needs `UJIRA_EXECUTOR_SECRET` or `UJIRA_EXECUTOR_KEY_FILE` and `UJIRA_KEY_ENCRYPTION_KEY`, or it refuses to start.
+
+- **Advance** reads the payout on chain first. Absent, it requests it with the project's own agent key, opened from its sealed row only for the signature; the chain refuses any other key. Pending, the payout waits in `pending_approval` and the job looks again later (15 seconds at first, a tenth of the wait after that, at most 5 minutes) without using a retry. Approved, it hands the payout to the executor. A request the contract refuses is `blocked` with the spec error name, such as `PAYMENT_CAP_EXCEEDED`; a rejected or cancelled payout moves there.
+- **Execute** moves the payout to `settling`, records the execute's hash on the legs before sending it, and moves to `paid` with the hash once it lands. A retry looks that hash up first: landed, it records it and sends nothing; failed, or past its time bounds, it sends again; otherwise it waits. The contract executes a payout once at most.
+- **Receipts.** Every move to a finished status queues `receipt.issue` in the same transaction.
+- **Needs attention.** A payout whose mandate names a key this server cannot open, that the chain paid without its record, or whose execute the contract refuses moves to `needs_attention` at once; queuing its job again resumes it from the chain.
+
 ### Deploy on Railway
 
 `.railway/railway.ts` is the service's Railway configuration as code: it builds the `Dockerfile`, checks `/healthz` (60 second timeout) before a deploy goes live, restarts the server on failure up to 10 times, mounts the volume at `/data` and serves `ujira.co` and `www.ujira.co` on port 8080. Variables, which hold the keys and the mandate, are left unmanaged and stay in Railway. It replaced `railway.json`, which Railway stops reading on 2026-12-01. After `npm ci`, preview a change with `railway config plan` and apply it with `railway config apply`; for your own deployment, change the project, volume and domain names in that file first. The server listens on `PORT`, 8080 in the image.

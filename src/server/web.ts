@@ -16,20 +16,11 @@ import type { Server } from 'node:http';
 import { dirname } from 'node:path';
 
 import { createV1App } from '../api/app.js';
-import { createAuthenticate } from '../api/authenticate.js';
 import { nodeHandler } from '../api/node.js';
 import type { Route } from '../api/route.js';
-import { apiKeyRoutes } from '../api/routes/api-keys.js';
-import { authRoutes } from '../api/routes/auth.js';
-import { tenancyRoutes } from '../api/routes/tenancy.js';
-import { createApiKeyService } from '../auth/api-key-service.js';
-import { databaseApiKeyRecords, databaseTokenStore } from '../auth/api-key-store.js';
-import { postgresSignInStore } from '../auth/postgres-store.js';
 import { loadSignInSettings, type SignInSettings } from '../auth/settings.js';
-import { SignIn } from '../auth/sign-in.js';
-import { createTokenAuthenticator } from '../auth/token-auth.js';
-import { tokenEnvironmentFor } from '../auth/token.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
+import type { ChainAdapter } from '../chain/adapter.js';
 import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
 import { createDatabase, DatabaseConfigError, loadDatabaseConfig } from '../db/index.js';
@@ -37,26 +28,26 @@ import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
-import { postgresTenancyStore } from '../tenancy/postgres-store.js';
-import { Tenancy } from '../tenancy/tenancy.js';
 import { observabilityFromEnv } from './observability.js';
 import type { RoleHandle } from './run.js';
+import { v1Routes } from './v1-routes.js';
 
 interface SignInWiring {
   readonly routes: Route[];
+  readonly recipients: 'on' | 'off';
   readonly close: () => Promise<void>;
 }
 
 /**
- * The sign in, principal, project and API key routes and the database
- * behind them, only when UJIRA_SIGN_IN is on. Off, the web role needs no
- * database at all, as before. Keys are managed from a session, so they
- * cannot be served without one.
+ * The /v1 routes that need a database, and the database behind them, only
+ * when UJIRA_SIGN_IN is on. Off, the web role needs no database at all, as
+ * before. Keys and recipients are managed from a session, so they cannot be
+ * served without one.
  */
 function signInWiring(
   settings: SignInSettings,
   env: Env,
-  verifier: WalletProofVerifier,
+  adapter: ChainAdapter & WalletProofVerifier,
   network: 'testnet' | 'pubnet',
   log: (line: string) => void,
 ): SignInWiring | undefined {
@@ -73,32 +64,8 @@ function signInWiring(
     throw error;
   }
   const db = createDatabase(config);
-  const signIn = new SignIn({
-    store: postgresSignInStore(db),
-    verifier,
-    origin: settings.origin,
-    log,
-  });
-  const tenancy = new Tenancy({ store: postgresTenancyStore(db), log });
-  const session = { signIn, origin: settings.origin };
-  const environment = tokenEnvironmentFor(network);
-  const tokens = createTokenAuthenticator({ store: databaseTokenStore(db), environment, log });
-  const keys = createApiKeyService({
-    records: databaseApiKeyRecords(db),
-    environment,
-    onRevoked: (prefix) => {
-      tokens.forget(prefix);
-    },
-  });
-  const authenticate = createAuthenticate({ tokens, session });
-  return {
-    routes: [
-      ...authRoutes(session),
-      ...tenancyRoutes({ signIn, tenancy, origin: settings.origin }),
-      ...apiKeyRoutes({ keys, authenticate }),
-    ],
-    close: () => db.close(),
-  };
+  const v1 = v1Routes({ db, adapter, origin: settings.origin, network, env, log });
+  return { ...v1, close: () => db.close() };
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -221,6 +188,7 @@ export async function startWeb(
   };
   log(demo === undefined ? 'demo off' : demo.summary());
   log(`sign in: ${signIn === undefined ? 'off' : 'on'}`);
+  log(`recipients: ${signIn?.recipients ?? 'off'}`);
   demo?.start();
   log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
   keepAlive?.start();

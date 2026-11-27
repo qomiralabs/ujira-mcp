@@ -51,6 +51,7 @@ const LINE_ICONS = {
   close: 'M5 5l10 10M15 5 5 15',
   power: 'M10 3v6.5M6 5.6a6 6 0 1 0 8 0',
   chevron: 'M6 8l4 4 4-4',
+  download: 'M10 3.5v9M6 8.5l4 4 4-4M4 16.5h12',
 } as const;
 
 export type IconName = keyof typeof LINE_ICONS;

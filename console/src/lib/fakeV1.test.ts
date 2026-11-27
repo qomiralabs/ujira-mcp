@@ -154,6 +154,19 @@ describe('the fake /v1 API', () => {
     });
   });
 
+  it('takes only the key characters the server takes', async () => {
+    const { v1, mandateId, recipientId } = await setup();
+    const body = { mandateId, recipientId, amount: usdc(5n), taskId: 't-2' };
+    for (const key of ['run/1', 'run 1', 'run#1', 'k'.repeat(256)]) {
+      await expect(v1.createPayout(body, key)).rejects.toMatchObject({
+        code: 'IDEMPOTENCY_KEY_INVALID',
+        status: 400,
+      });
+    }
+    const ok = await v1.createPayout(body, `${'k'.repeat(250)}_.:-9`);
+    expect(ok.taskId).toBe('t-2');
+  });
+
   it('refuses an amount in another asset or of zero', async () => {
     const { v1, mandateId, recipientId } = await setup();
     await expect(

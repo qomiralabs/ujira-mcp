@@ -336,6 +336,40 @@ describe('the daily cap', () => {
   });
 });
 
+describe('a ledger that fails after the send', () => {
+  // The transaction has already gone out, so its own outcome is the answer;
+  // a reservation left open only overcounts the day, never undercounts it.
+  it('still answers with the transaction when settling fails, and logs why', async () => {
+    const { submitter, adapter, ledger, logs, chain } = world();
+    ledger.settle = () => Promise.reject(new Error('database down'));
+    const { req, xdr } = await pause(adapter);
+    const { txHash } = await submitter.submit(ALPHA, xdr, req, o());
+    expect(txHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(chain.submitted).toHaveLength(1);
+    expect(logs.filter((l) => l.startsWith('event=fee_sponsor_settle_failed '))).toHaveLength(1);
+    expect(ledger.usedBy(ALPHA.principalId)).toBe(20_000n);
+  });
+
+  it('still answers with the network refusal when releasing fails, and logs why', async () => {
+    const { submitter, adapter, ledger, logs, chain } = world();
+    ledger.release = () => Promise.reject(new Error('database down'));
+    // The sponsor itself is down to its reserve, so the network refuses the bump.
+    chain.balances.set(sponsor.publicKey, RESERVE);
+    const { req, xdr } = await pause(adapter);
+    const error = await refusal(() => submitter.submit(ALPHA, xdr, req, o()));
+    expect((error as ChainError).reason).toBe('tx_rejected');
+    expect(logs.filter((l) => l.startsWith('event=fee_sponsor_release_failed '))).toHaveLength(1);
+  });
+
+  it('frees the day when the network refused the bump and the ledger is up', async () => {
+    const { submitter, adapter, ledger, chain } = world();
+    chain.balances.set(sponsor.publicKey, RESERVE);
+    const { req, xdr } = await pause(adapter);
+    await refusal(() => submitter.submit(ALPHA, xdr, req, o()));
+    expect(ledger.usedBy(ALPHA.principalId)).toBe(0n);
+  });
+});
+
 describe('settings', () => {
   it('reads the cap in stroops, with a default', () => {
     expect(loadFeeSponsorSettings({})).toEqual({ dailyCap: 50_000_000n });

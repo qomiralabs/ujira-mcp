@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { z } from 'zod';
 
+import { signInEnabled } from '../auth/settings.js';
 import { TESTNET_RPC_URL } from '../chain/stellar/gateway.js';
 import { TESTNET_FRIENDBOT_URL, TESTNET_HORIZON_URL } from '../chain/stellar/network.js';
 import {
@@ -50,6 +51,8 @@ export interface ConsoleSettings {
   readonly factory: string;
   readonly usdc: { readonly code: 'USDC'; readonly issuer: string; readonly contract: string };
   readonly limits: ConsoleLimits;
+  /** True when /v1 serves wallet sign in (UJIRA_SIGN_IN=on); the dashboard then asks for it. */
+  readonly signIn?: boolean;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -175,6 +178,7 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
       apiCallsPerMinute: whole(env, 'UJIRA_API_CALLS_PER_MINUTE', 240, 1, 100_000),
       mandatePayoutsPerHour: whole(env, 'UJIRA_MANDATE_PAYOUTS_PER_HOUR', 30, 1, 10_000),
     },
+    signIn: signInEnabled(env),
   };
 }
 

@@ -17,13 +17,57 @@ import { dirname } from 'node:path';
 
 import { createV1App } from '../api/app.js';
 import { nodeHandler } from '../api/node.js';
+import type { Route } from '../api/route.js';
+import { authRoutes } from '../api/routes/auth.js';
+import { postgresSignInStore } from '../auth/postgres-store.js';
+import { loadSignInSettings, type SignInSettings } from '../auth/settings.js';
+import { SignIn } from '../auth/sign-in.js';
+import type { WalletProofVerifier } from '../auth/wallet-message.js';
 import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
+import { createDatabase, DatabaseConfigError, loadDatabaseConfig } from '../db/index.js';
 import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
 import type { RoleHandle } from './run.js';
+
+interface SignInWiring {
+  readonly routes: Route[];
+  readonly close: () => Promise<void>;
+}
+
+/**
+ * The sign in routes and the database behind them, only when UJIRA_SIGN_IN
+ * is on. Off, the web role needs no database at all, as before.
+ */
+function signInWiring(
+  settings: SignInSettings,
+  env: Env,
+  verifier: WalletProofVerifier,
+  log: (line: string) => void,
+): SignInWiring | undefined {
+  if (!settings.enabled) return undefined;
+  let config: ReturnType<typeof loadDatabaseConfig>;
+  try {
+    config = loadDatabaseConfig(env);
+  } catch (error) {
+    // Its message names the variable that is wrong, never the value, so the
+    // entry points may print it as they print any other setting error.
+    if (error instanceof DatabaseConfigError) {
+      throw new EngineError('config_invalid', error.message, { cause: error });
+    }
+    throw error;
+  }
+  const db = createDatabase(config);
+  const signIn = new SignIn({
+    store: postgresSignInStore(db),
+    verifier,
+    origin: settings.origin,
+    log,
+  });
+  return { routes: authRoutes({ signIn, origin: settings.origin }), close: () => db.close() };
+}
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -113,6 +157,7 @@ export async function startWeb(
   const withDemo = demoFeatures(env);
   const settings = loadSettings(env);
   const http = loadHttpSettings(env);
+  const signInSettings = loadSignInSettings(env);
   checkReceiptsWritable(settings.receiptsPath);
   const demo = withDemo ? createDemo({ base: settings, env, log }) : undefined;
   const wiring = createEngine(
@@ -127,11 +172,12 @@ export async function startWeb(
     env,
     ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
   });
+  const signIn = signInWiring(signInSettings, env, wiring.adapter, log);
   const server = createHttpServer({
     settings: http,
     log,
     extra: routes,
-    v1: nodeHandler(createV1App({ log }).app),
+    v1: nodeHandler(createV1App({ log, routes: signIn?.routes ?? [] }).app),
     ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
   });
   const stopTimers = () => {
@@ -139,6 +185,7 @@ export async function startWeb(
     keepAlive?.stop();
   };
   log(demo === undefined ? 'demo off' : demo.summary());
+  log(`sign in: ${signIn === undefined ? 'off' : 'on'}`);
   demo?.start();
   log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
   keepAlive?.start();
@@ -146,6 +193,7 @@ export async function startWeb(
     await listen(server, http.port, http.host);
   } catch (error) {
     stopTimers();
+    await signIn?.close();
     throw error;
   }
   log(
@@ -157,6 +205,8 @@ export async function startWeb(
       const closed = closeServer(server, graceMs);
       stopTimers();
       await closed;
+      // After the server, so a request still in its grace can finish its query.
+      await signIn?.close();
     },
   };
 }

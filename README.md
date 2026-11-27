@@ -236,6 +236,7 @@ The faucet, test recipients, the recycler and the SDP rail are the demo's, so th
 | `UJIRA_API_CALLS_PER_MINUTE` | `240` | API calls a minute from one caller address. |
 | `UJIRA_MANDATE_PAYOUTS_PER_HOUR` | `30` | Payout requests an hour on one console mandate, from the console and its MCP URL together. |
 | `UJIRA_PUBLIC_ORIGIN` | from the request | The origin used in each mandate's MCP URL, such as `https://ujira.co`. Unset, it comes from `Host` and, with `UJIRA_TRUST_PROXY`, `X-Forwarded-Proto`. |
+| `UJIRA_SIGN_IN` | `off` | `on` serves wallet sign in on `/v1` (`auth/challenge`, `auth/session`, `me`) and makes `/api/config` report `signIn: true`, so the dashboard asks people to sign in. It needs `UJIRA_PUBLIC_ORIGIN` set to the https origin the dashboard is served from, the `UJIRA_DB_*` URLs, and the migrations applied. The session is an HttpOnly, Secure, SameSite=Lax `ujira_session` cookie on `/v1`; only its SHA-256 is stored. |
 | `UJIRA_CONSOLE_DIR` | `console/dist` in the package | The built dashboard, served under `/app`. |
 | `UJIRA_SITE_DIR` | `site` in the repository | The marketing site and the testnet proof page, served at the root. |
 | `UJIRA_CANONICAL_HOST` | none | A host name such as `ujira.co`. When set, a page asked for on any other host (the platform URL, `www`) gets a 301 to `https://<host>` with the same path and query. `/api`, `/v1`, `/mcp`, `/m/<mandate>/mcp` and `/healthz` keep answering on every host, so connectors already pointed at an old URL keep working. Set it only once that host serves HTTPS. |

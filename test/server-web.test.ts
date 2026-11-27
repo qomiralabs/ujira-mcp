@@ -199,6 +199,64 @@ describe('startWeb', () => {
     expect(keepStop).toHaveBeenCalledTimes(1);
   });
 
+  it('serves no sign in and tells the dashboard so, unless UJIRA_SIGN_IN is on', async () => {
+    const vars: Record<string, string> = { ...(await env()), UJIRA_KEEPALIVE: 'off' };
+    const port = Number(vars['PORT']);
+    const lines: string[] = [];
+    const web = await startWeb(vars, (line) => lines.push(line), 1_000);
+    cleanup.push(() => web.stop());
+    expect(lines).toContain('sign in: off');
+    expect(JSON.parse((await get(port, '/api/config')).body)).toMatchObject({ signIn: false });
+    expect((await get(port, '/v1/me')).status).toBe(404);
+  });
+
+  it('with UJIRA_SIGN_IN on, mounts the sign in routes on the database', async () => {
+    // Nothing listens on this port, so every query meets a refused connection.
+    const db = `postgresql://ujira_app:unused@127.0.0.1:${String(await freePort())}/ujira`;
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_KEEPALIVE: 'off',
+      UJIRA_SIGN_IN: 'on',
+      UJIRA_PUBLIC_ORIGIN: 'http://127.0.0.1',
+      UJIRA_DB_TLS: 'off',
+      UJIRA_DB_APP_URL: db,
+      UJIRA_DB_WORKER_URL: db,
+      UJIRA_DB_MIGRATOR_URL: db,
+      UJIRA_DB_READER_URL: db,
+    };
+    const port = Number(vars['PORT']);
+    const lines: string[] = [];
+    const web = await startWeb(vars, (line) => lines.push(line), 1_000);
+    cleanup.push(() => web.stop());
+    expect(lines).toContain('sign in: on');
+    expect(JSON.parse((await get(port, '/api/config')).body)).toMatchObject({ signIn: true });
+    const res = await fetch(`http://127.0.0.1:${String(port)}/v1/auth/challenge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: keypair('web-role-member').publicKey() }),
+    });
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('DB_UNAVAILABLE');
+    expect(lines.join('\n')).not.toContain('unused');
+    await web.stop();
+    expect(await tryConnect(port)).toBe('ECONNREFUSED');
+  });
+
+  it('refuses sign in without its database or its origin, before it listens', async () => {
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_SIGN_IN: 'on',
+      UJIRA_PUBLIC_ORIGIN: 'https://ujira.co',
+    };
+    await expect(startWeb(vars, () => undefined)).rejects.toMatchObject({
+      name: 'EngineError',
+      message: expect.stringContaining('UJIRA_DB_APP_URL') as unknown,
+    });
+    const noOrigin = { ...(await env()), UJIRA_SIGN_IN: 'on' };
+    await expect(startWeb(noOrigin, () => undefined)).rejects.toThrow('UJIRA_PUBLIC_ORIGIN');
+    expect(await tryConnect(Number(vars['PORT']))).toBe('ECONNREFUSED');
+  });
+
   it('refuses to start without the mandate, before it listens', async () => {
     const vars = await env();
     delete vars['UJIRA_MANDATE_ID'];

@@ -32,6 +32,8 @@ export const en = {
   'wallet.hint': 'Payouts arrive as USDC to your Stellar wallet.',
   'wallet.freighter.name': 'Freighter',
   'wallet.freighter.line': 'The browser extension. Connect it with one press.',
+  'wallet.albedo.name': 'Albedo',
+  'wallet.albedo.line': 'Works in a browser window, with nothing to install.',
   'wallet.other.name': 'Another wallet',
   'wallet.other.line': 'Paste your address, then sign a short message in your wallet app.',
   'wallet.action': 'Continue',
@@ -45,6 +47,14 @@ export const en = {
     'Freighter is not installed in this browser. Install it, or go back and choose another wallet.',
   'connect.declined':
     'Freighter did not share an address. Open Freighter, unlock it, then try again.',
+
+  'connect.albedo.heading': 'Connect Albedo',
+  'connect.albedo.hint':
+    'Albedo opens in a new window and shares your wallet address with this page. It cannot move any money.',
+  'connect.albedo.action': 'Connect Albedo',
+  'connect.albedo.busy': 'Waiting for Albedo',
+  'connect.albedo.declined':
+    'Albedo did not share an address. Let its window open, choose your account, then try again.',
 
   'destination.wallet.heading': 'Where should your payouts arrive?',
   'destination.wallet.label': 'Your wallet address',
@@ -70,6 +80,10 @@ export const en = {
   'prove.address': 'Wallet address',
   'prove.action': 'Sign with my wallet',
   'prove.freighter.action': 'Sign with Freighter',
+  'prove.albedo.action': 'Sign with Albedo',
+  'prove.albedo.otherAccount':
+    'Albedo signed with a different account. Choose the account you saved, then try again.',
+  'prove.albedo.unusable': 'Albedo did not send back a signature we can use. Try again.',
   'prove.busy': 'Waiting for your wallet',
   'prove.manual.hint':
     'In your wallet app, choose to sign a message and paste in the text below. Then paste the signature it shows you.',

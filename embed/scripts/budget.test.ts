@@ -7,7 +7,15 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { BUDGET_BYTES, checkBundle, DEV_MARKER, licenceNotices } from './budget.ts';
+import {
+  BUDGET_BYTES,
+  checkBundle,
+  checkNames,
+  checkTotal,
+  DEV_MARKER,
+  licenceNotices,
+  PAGE_WIDE_MARKER,
+} from './budget.ts';
 
 const NOTICES = [
   '/**\n * @license\n * Copyright 2017 Google LLC\n * SPDX-License-Identifier: BSD-3-Clause\n */',
@@ -45,6 +53,35 @@ describe('the bundle check', () => {
     const production = readFileSync(join(lit, 'reactive-element.js'), 'utf8');
     expect(development).toContain(DEV_MARKER);
     expect(production).not.toContain(DEV_MARKER);
+  });
+
+  it('fails when the Albedo library is in the main file, where it would watch every click', () => {
+    expect(checkBundle(`${GOOD}if(href.indexOf("${PAGE_WIDE_MARKER}")===0)`).problems).toEqual([
+      'the bundle loads the Albedo library up front; it must load only when Albedo is chosen',
+    ]);
+  });
+
+  it('knows the marker from the Albedo library itself', () => {
+    const albedo = join(import.meta.dirname, '..', 'node_modules', '@albedo-link', 'intent');
+    expect(readFileSync(join(albedo, 'src', 'web+stellar-handler.js'), 'utf8')).toContain(
+      PAGE_WIDE_MARKER,
+    );
+  });
+
+  it('fails when the main file and its chunks together pass the budget', () => {
+    const half = noise(40_000);
+    expect(checkTotal([GOOD])).toEqual([]);
+    expect(checkTotal([`${GOOD}/*${half}*/`, `/*${half}*/`]).join('\n')).toContain(
+      'together over the 60.0 KB budget',
+    );
+  });
+
+  it('fails on a file name the server would not serve', () => {
+    expect(checkNames(['ujira-embed.js', 'ujira-embed-albedo-0f3a9c.js'])).toEqual([]);
+    expect(checkNames(['src-Cx524MVM.js', 'a_b.js'])).toEqual([
+      'src-Cx524MVM.js is not a name the server serves under /embed/v1/',
+      'a_b.js is not a name the server serves under /embed/v1/',
+    ]);
   });
 
   it('fails when the element is not defined', () => {

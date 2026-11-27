@@ -6,7 +6,7 @@
 // tested without a browser.
 //
 // Three questions, then the confirmation: which wallet, the address (typed,
-// or shared by Freighter), and the signature that proves the wallet is the
+// or shared by Freighter or Albedo), and the signature that proves the wallet is the
 // recipient's. The address is saved when the second step is left, so there
 // is no going back from the third.
 
@@ -21,10 +21,20 @@ export type StepId = (typeof STEP_IDS)[number];
 /** The questions, in order. */
 export const QUESTION_STEPS: readonly StepId[] = ['wallet', 'address', 'prove'];
 
-/** How the person brings their wallet. */
-export const WALLET_CHOICES = ['freighter', 'other'] as const;
+/**
+ * How the person brings their wallet: Freighter in the browser, Albedo on
+ * the web, or any other wallet, where they paste the address and sign by hand.
+ */
+export const WALLET_CHOICES = ['freighter', 'albedo', 'other'] as const;
 
 export type WalletChoice = (typeof WALLET_CHOICES)[number];
+
+/** The wallets the widget connects to itself: they share the address and sign in one press. */
+export type ConnectedWallet = Exclude<WalletChoice, 'other'>;
+
+export function connectsItself(choice: WalletChoice | ''): choice is ConnectedWallet {
+  return choice === 'freighter' || choice === 'albedo';
+}
 
 export interface Answers {
   /** Empty until a wallet is chosen. */
@@ -84,8 +94,8 @@ export interface AnswerProblem {
 /**
  * The problem with the current answer, or undefined when the step is ready
  * to be left. A typed address is read in full, with the server's rules; the
- * server reads it again and has the last word. With Freighter there is
- * nothing typed to check: the address arrives when the step is left.
+ * server reads it again and has the last word. With Freighter or Albedo
+ * there is nothing typed to check: the address arrives when the step is left.
  */
 export function findProblem(
   step: StepId,

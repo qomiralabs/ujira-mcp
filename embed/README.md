@@ -16,9 +16,11 @@ The widget talks to the server it was loaded from. Set `api-base` only when the 
 
 Three questions, one per step, then a confirmation:
 
-1. **Which wallet.** Freighter, or another wallet. Payouts arrive as USDC to your Stellar wallet either way.
-2. **The address.** Freighter shares it with one press. Any other wallet: the person pastes it, with a memo only when an exchange gave them a number. The address is checked the way UJIRA checks it (checksum, never the all zero key, never an address a payout would burn, a memo only as a number) before it is saved, and UJIRA checks it again.
-3. **The proof.** The wallet signs a short message (SEP-53). It moves no money. Freighter signs with one press; for another wallet the person signs in their wallet app and pastes the signature, unless your page hands the widget a wallet that can sign (see `wallet` below).
+1. **Which wallet.** Freighter, Albedo, or another wallet. Payouts arrive as USDC to your Stellar wallet either way.
+2. **The address.** Freighter or Albedo shares it with one press. Any other wallet: the person pastes it, with a memo only when an exchange gave them a number. The address is checked the way UJIRA checks it (checksum, never the all zero key, never an address a payout would burn, a memo only as a number) before it is saved, and UJIRA checks it again.
+3. **The proof.** The wallet signs a short message (SEP-53). It moves no money. Freighter or Albedo signs with one press (from Albedo the widget takes only `signedMessage`, never `message_signature`); for another wallet the person signs in their wallet app and pastes the signature, unless your page hands the widget a wallet that can sign (see `wallet` below).
+
+Albedo needs nothing installed: it opens its own window. Its library loads as a second file, `ujira-embed-albedo-<hash>.js`, beside `ujira-embed.js`, and only once someone picks Albedo, because on load it watches every click on the page for `web+stellar` links. The build fails if that library ends up in the main file, if a file name is one the server would not serve, or if the files together pass 60 KB gzipped.
 
 Then `ujira-onboarding-complete` fires and the widget says the person is set up.
 

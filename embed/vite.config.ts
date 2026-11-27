@@ -20,7 +20,14 @@ export default defineConfig({
     rolldownOptions: {
       // Keeps the dependencies' own licence notices in the file, which is
       // what their licences ask of a copy we hand to other people's pages.
-      output: { comments: { legal: true } },
+      // Albedo's library is the one chunk, loaded when someone picks Albedo.
+      // The server serves only lowercase names under /embed/v1/, and the hash
+      // keeps a cached main file from loading a chunk from another build.
+      output: {
+        comments: { legal: true },
+        chunkFileNames: 'ujira-embed-albedo-[hash].js',
+        hashCharacters: 'hex',
+      },
     },
   },
   test: {

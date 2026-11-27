@@ -32,7 +32,19 @@ const freighter = vi.hoisted(() => ({
 
 vi.mock('@stellar/freighter-api', () => freighter);
 
+const albedo = vi.hoisted(() => ({
+  publicKey: vi.fn(),
+  signMessage: vi.fn(),
+}));
+
+vi.mock('@albedo-link/intent', () => ({ default: albedo }));
+
 const WALLET = encodeAccountAddress(new Uint8Array(32).fill(7));
+const OTHER = encodeAccountAddress(new Uint8Array(32).fill(8));
+
+/** 64 bytes of 0xab: what Albedo sends as hex, and the server is sent as base64. */
+const ALBEDO_HEX = 'ab'.repeat(64);
+const ALBEDO_BASE64 = btoa(String.fromCharCode(...new Uint8Array(64).fill(0xab)));
 
 let widget: UjiraOnboarding;
 
@@ -73,7 +85,7 @@ async function type(selector: string, value: string): Promise<void> {
   await widget.updateComplete;
 }
 
-async function choose(wallet: 'freighter' | 'other'): Promise<void> {
+async function choose(wallet: 'freighter' | 'albedo' | 'other'): Promise<void> {
   const radio = field(`input[value="${wallet}"]`);
   radio.checked = true;
   radio.dispatchEvent(new Event('change'));
@@ -117,6 +129,8 @@ beforeEach(() => {
   freighter.isConnected.mockResolvedValue({ isConnected: true });
   freighter.requestAccess.mockResolvedValue({ address: WALLET });
   freighter.signMessage.mockResolvedValue({ signedMessage: 'c2lnbmVk', signerAddress: WALLET });
+  albedo.publicKey.mockResolvedValue({ pubkey: WALLET });
+  albedo.signMessage.mockResolvedValue({ pubkey: WALLET, signedMessage: ALBEDO_HEX });
 });
 
 afterEach(() => {
@@ -132,7 +146,11 @@ describe('the first step', () => {
     expect(text('.heading')).toBe(en['wallet.heading']);
     expect(text('.hint')).toBe('Payouts arrive as USDC to your Stellar wallet.');
     const choices = [...root().querySelectorAll('.choice-name')].map((n) => n.textContent);
-    expect(choices).toEqual([en['wallet.freighter.name'], en['wallet.other.name']]);
+    expect(choices).toEqual([
+      en['wallet.freighter.name'],
+      en['wallet.albedo.name'],
+      en['wallet.other.name'],
+    ]);
     expect(root().querySelectorAll('.bars i.on')).toHaveLength(1);
   });
 
@@ -240,6 +258,78 @@ describe('with Freighter', () => {
     await submit();
     expect(widget.currentStep).toBe('prove');
     expect(text('.alert')).toBe(en['prove.declined']);
+  });
+});
+
+describe('with Albedo', () => {
+  it('connects, saves the shared address and signs the proof with Albedo', async () => {
+    const client = await open();
+    const done: CompleteDetail[] = [];
+    widget.addEventListener(COMPLETE_EVENT, (event) => {
+      done.push((event as CustomEvent<CompleteDetail>).detail);
+    });
+    await choose('albedo');
+    await submit();
+    expect(widget.currentStep).toBe('address');
+    expect(text('.heading')).toBe(en['connect.albedo.heading']);
+    expect(text('.primary')).toBe(en['connect.albedo.action']);
+    expect(albedo.publicKey).not.toHaveBeenCalled();
+
+    await submit();
+    expect(widget.currentStep).toBe('prove');
+    expect(text('.statement-value')).toBe(WALLET);
+    expect(text('.primary')).toBe(en['prove.albedo.action']);
+    const added = client.calls.find((call) => call.name === 'addMethod');
+    expect(added?.args[1]).toEqual({
+      method: 'stellar_wallet',
+      destination: { network: 'stellar:testnet', address: WALLET },
+    });
+
+    await submit();
+    expect(albedo.signMessage).toHaveBeenCalledWith({
+      message: expect.stringContaining('confirm your payout address') as unknown,
+      pubkey: WALLET,
+    });
+    const proof = client.calls.find((call) => call.name === 'submitWalletProof');
+    expect(proof?.args[2]).toMatchObject({ signature: ALBEDO_BASE64 });
+    expect(widget.currentStep).toBe('done');
+    expect(done).toEqual([
+      { wallet: 'albedo', destination: WALLET, memo: '', methodId: 'method-0001' },
+    ]);
+  });
+
+  it('says so when its window is closed without an address, and saves nothing', async () => {
+    albedo.publicKey.mockRejectedValue(new Error('Request was cancelled'));
+    const client = await open();
+    await choose('albedo');
+    await submit();
+    await submit();
+    expect(widget.currentStep).toBe('address');
+    expect(text('.alert')).toBe(en['connect.albedo.declined']);
+    expect(names(client)).not.toContain('addMethod');
+  });
+
+  it('refuses an answer with only message_signature, and sends nothing', async () => {
+    albedo.signMessage.mockResolvedValue({ pubkey: WALLET, message_signature: 'cd'.repeat(64) });
+    const client = await open();
+    await choose('albedo');
+    await submit();
+    await submit();
+    await submit();
+    expect(widget.currentStep).toBe('prove');
+    expect(text('.alert')).toBe(en['prove.albedo.unusable']);
+    expect(names(client)).not.toContain('submitWalletProof');
+  });
+
+  it('asks for the saved account when Albedo signs with another', async () => {
+    albedo.signMessage.mockResolvedValue({ pubkey: OTHER, signedMessage: ALBEDO_HEX });
+    const client = await open();
+    await choose('albedo');
+    await submit();
+    await submit();
+    await submit();
+    expect(text('.alert')).toBe(en['prove.albedo.otherAccount']);
+    expect(names(client)).not.toContain('submitWalletProof');
   });
 });
 

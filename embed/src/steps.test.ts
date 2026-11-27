@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { encodeAccountAddress } from './destination.js';
 import {
+  connectsItself,
   findProblem,
   initialAnswers,
   isQuestionStep,
@@ -16,6 +17,7 @@ import {
   stepCount,
   stepNumber,
   STEP_IDS,
+  WALLET_CHOICES,
 } from './steps.js';
 
 const WALLET = encodeAccountAddress(new Uint8Array(32).fill(7));
@@ -50,7 +52,16 @@ describe('the steps', () => {
   it('start with nothing chosen', () => {
     expect(initialAnswers()).toEqual({ wallet: '', destination: '', memo: '' });
     expect(isWalletChoice('freighter')).toBe(true);
-    expect(isWalletChoice('albedo')).toBe(false);
+    expect(isWalletChoice('albedo')).toBe(true);
+    expect(isWalletChoice('other')).toBe(true);
+    expect(isWalletChoice('xbull')).toBe(false);
+  });
+
+  it('offer Freighter, Albedo, then any other wallet', () => {
+    expect(WALLET_CHOICES).toEqual(['freighter', 'albedo', 'other']);
+    expect(connectsItself('freighter')).toBe(true);
+    expect(connectsItself('albedo')).toBe(true);
+    expect(connectsItself('other')).toBe(false);
   });
 });
 
@@ -76,10 +87,11 @@ describe('the check before a step is left', () => {
     expect(findProblem('address', typed, [WALLET])?.key).toBe('destination.wallet.unpayable');
   });
 
-  it('has nothing to read with Freighter, whose address arrives as the step is left', () => {
+  it('has nothing to read with Freighter or Albedo, whose address arrives as the step is left', () => {
     expect(findProblem('address', { wallet: 'freighter', destination: '', memo: '' })).toBe(
       undefined,
     );
+    expect(findProblem('address', { wallet: 'albedo', destination: '', memo: '' })).toBe(undefined);
     expect(findProblem('prove', initialAnswers())).toBeUndefined();
   });
 });

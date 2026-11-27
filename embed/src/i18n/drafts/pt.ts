@@ -41,6 +41,10 @@ export const pt: Draft = {
   'wallet.freighter.name': null,
   // The browser extension. Connect it with one press.
   'wallet.freighter.line': null,
+  // Albedo
+  'wallet.albedo.name': null,
+  // Works in a browser window, with nothing to install.
+  'wallet.albedo.line': null,
   // Another wallet
   'wallet.other.name': null,
   // Paste your address, then sign a short message in your wallet app.
@@ -61,6 +65,16 @@ export const pt: Draft = {
   'connect.missing': null,
   // Freighter did not share an address. Open Freighter, unlock it, then try again.
   'connect.declined': null,
+  // Connect Albedo
+  'connect.albedo.heading': null,
+  // Albedo opens in a new window and shares your wallet address with this page. It cannot move any money.
+  'connect.albedo.hint': null,
+  // Connect Albedo
+  'connect.albedo.action': null,
+  // Waiting for Albedo
+  'connect.albedo.busy': null,
+  // Albedo did not share an address. Let its window open, choose your account, then try again.
+  'connect.albedo.declined': null,
   // Where should your payouts arrive?
   'destination.wallet.heading': null,
   // Your wallet address
@@ -88,6 +102,12 @@ export const pt: Draft = {
   'prove.action': 'Assinar com minha carteira',
   // Sign with Freighter
   'prove.freighter.action': null,
+  // Sign with Albedo
+  'prove.albedo.action': null,
+  // Albedo signed with a different account. Choose the account you saved, then try again.
+  'prove.albedo.otherAccount': null,
+  // Albedo did not send back a signature we can use. Try again.
+  'prove.albedo.unusable': null,
   'prove.busy': 'Aguardando sua carteira',
   // In your wallet app, choose to sign a message and paste in the text below. Then paste the signature it shows you.
   'prove.manual.hint': null,

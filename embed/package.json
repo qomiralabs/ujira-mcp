@@ -20,6 +20,7 @@
     "licenses": "node scripts/check-licenses.mjs"
   },
   "dependencies": {
+    "@albedo-link/intent": "0.13.0",
     "@stellar/freighter-api": "6.0.1",
     "lit": "3.3.3",
     "zod": "4.6.7"

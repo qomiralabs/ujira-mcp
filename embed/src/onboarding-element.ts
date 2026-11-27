@@ -6,7 +6,7 @@
 //
 // Given the embed token the integrator's server minted for one recipient,
 // the widget asks which wallet the person uses, takes the address (typed, or
-// shared by Freighter), saves it through UJIRA, and has the wallet sign a
+// shared by Freighter or Albedo), saves it through UJIRA, and has the wallet sign a
 // short message to prove the address is theirs. The integrator owns the look
 // (custom properties); the widget owns the flow: which question comes next,
 // what counts as an answer, and what a person sees while it is being saved
@@ -20,6 +20,7 @@ import { readWalletDestination } from './destination.js';
 import { resolveLocale, translator, type MessageKey, type Translate } from './i18n/catalogue.js';
 import { afterProofFailed, afterSaveFailed } from './outcomes.js';
 import {
+  connectsItself,
   findProblem,
   initialAnswers,
   isQuestionStep,
@@ -29,6 +30,7 @@ import {
   stepCount,
   stepNumber,
   type Answers,
+  type ConnectedWallet,
   type StepId,
   type WalletChoice,
 } from './steps.js';
@@ -44,6 +46,8 @@ import {
   type Waiting,
 } from './views/step-views.js';
 import {
+  albedoAddress,
+  albedoSign,
   freighterAddress,
   freighterSign,
   WalletRefused,
@@ -228,7 +232,8 @@ export class UjiraOnboarding extends LitElement {
   }
 
   private get signer(): Signer {
-    if (this.answers.wallet === 'freighter') return 'freighter';
+    const chosen = this.answers.wallet;
+    if (connectsItself(chosen)) return chosen;
     return this.wallet === undefined ? 'manual' : 'page';
   }
 
@@ -396,20 +401,23 @@ export class UjiraOnboarding extends LitElement {
     }
     this.message = '';
     if (this.step === 'address') {
-      return this.answers.wallet === 'freighter' ? this.connectFreighter() : this.save();
+      const chosen = this.answers.wallet;
+      return connectsItself(chosen) ? this.connect(chosen) : this.save();
     }
     this.goTo(nextStep(this.step));
   }
 
-  /** Freighter shares the address, which is read with the same rules as a typed one. */
-  private async connectFreighter(): Promise<void> {
-    this.working = 'connect.busy';
+  /** Freighter or Albedo shares the address, read with the same rules as a typed one. */
+  private async connect(wallet: ConnectedWallet): Promise<void> {
+    const albedo = wallet === 'albedo';
+    this.working = albedo ? 'connect.albedo.busy' : 'connect.busy';
     let address: string;
     try {
-      address = await freighterAddress();
+      address = await (albedo ? albedoAddress() : freighterAddress());
     } catch (error) {
       this.working = '';
-      this.show(error instanceof WalletRefused ? error.key : 'connect.declined');
+      const fallback = albedo ? 'connect.albedo.declined' : 'connect.declined';
+      this.show(error instanceof WalletRefused ? error.key : fallback);
       return;
     }
     this.working = '';
@@ -484,10 +492,11 @@ export class UjiraOnboarding extends LitElement {
     const wallet = this.wallet;
     try {
       if (signer === 'freighter') return await freighterSign(challenge.message, address);
+      if (signer === 'albedo') return await albedoSign(challenge.message, address);
       if (wallet === undefined) return 'prove.declined';
       return await wallet.signMessage(challenge.message, address);
-    } catch {
-      return 'prove.declined';
+    } catch (error) {
+      return error instanceof WalletRefused ? error.key : 'prove.declined';
     }
   }
 

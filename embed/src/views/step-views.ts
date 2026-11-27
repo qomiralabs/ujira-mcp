@@ -9,14 +9,21 @@ import { html, nothing, type TemplateResult } from 'lit';
 
 import type { WalletChallenge } from '../api/contract.js';
 import type { MessageKey, Translate } from '../i18n/catalogue.js';
-import { WALLET_CHOICES, type Answers, type StepId, type WalletChoice } from '../steps.js';
+import {
+  connectsItself,
+  WALLET_CHOICES,
+  type Answers,
+  type ConnectedWallet,
+  type StepId,
+  type WalletChoice,
+} from '../steps.js';
 import { alertBlock, busyBlock, primaryAction, textButton, textField } from './parts.js';
 
 export const MEMO_ID = 'memo';
 export const SIGNATURE_ID = 'signature';
 
-/** Who signs the proof: Freighter, the page's own wallet, or the person by hand. */
-export type Signer = 'freighter' | 'page' | 'manual';
+/** Who signs the proof: Freighter, Albedo, the page's own wallet, or the person by hand. */
+export type Signer = ConnectedWallet | 'page' | 'manual';
 
 export interface ProofContext {
   /** Undefined while it is being fetched, or when fetching it failed. */
@@ -57,7 +64,25 @@ function busyLine(ctx: StepContext): TemplateResult | typeof nothing {
 
 const CHOICE_WORDS: Readonly<Record<WalletChoice, { name: MessageKey; line: MessageKey }>> = {
   freighter: { name: 'wallet.freighter.name', line: 'wallet.freighter.line' },
+  albedo: { name: 'wallet.albedo.name', line: 'wallet.albedo.line' },
   other: { name: 'wallet.other.name', line: 'wallet.other.line' },
+};
+
+const CONNECT_WORDS: Readonly<
+  Record<ConnectedWallet, { heading: MessageKey; hint: MessageKey; action: MessageKey }>
+> = {
+  freighter: { heading: 'connect.heading', hint: 'connect.hint', action: 'connect.action' },
+  albedo: {
+    heading: 'connect.albedo.heading',
+    hint: 'connect.albedo.hint',
+    action: 'connect.albedo.action',
+  },
+};
+
+const SIGN_ACTIONS: Readonly<Record<Exclude<Signer, 'manual'>, MessageKey>> = {
+  freighter: 'prove.freighter.action',
+  albedo: 'prove.albedo.action',
+  page: 'prove.action',
 };
 
 function choice(ctx: StepContext, id: WalletChoice): TemplateResult {
@@ -95,17 +120,19 @@ export function walletStep(ctx: StepContext): TemplateResult {
 }
 
 /**
- * Where the payouts arrive. With Freighter the answer is one press: the
- * wallet shares its address. Otherwise the person pastes it, with a memo
- * only when an exchange gave them one.
+ * Where the payouts arrive. With Freighter or Albedo the answer is one
+ * press: the wallet shares its address. Otherwise the person pastes it, with
+ * a memo only when an exchange gave them one.
  */
 export function addressStep(ctx: StepContext): TemplateResult {
   const { t } = ctx;
-  if (ctx.answers.wallet === 'freighter') {
+  const wallet = ctx.answers.wallet;
+  if (connectsItself(wallet)) {
+    const words = CONNECT_WORDS[wallet];
     return html`<form class="step" novalidate @submit=${ctx.submit}>
-      ${heading(t('connect.heading'))}
-      <p class="hint">${t('connect.hint')}</p>
-      ${alertBlock(ctx.message)} ${primaryAction({ label: t('connect.action'), busy: ctx.busy })}
+      ${heading(t(words.heading))}
+      <p class="hint">${t(words.hint)}</p>
+      ${alertBlock(ctx.message)} ${primaryAction({ label: t(words.action), busy: ctx.busy })}
       ${busyLine(ctx)}
     </form>`;
   }
@@ -148,7 +175,7 @@ function savedAddress(ctx: StepContext): TemplateResult {
 
 /**
  * The wallet signs a message to show the address is the recipient's. With
- * Freighter or the page's wallet that is one press; otherwise the person
+ * Freighter, Albedo or the page's wallet that is one press; otherwise the person
  * signs in their own wallet app and pastes the signature back.
  */
 export function proveStep(ctx: StepContext): TemplateResult {
@@ -166,12 +193,11 @@ export function proveStep(ctx: StepContext): TemplateResult {
     </form>`;
   }
   if (proof.signer !== 'manual') {
-    const action = proof.signer === 'freighter' ? 'prove.freighter.action' : 'prove.action';
     return html`<form class="step" novalidate @submit=${ctx.submit}>
       ${heading(t('prove.heading'))}
       <p class="hint">${t('prove.hint')}</p>
       ${savedAddress(ctx)} ${alertBlock(ctx.message)}
-      ${primaryAction({ label: t(action), busy: ctx.busy })} ${busyLine(ctx)}
+      ${primaryAction({ label: t(SIGN_ACTIONS[proof.signer]), busy: ctx.busy })} ${busyLine(ctx)}
     </form>`;
   }
   return html`<form class="step" novalidate @submit=${ctx.submit}>

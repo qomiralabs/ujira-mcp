@@ -35,7 +35,7 @@ import type {
   SessionProject,
 } from '../src/db/index.js';
 import type { Permission } from '../src/tenancy/roles.js';
-import { Tenancy, type TenancyStore } from '../src/tenancy/tenancy.js';
+import { Tenancy, type TenancyStore, type TenancyOptions } from '../src/tenancy/tenancy.js';
 import {
   clientFor,
   MemorySignInStore,
@@ -242,7 +242,9 @@ export interface TenancyHarness {
   readonly call: Call;
 }
 
-export function tenancyHarness(): TenancyHarness {
+export function tenancyHarness(
+  options: Pick<TenancyOptions, 'onProjectCreated'> = {},
+): TenancyHarness {
   const clock: Clock = { now: START };
   const store = new MemoryTenancyStore(clock);
   const lines: string[] = [];
@@ -251,7 +253,7 @@ export function tenancyHarness(): TenancyHarness {
   };
   const now = () => new Date(clock.now);
   const signIn = new SignIn({ store, verifier, origin: ORIGIN, log, now });
-  const tenancy = new Tenancy({ store, log });
+  const tenancy = new Tenancy({ store, log, ...options });
   const session = { signIn, origin: ORIGIN };
   const v1 = createV1App({
     routes: [

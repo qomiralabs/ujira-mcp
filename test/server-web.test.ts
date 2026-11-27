@@ -267,6 +267,7 @@ describe('startWeb', () => {
       UJIRA_DB_WORKER_URL: db,
       UJIRA_DB_MIGRATOR_URL: db,
       UJIRA_DB_READER_URL: db,
+      UJIRA_KEY_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
     };
     const port = Number(vars['PORT']);
     const lines: string[] = [];
@@ -293,10 +294,8 @@ describe('startWeb', () => {
     });
     // Keys cannot manage keys, so this is refused before the database is asked.
     expect(byKey.status).toBe(403);
-    // No key encryption key, so no recipients, and the log says why.
-    expect(lines).toContain('recipients: off');
-    expect(lines).toContain('event=recipients_off level=warn reason=key_encryption_key_missing');
-    expect((await get(port, '/v1/recipients')).status).toBe(404);
+    // So do the recipient routes, which need the key encryption key it was given.
+    expect((await get(port, '/v1/recipients')).status).toBe(401);
     expect(lines.join('\n')).not.toContain('unused');
     await web.stop();
     expect(await tryConnect(port)).toBe('ECONNREFUSED');
@@ -321,7 +320,6 @@ describe('startWeb', () => {
     const lines: string[] = [];
     const web = await startWeb(vars, (line) => lines.push(line), 1_000);
     cleanup.push(() => web.stop());
-    expect(lines).toContain('recipients: on');
     // Mounted: without a session or a key they refuse before any query.
     const list = await get(port, '/v1/recipients');
     expect(list.status).toBe(401);
@@ -332,7 +330,7 @@ describe('startWeb', () => {
     await web.stop();
   });
 
-  it('keeps serving without recipients when the key encryption key is not usable', async () => {
+  it('refuses sign in with a key encryption key that is not usable, without repeating it', async () => {
     const db = `postgresql://ujira_app:unused@127.0.0.1:${String(await freePort())}/ujira`;
     const vars: Record<string, string> = {
       ...(await env()),
@@ -346,16 +344,16 @@ describe('startWeb', () => {
       UJIRA_DB_READER_URL: db,
       UJIRA_KEY_ENCRYPTION_KEY: 'not-a-key',
     };
-    const port = Number(vars['PORT']);
     const lines: string[] = [];
-    const web = await startWeb(vars, (line) => lines.push(line), 1_000);
-    cleanup.push(() => web.stop());
-    expect(lines).toContain('event=recipients_off level=warn reason=key_encryption_key_invalid');
-    expect(lines).toContain('recipients: off');
-    expect((await get(port, '/v1/recipients')).status).toBe(404);
-    expect((await get(port, '/v1/projects')).status).toBe(401);
-    expect(lines.join('\n')).not.toContain('not-a-key');
-    await web.stop();
+    const failure = startWeb(vars, (line) => lines.push(line));
+    await expect(failure).rejects.toMatchObject({
+      name: 'EngineError',
+      code: 'config_invalid',
+      message: expect.stringContaining('UJIRA_KEY_ENCRYPTION_KEY') as unknown,
+    });
+    await expect(failure).rejects.not.toThrow('not-a-key');
+    expect(lines.join(' ')).not.toContain('not-a-key');
+    expect(await tryConnect(Number(vars['PORT']))).toBe('ECONNREFUSED');
   });
 
   it('refuses sign in without its database or its origin, before it listens', async () => {
@@ -370,6 +368,53 @@ describe('startWeb', () => {
     });
     const noOrigin = { ...(await env()), UJIRA_SIGN_IN: 'on' };
     await expect(startWeb(noOrigin, () => undefined)).rejects.toThrow('UJIRA_PUBLIC_ORIGIN');
+    expect(await tryConnect(Number(vars['PORT']))).toBe('ECONNREFUSED');
+  });
+
+  it('refuses sign in without a key encryption key, before it listens', async () => {
+    const db = `postgresql://ujira_app:unused@127.0.0.1:${String(await freePort())}/ujira`;
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_KEEPALIVE: 'off',
+      UJIRA_SIGN_IN: 'on',
+      UJIRA_PUBLIC_ORIGIN: 'http://127.0.0.1',
+      UJIRA_DB_TLS: 'off',
+      UJIRA_DB_APP_URL: db,
+      UJIRA_DB_WORKER_URL: db,
+      UJIRA_DB_MIGRATOR_URL: db,
+      UJIRA_DB_READER_URL: db,
+    };
+    await expect(startWeb(vars, () => undefined)).rejects.toMatchObject({
+      name: 'EngineError',
+      code: 'config_invalid',
+      message: expect.stringContaining('UJIRA_KEY_ENCRYPTION_KEY') as unknown,
+    });
+    expect(await tryConnect(Number(vars['PORT']))).toBe('ECONNREFUSED');
+  });
+
+  it('refuses a malformed key encryption key even with sign in off, and never repeats it', async () => {
+    // 31 bytes: one short, the way a value cut off in a paste would be.
+    const short = randomBytes(31).toString('base64');
+    const vars: Record<string, string> = {
+      ...(await env()),
+      UJIRA_KEEPALIVE: 'off',
+      UJIRA_KEY_ENCRYPTION_KEY: short,
+    };
+    const lines: string[] = [];
+    const failure = startWeb(vars, (line) => lines.push(line));
+    await expect(failure).rejects.toMatchObject({
+      name: 'EngineError',
+      message: expect.stringContaining('UJIRA_KEY_ENCRYPTION_KEY') as unknown,
+    });
+    const error = await failure.then(
+      () => new Error('expected a refusal'),
+      (e: unknown) => e as Error,
+    );
+    expect(`${error.message} ${String(error.stack)} ${JSON.stringify(error)}`).not.toContain(
+      short.slice(0, 12),
+    );
+    expect(error.cause).toBeUndefined();
+    expect(lines.join(' ')).not.toContain(short.slice(0, 12));
     expect(await tryConnect(Number(vars['PORT']))).toBe('ECONNREFUSED');
   });
 

@@ -220,6 +220,10 @@ export interface AgentKeysTable {
   readonly secret_ciphertext: Buffer;
   readonly secret_nonce: Buffer;
   readonly status: Generated<string>;
+  readonly funding_status: Generated<string>;
+  readonly funding_attempts: Generated<number>;
+  readonly funding_error: string | null;
+  readonly funded_at: Date | null;
   readonly created_at: Generated<Date>;
   readonly updated_at: Generated<Date>;
 }
@@ -563,6 +567,10 @@ export const SCHEMA_COLUMNS = {
     secret_ciphertext: true,
     secret_nonce: true,
     status: true,
+    funding_status: true,
+    funding_attempts: true,
+    funding_error: true,
+    funded_at: true,
     created_at: true,
     updated_at: true,
   },

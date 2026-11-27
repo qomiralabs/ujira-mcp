@@ -21,11 +21,14 @@ import type { Route } from '../api/route.js';
 import { loadSignInSettings, type SignInSettings } from '../auth/settings.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
 import type { ChainAdapter } from '../chain/adapter.js';
+import type { AgentAccounts } from '../chain/agent-accounts.js';
 import { createEngine, demoFeatures, loadSettings } from '../config.js';
 import { consoleFromEnv } from '../console/index.js';
 import { createDatabase, DatabaseConfigError, loadDatabaseConfig } from '../db/index.js';
 import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
+import type { AgentKeyService } from '../keys/agent-keys.js';
+import { requireSealer, sealerFromEnv } from '../keys/settings.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
 import { observabilityFromEnv } from './observability.js';
@@ -34,7 +37,7 @@ import { v1Routes } from './v1-routes.js';
 
 interface SignInWiring {
   readonly routes: Route[];
-  readonly recipients: 'on' | 'off';
+  readonly agentKeys: AgentKeyService;
   readonly close: () => Promise<void>;
 }
 
@@ -50,6 +53,7 @@ function signInWiring(
   adapter: ChainAdapter & WalletProofVerifier,
   network: 'testnet' | 'pubnet',
   log: (line: string) => void,
+  agentAccounts: AgentAccounts,
 ): SignInWiring | undefined {
   if (!settings.enabled) return undefined;
   let config: ReturnType<typeof loadDatabaseConfig>;
@@ -63,8 +67,18 @@ function signInWiring(
     }
     throw error;
   }
+  // Before the database, so a missing key stops the server with nothing open.
+  const sealer = requireSealer(env, 'UJIRA_SIGN_IN=on');
   const db = createDatabase(config);
-  const v1 = v1Routes({ db, adapter, origin: settings.origin, network, env, log });
+  const v1 = v1Routes({
+    db,
+    adapter,
+    origin: settings.origin,
+    network,
+    log,
+    sealer,
+    agentAccounts,
+  });
   return { ...v1, close: () => db.close() };
 }
 
@@ -154,6 +168,9 @@ export async function startWeb(
 ): Promise<RoleHandle> {
   // First, so a demo asked for on another network stops the server before anything else.
   const withDemo = demoFeatures(env);
+  // A malformed key encryption key refuses to start even while nothing uses
+  // it yet, so it is found when it is set, not when it is first needed.
+  sealerFromEnv(env);
   const settings = loadSettings(env);
   const http = loadHttpSettings(env);
   const signInSettings = loadSignInSettings(env);
@@ -172,7 +189,14 @@ export async function startWeb(
     env,
     ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
   });
-  const signIn = signInWiring(signInSettings, env, wiring.adapter, settings.network, log);
+  const signIn = signInWiring(
+    signInSettings,
+    env,
+    wiring.adapter,
+    settings.network,
+    log,
+    wiring.agentAccounts,
+  );
   const server = createHttpServer({
     settings: http,
     log,
@@ -188,7 +212,6 @@ export async function startWeb(
   };
   log(demo === undefined ? 'demo off' : demo.summary());
   log(`sign in: ${signIn === undefined ? 'off' : 'on'}`);
-  log(`recipients: ${signIn?.recipients ?? 'off'}`);
   demo?.start();
   log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
   keepAlive?.start();

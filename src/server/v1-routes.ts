@@ -6,10 +6,10 @@
 // authenticate. Kept apart from the web role so a test can build exactly what
 // the server mounts, on a test database and a fake chain.
 //
-// Recipients seal a person's email under the key encryption key. Without a
-// usable key they are not served at all, rather than taking an email they
-// could not protect; everything else still is, and the log says why. The key
-// itself is never logged.
+// Every new project gets its agent key here, and recipients seal a person's
+// email, both under the key encryption key. A project without a key could
+// not drive a mandate, so the key is required: the web role refuses to start
+// without one rather than serving half of /v1.
 
 import { createAuthenticate } from '../api/authenticate.js';
 import type { Route } from '../api/route.js';
@@ -25,19 +25,18 @@ import { createTokenAuthenticator } from '../auth/token-auth.js';
 import { tokenEnvironmentFor } from '../auth/token.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
 import type { ChainAdapter } from '../chain/adapter.js';
+import type { AgentAccounts } from '../chain/agent-accounts.js';
 import type { Database } from '../db/index.js';
-import { createSealer, SealError, type Sealer } from '../keys/sealer.js';
+import { createAgentKeyService, type AgentKeyService } from '../keys/agent-keys.js';
+import { postgresAgentKeyStore } from '../keys/postgres-store.js';
+import type { Sealer } from '../keys/sealer.js';
 import { createRecipientService } from '../payouts/recipients.js';
 import { postgresTenancyStore } from '../tenancy/postgres-store.js';
 import { Tenancy } from '../tenancy/tenancy.js';
 
-type Env = Readonly<Record<string, string | undefined>>;
-
 /** What a recipient's wallet must be able to take: testnet USDC, as CODE:ISSUER. */
 export const RECIPIENT_DESTINATION_ASSET =
   'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
-
-export const KEY_ENCRYPTION_KEY_VAR = 'UJIRA_KEY_ENCRYPTION_KEY';
 
 export interface V1RoutesOptions {
   readonly db: Database;
@@ -46,30 +45,16 @@ export interface V1RoutesOptions {
   /** The app origin, such as https://ujira.co. */
   readonly origin: string;
   readonly network: 'testnet' | 'pubnet';
-  readonly env: Env;
   readonly log: (line: string) => void;
+  /** Seals agent secrets and recipient emails under the key encryption key. */
+  readonly sealer: Sealer;
+  /** Makes and funds each project's agent key. */
+  readonly agentAccounts: AgentAccounts;
 }
 
 export interface V1Routes {
   readonly routes: Route[];
-  readonly recipients: 'on' | 'off';
-}
-
-/** The sealer for personal data, or undefined, with the reason logged, when the key is missing or unusable. */
-export function sealerFromEnv(env: Env, log: (line: string) => void): Sealer | undefined {
-  const raw = env[KEY_ENCRYPTION_KEY_VAR]?.trim();
-  if (raw === undefined || raw === '') {
-    log('event=recipients_off level=warn reason=key_encryption_key_missing');
-    return undefined;
-  }
-  try {
-    return createSealer(raw);
-  } catch (error) {
-    if (!(error instanceof SealError)) throw error;
-    // A typo in one secret should not take the whole site down with it.
-    log('event=recipients_off level=warn reason=key_encryption_key_invalid');
-    return undefined;
-  }
+  readonly agentKeys: AgentKeyService;
 }
 
 export function v1Routes(o: V1RoutesOptions): V1Routes {
@@ -80,7 +65,19 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
     origin: o.origin,
     log,
   });
-  const tenancy = new Tenancy({ store: postgresTenancyStore(db), log });
+  const agentKeys = createAgentKeyService({
+    store: postgresAgentKeyStore(db, { accounts: o.adapter }),
+    sealer: o.sealer,
+    accounts: o.agentAccounts,
+    log,
+  });
+  const tenancy = new Tenancy({
+    store: postgresTenancyStore(db),
+    log,
+    onProjectCreated: async (context, requestId) => {
+      await agentKeys.provision(context, requestId);
+    },
+  });
   const session = { signIn, origin: o.origin };
   const environment = tokenEnvironmentFor(o.network);
   const tokens = createTokenAuthenticator({ store: databaseTokenStore(db), environment, log });
@@ -98,12 +95,10 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
     ...apiKeyRoutes({ keys, authenticate }),
   ];
 
-  const sealer = sealerFromEnv(o.env, log);
-  if (sealer === undefined) return { routes, recipients: 'off' };
   const service = createRecipientService({
     db,
     chain: o.adapter,
-    sealer,
+    sealer: o.sealer,
     destinationAsset: () => RECIPIENT_DESTINATION_ASSET,
     log,
   });
@@ -119,5 +114,5 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
       },
     }),
   );
-  return { routes, recipients: 'on' };
+  return { routes, agentKeys };
 }

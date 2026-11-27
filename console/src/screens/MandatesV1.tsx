@@ -425,6 +425,7 @@ function OwnerControls({
             <RecipientPicker
               v1={v1}
               projectId={projectId}
+              mandateId={m.id}
               legend="Allow recipients"
               selected={allow}
               onChange={setAllow}

@@ -8,10 +8,14 @@ import type { V1Api } from '../lib/v1';
 import { Link } from './Link';
 import { Empty, ErrorNotice, Skeleton } from './ui';
 
-/** Ticks for the project's recipients that have a wallet, the only ones a mandate can pay. */
+/**
+ * Ticks for the recipients that have a wallet, the only ones a mandate can
+ * pay: the project's, or with `mandateId` only that mandate's.
+ */
 export function RecipientPicker({
   v1,
   projectId,
+  mandateId,
   legend,
   selected,
   onChange,
@@ -19,13 +23,16 @@ export function RecipientPicker({
 }: {
   v1: V1Api;
   projectId: string;
+  mandateId?: string;
   legend: string;
   selected: ReadonlySet<string>;
   onChange: (next: ReadonlySet<string>) => void;
   disabled?: boolean;
 }) {
   const id = useId();
-  const recipients = useResource(`v1:recipients:${projectId}`, () => v1.recipients({ limit: 200 }));
+  const recipients = useResource(`v1:picker:${projectId}:${mandateId ?? ''}`, () =>
+    v1.recipients({ limit: 100, mandateId }),
+  );
   const withWallet = (recipients.data?.items ?? []).filter((r) => r.address !== null);
   const toggle = (rid: string, on: boolean) => {
     const next = new Set(selected);

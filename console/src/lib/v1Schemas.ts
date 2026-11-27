@@ -116,10 +116,17 @@ export const mandateEnvelope = z.looseObject({ mandate: mandateSchema });
 
 export const recipientSchema = z.looseObject({
   id,
+  // A recipient belongs to one mandate; its label is unique there, in any case.
+  mandateId: id,
   label: text,
   // Null until the recipient adds a wallet; masked by the server.
   address: nullableText,
+  // active, suspended, needs_wallet, no_account, no_trustline or unchecked.
   status: text,
+  // True only when a payout can go to this recipient now.
+  payable: z.boolean(),
+  // Only in the answer for one recipient, never in a list.
+  email: z.optional(nullableText),
   createdAt: timestamp,
 });
 export type V1Recipient = z.output<typeof recipientSchema>;
@@ -129,6 +136,27 @@ export const createdRecipientSchema = z.looseObject({
   recipient: recipientSchema,
   // The allow_recipients request for the mandate; null when there is no address yet.
   signingRequest: z.nullable(signingRequestSchema),
+});
+
+/**
+ * A short lived pass that lets one recipient use the embed widget, which is
+ * what an invite link carries. The token itself comes back only once.
+ */
+export const embedSessionSchema = z.looseObject({
+  id,
+  recipientId: id,
+  createdAt: timestamp,
+  expiresAt: timestamp,
+  revokedAt: z.nullable(timestamp),
+});
+export type EmbedSession = z.output<typeof embedSessionSchema>;
+export const embedSessionPageSchema = pageSchema(embedSessionSchema);
+
+// URL safe, so it goes into a link as it is.
+const EMBED_TOKEN = /^[A-Za-z0-9_.~-]{16,512}$/;
+export const createdEmbedSessionSchema = z.looseObject({
+  session: embedSessionSchema,
+  token: z.string().check(z.regex(EMBED_TOKEN, 'a URL safe token')),
 });
 
 export const payoutLegSchema = z.looseObject({

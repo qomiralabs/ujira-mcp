@@ -18,6 +18,11 @@ export interface V1Bindings {
 
 export interface V1Variables {
   requestId: string;
+  /**
+   * The page origin a route has let read its answer across origins. Set only
+   * by the widget's routes, once its token allows that page.
+   */
+  corsOrigin?: string;
 }
 
 export interface V1Env {

@@ -233,6 +233,19 @@ export {
   type StatsPeriod,
 } from './repositories/payout-stats.js';
 export {
+  EMBED_SESSION_MAX_SECONDS,
+  EMBED_SESSION_MIN_SECONDS,
+  embedRetention,
+  embedSessions,
+  embedSettings,
+  embedTokens,
+  MAX_EMBED_ORIGINS,
+  type EmbedSession,
+  type EmbedSessionFilter,
+  type NewEmbedSession,
+  type ResolvedEmbedSession,
+} from './repositories/embed-sessions.js';
+export {
   SECURITY_EVENT_KINDS,
   securityEvents,
   type NewSecurityEvent,

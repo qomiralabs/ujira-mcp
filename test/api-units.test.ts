@@ -57,12 +57,13 @@ describe('error codes', () => {
       SIGNATURE_INVALID: 422,
       CONTRACT_REFUSED: 422,
       TX_FAILED: 422,
+      DESTINATION_INVALID: 422,
       RATE_LIMITED: 429,
       INTERNAL: 500,
       CHAIN_UNAVAILABLE: 503,
       DB_UNAVAILABLE: 503,
     });
-    expect(API_ERROR_CODES).toHaveLength(33);
+    expect(API_ERROR_CODES).toHaveLength(34);
     expect(new ApiError('RATE_LIMITED', 'slow down').status).toBe(429);
   });
 

@@ -41,6 +41,7 @@ export const API_ERROR_STATUS = {
   SIGNATURE_INVALID: 422,
   CONTRACT_REFUSED: 422,
   TX_FAILED: 422,
+  DESTINATION_INVALID: 422,
   RATE_LIMITED: 429,
   INTERNAL: 500,
   CHAIN_UNAVAILABLE: 503,
@@ -64,6 +65,8 @@ export class ApiError extends Error {
   readonly details: readonly ErrorDetail[] | undefined;
   /** Extra response headers, such as Retry-After on RATE_LIMITED. */
   readonly headers: Readonly<Record<string, string>>;
+  /** A fixed code narrowing `code`, such as MEMO_UNSUPPORTED, for a client to branch on. */
+  readonly reason: string | undefined;
 
   constructor(
     code: ApiErrorCode,
@@ -71,6 +74,7 @@ export class ApiError extends Error {
     options: {
       details?: readonly ErrorDetail[];
       headers?: Record<string, string>;
+      reason?: string;
       cause?: unknown;
     } = {},
   ) {
@@ -80,6 +84,7 @@ export class ApiError extends Error {
     this.status = API_ERROR_STATUS[code];
     this.details = options.details;
     this.headers = options.headers ?? {};
+    this.reason = options.reason;
   }
 }
 
@@ -90,6 +95,10 @@ export const errorEnvelopeSchema = z
         code: z.enum(API_ERROR_CODES as [ApiErrorCode, ...ApiErrorCode[]]),
         message: z.string(),
         requestId: z.string(),
+        reason: z
+          .string()
+          .regex(/^[A-Z][A-Z0-9_]{0,63}$/)
+          .optional(),
         details: z.array(z.object({ path: z.string(), issue: z.string() }).strict()).optional(),
       })
       .strict(),
@@ -103,12 +112,14 @@ export function envelope(
   message: string,
   requestId: string,
   details?: readonly ErrorDetail[],
+  reason?: string,
 ): ErrorEnvelope {
   return {
     error: {
       code,
       message,
       requestId,
+      ...(reason === undefined ? {} : { reason }),
       ...(details === undefined || details.length === 0 ? {} : { details: [...details] }),
     },
   };

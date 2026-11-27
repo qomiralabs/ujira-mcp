@@ -30,7 +30,22 @@ export interface V1AppOptions {
   readonly log?: (line: string) => void;
   readonly maxBodyBytes?: number;
   readonly info?: OpenApiInfo;
+  /**
+   * Paths, as Hono patterns, that a page on another origin may call: the
+   * embed widget's. Their CORS preflight is answered here. Whether a page may
+   * read the answer is each route's decision, through `corsOrigin`.
+   */
+  readonly crossOrigin?: readonly string[];
 }
+
+/** What the widget sends: its token, and JSON. No cookie ever goes with it. */
+const PREFLIGHT_HEADERS: Readonly<Record<string, string>> = {
+  // A preflight carries no credential, so answering any page with it reveals nothing.
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST',
+  'access-control-allow-headers': 'authorization, content-type, accept',
+  'access-control-max-age': '600',
+};
 
 export interface V1App {
   readonly app: Hono<V1Env>;
@@ -76,10 +91,11 @@ function errorResponse(
   message: string,
   details?: readonly ErrorDetail[],
   headers: Readonly<Record<string, string>> = {},
+  reason?: string,
 ): Response {
   // Set by the first middleware, before anything that can fail.
   const requestId = c.get('requestId');
-  return new Response(JSON.stringify(envelope(code, message, requestId, details)), {
+  return new Response(JSON.stringify(envelope(code, message, requestId, details, reason)), {
     status,
     headers: {
       ...headers,
@@ -120,7 +136,17 @@ export function createV1App(options: V1AppOptions = {}): V1App {
     c.header(REQUEST_ID_HEADER, requestId);
     c.header('cache-control', 'no-store');
     c.header('x-content-type-options', 'nosniff');
+    // After the answer, whatever it was, including an error: the widget has
+    // to read a refusal of its token to say the link lapsed.
+    const allowed = c.get('corsOrigin');
+    if (allowed !== undefined) {
+      c.header('access-control-allow-origin', allowed);
+      c.header('vary', 'Origin');
+    }
   });
+  for (const path of options.crossOrigin ?? []) {
+    app.options(path, (c) => c.body(null, 204, { ...PREFLIGHT_HEADERS }));
+  }
   app.use(bodyGuard(options.maxBodyBytes ?? MAX_BODY_BYTES));
 
   for (const route of routes) {
@@ -139,6 +165,7 @@ export function createV1App(options: V1AppOptions = {}): V1App {
         error.message,
         error.details,
         error.headers,
+        error.reason,
       );
     }
     if (error instanceof DatabaseUnavailableError) {

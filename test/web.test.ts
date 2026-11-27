@@ -260,6 +260,46 @@ describe('one domain: the embed widget', () => {
     expect(page.status).toBe(301);
   });
 
+  it('serves the hosted invite page with no referrer and a policy that allows only its own scripts', async () => {
+    const { base } = await start();
+    const page = await raw(base, '/embed/v1/invite');
+    expect(page.status).toBe(200);
+    expect(page.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(page.headers['referrer-policy']).toBe('no-referrer');
+    expect(page.headers['x-frame-options']).toBe('DENY');
+    expect(page.headers['x-content-type-options']).toBe('nosniff');
+    expect(page.headers['cache-control']).toBe('no-cache');
+    const csp = String(page.headers['content-security-policy']);
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toMatch(/script-src 'self' 'sha256-[A-Za-z0-9+/]+=*'(;|$)/);
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).not.toContain('unsafe');
+    expect(page.body).toContain('<script type="module" src="/embed/v1/ujira-embed.js"></script>');
+    expect(page.body).toContain('This link has expired or was revoked.');
+    // No address outside this origin: the page loads nothing from anyone else.
+    expect(page.body).not.toMatch(/(?:src|href)="(?:https?:)?\/\//);
+    const head = await raw(base, '/embed/v1/invite', { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(head.body).toBe('');
+  });
+
+  it('moves the invite page to the canonical host, where the widget calls are same origin', async () => {
+    const { base } = await start('ujira.co');
+    const moved = await raw(base, '/embed/v1/invite', { host: 'old.example' });
+    expect(moved.status).toBe(301);
+    expect(moved.headers.location).toBe('https://ujira.co/embed/v1/invite');
+    const page = await raw(base, '/embed/v1/invite', { host: 'ujira.co' });
+    expect(page.status).toBe(200);
+  });
+
+  it('serves only the one invite path', async () => {
+    const { base } = await start();
+    for (const path of ['/embed/v1/invite/', '/embed/v1/invite.html', '/embed/v2/invite']) {
+      expect((await raw(base, path)).status, path).toBe(404);
+    }
+  });
+
   it('reads the widget folder from the environment', () => {
     expect(loadConsoleSettings({}).embedDir.endsWith('/embed/dist')).toBe(true);
     expect(loadConsoleSettings({ UJIRA_EMBED_DIR: '/srv/embed' }).embedDir).toBe('/srv/embed');

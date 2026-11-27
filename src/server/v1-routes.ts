@@ -2,9 +2,9 @@
 // Copyright 2026 Qomira Labs
 
 // The /v1 routes that need a database: sign in, principals and projects, API
-// keys, payouts and recipients, all on one database and one chain adapter,
-// behind one authenticate. Kept apart from the web role so a test can build exactly what
-// the server mounts, on a test database and a fake chain.
+// keys, payouts, recipients and mandates, all on one database and one chain
+// adapter, behind one authenticate. Kept apart from the web role so a test can
+// build exactly what the server mounts, on a test database and a fake chain.
 //
 // Every new project gets its agent key here, and recipients seal a person's
 // email, both under the key encryption key. A project without a key could
@@ -16,6 +16,7 @@ import { databaseIdempotencyStore } from '../api/idempotency-store.js';
 import type { Route } from '../api/route.js';
 import { apiKeyRoutes } from '../api/routes/api-keys.js';
 import { authRoutes } from '../api/routes/auth.js';
+import { mandateRoutes } from '../api/routes/mandates.js';
 import { payoutRoutes } from '../api/routes/payouts.js';
 import { recipientRoutes } from '../api/routes/recipients.js';
 import { tenancyRoutes } from '../api/routes/tenancy.js';
@@ -28,12 +29,21 @@ import { tokenEnvironmentFor } from '../auth/token.js';
 import type { WalletProofVerifier } from '../auth/wallet-message.js';
 import type { ChainAdapter } from '../chain/adapter.js';
 import type { AgentAccounts } from '../chain/agent-accounts.js';
+import { TESTNET_USDC_CONTRACT } from '../chain/stellar/testnet.js';
 import { payoutJobQueue, type Database } from '../db/index.js';
 import { createAgentKeyService, type AgentKeyService } from '../keys/agent-keys.js';
 import { postgresAgentKeyStore } from '../keys/postgres-store.js';
 import type { Sealer } from '../keys/sealer.js';
+import {
+  databaseFeeLedger,
+  DEFAULT_FEE_SPONSOR_DAILY_CAP,
+  SponsoredSubmitter,
+  type FeeSponsorSettings,
+} from '../payouts/fee-sponsorship.js';
+import { MandateService } from '../payouts/mandates.js';
 import { createPayoutService } from '../payouts/payout-service.js';
 import { databasePayoutStore } from '../payouts/payout-store.js';
+import { postgresMandateStore } from '../payouts/postgres-mandate-store.js';
 import { createRecipientService } from '../payouts/recipients.js';
 import { postgresTenancyStore } from '../tenancy/postgres-store.js';
 import { Tenancy } from '../tenancy/tenancy.js';
@@ -49,6 +59,13 @@ export interface V1RoutesOptions {
   /** The app origin, such as https://ujira.co. */
   readonly origin: string;
   readonly network: 'testnet' | 'pubnet';
+  /**
+   * The UJIRA executor every new mandate names. Without it the mandate routes
+   * are not served, since a mandate UJIRA cannot execute would never pay.
+   */
+  readonly executor?: string;
+  /** The fee sponsor's daily cap per principal; the default cap when left out. */
+  readonly feeSponsor?: FeeSponsorSettings;
   readonly log: (line: string) => void;
   /** Seals agent secrets and recipient emails under the key encryption key. */
   readonly sealer: Sealer;
@@ -109,6 +126,34 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
       idempotency: { store: databaseIdempotencyStore(db), log },
     }),
   ];
+  if (o.executor !== undefined) {
+    // Every principal signed transaction goes out fee bumped, charged to the
+    // principal's daily allowance, when the adapter has a fee sponsor.
+    const sponsored = new SponsoredSubmitter({
+      adapter: o.adapter,
+      ledger: databaseFeeLedger(db),
+      settings: o.feeSponsor ?? { dailyCap: DEFAULT_FEE_SPONSOR_DAILY_CAP },
+      log,
+    });
+    const mandates = new MandateService({
+      adapter: o.adapter,
+      store: postgresMandateStore(db, o.adapter),
+      executor: o.executor,
+      // The testnet USDC the adapter's mandates hold, at its seven decimals.
+      unit: { code: 'USDC', scale: 7, contract: TESTNET_USDC_CONTRACT },
+      relay: (signed, expected, caller, c) => sponsored.submit(caller, signed, expected, c),
+      // The project's own key, made now if it has none, is the agent it names.
+      agentKeys,
+    });
+    routes.push(
+      ...mandateRoutes({
+        authenticate,
+        service: mandates,
+        idempotency: databaseIdempotencyStore(db),
+        log,
+      }),
+    );
+  }
 
   const service = createRecipientService({
     db,

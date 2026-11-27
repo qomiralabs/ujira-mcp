@@ -430,6 +430,8 @@ export function createHttpV1Api(transport: V1Transport): V1Api {
         method: 'POST',
         path: '/v1/signing/submit',
         body: { signingRequestId, xdr },
+        // One request is submitted once, so its id makes a safe retry key.
+        idempotencyKey: `submit:${signingRequestId}`,
       }),
     recipients: (q) =>
       t.json(recipientPageSchema, {

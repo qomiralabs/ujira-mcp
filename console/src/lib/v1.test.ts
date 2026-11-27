@@ -316,7 +316,14 @@ describe('the /v1 client, against recorded answers', () => {
     ).rejects.toMatchObject({ code: 'bad_response' });
   });
 
-  it('sends the idempotency key only on payout creation', async () => {
+  it('keys a signed submit by its signing request, so a retry never relays twice', async () => {
+    const { api, calls } = recorder(() => json(200, RECORDED['POST /v1/signing/submit']));
+    await api.submitSigned(IDS.signing, 'AAAAsigned');
+    expect(headers(calls[0])[IDEMPOTENCY_HEADER]).toBe(`submit:${IDS.signing}`);
+    expect(headers(calls[0])[IDEMPOTENCY_HEADER]).toMatch(/^[A-Za-z0-9_.:-]{1,255}$/);
+  });
+
+  it('sends the idempotency key only on payout creation and signed submits', async () => {
     const { api, calls } = recorder((c) =>
       json(
         200,

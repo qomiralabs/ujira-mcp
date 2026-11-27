@@ -41,6 +41,9 @@ export interface StoredSigningRequest {
   readonly envelope: string;
   readonly summary: string;
   readonly expiresAt: Date;
+  // What a create carries for its mandate row; null for any other action.
+  readonly mandateName: string | null;
+  readonly agentKeyId: string | null;
   // 64 lowercase hex digits once a signed copy was sent, else null.
   readonly submittedTxHash: string | null;
   readonly submittedAt: Date | null;
@@ -55,6 +58,9 @@ export interface NewSigningRequest {
   readonly envelope: string;
   readonly summary: string;
   readonly expiresAt: Date;
+  // A create only; the row's check refuses them on any other action, 23514.
+  readonly mandateName?: string | null;
+  readonly agentKeyId?: string | null;
 }
 
 const ACTIONS: ReadonlySet<string> = new Set<string>(SIGNING_ACTIONS);
@@ -76,6 +82,8 @@ const columns = [
   'envelope',
   'summary',
   'expires_at',
+  'mandate_name',
+  'agent_key_id',
   'submitted_tx_hash',
   'submitted_at',
   'created_at',
@@ -91,6 +99,8 @@ function toSigningRequest(row: {
   envelope: string;
   summary: string;
   expires_at: Date;
+  mandate_name: string | null;
+  agent_key_id: string | null;
   submitted_tx_hash: Buffer | null;
   submitted_at: Date | null;
   created_at: Date;
@@ -105,6 +115,8 @@ function toSigningRequest(row: {
     envelope: row.envelope,
     summary: row.summary,
     expiresAt: row.expires_at,
+    mandateName: row.mandate_name,
+    agentKeyId: row.agent_key_id,
     submittedTxHash: row.submitted_tx_hash === null ? null : bytesHex32(row.submitted_tx_hash),
     submittedAt: row.submitted_at,
     createdAt: row.created_at,
@@ -133,6 +145,8 @@ export const signingRequests = {
         envelope: input.envelope,
         summary: input.summary,
         expires_at: input.expiresAt,
+        mandate_name: input.mandateName ?? null,
+        agent_key_id: input.agentKeyId ?? null,
       })
       .returning(columns)
       .executeTakeFirstOrThrow();

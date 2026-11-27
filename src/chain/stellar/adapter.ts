@@ -37,6 +37,7 @@ import {
   type PayoutIntent,
   type SigningRequest,
   type SponsoredFee,
+  type SubmitResult,
 } from '../adapter.js';
 import {
   PAYOUT_STATUS,
@@ -46,7 +47,7 @@ import {
   type TxSigner,
 } from '../types.js';
 import { isAccountAddress, isContractAddress } from './addresses.js';
-import { address, bytes32, encodeAllowEntries, i128 } from './codec.js';
+import { address, bytes32, encodeAllowEntries, i128, nativeOf } from './codec.js';
 import type { SorobanGateway } from './gateway.js';
 import { MandateClient } from './mandate-client.js';
 import type { StellarNetworkPort, Submitted } from './network.js';
@@ -421,7 +422,7 @@ export class StellarChainAdapter implements ChainAdapter {
     expected: SigningRequest,
     o: CallOptions,
     budget?: FeeBudget,
-  ): Promise<{ txHash: string }> {
+  ): Promise<SubmitResult> {
     if (expected.network !== this.network)
       throw mismatch(`it was prepared for ${expected.network}`);
     const expires = Date.parse(expected.expiresAt);
@@ -500,7 +501,13 @@ export class StellarChainAdapter implements ChainAdapter {
         .settle(charge.fee, sent.feeCharged ?? charge.fee.maxFee)
         .catch(() => undefined);
     }
-    if (sent.status === 'SUCCESS') return { txHash: sent.hash };
+    if (sent.status === 'SUCCESS') {
+      // The factory answers with the address it deployed. The hash check above
+      // already tied this envelope to the factory call we built.
+      const contract =
+        expected.action === 'create' ? this.deployedAddress(sent.returnValue) : undefined;
+      return contract === undefined ? { txHash: sent.hash } : { txHash: sent.hash, contract };
+    }
     if (sent.reason !== undefined) {
       throw new ChainError('CONTRACT_REFUSED', `The mandate refused it: ${sent.reason}`, {
         specError: sent.reason.toUpperCase(),
@@ -511,6 +518,17 @@ export class StellarChainAdapter implements ChainAdapter {
     throw new ChainError('TX_FAILED', `The transaction failed on chain (${sent.hash})`, {
       txHash: sent.hash,
     });
+  }
+
+  private deployedAddress(value: xdr.ScVal | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    let native: unknown;
+    try {
+      native = nativeOf(value);
+    } catch {
+      return undefined;
+    }
+    return typeof native === 'string' && isContractAddress(native) ? native : undefined;
   }
 
   /**

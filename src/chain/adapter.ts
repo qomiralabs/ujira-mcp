@@ -99,6 +99,16 @@ export interface SponsoredFee {
  * when the network never took the transaction. A timeout does neither: the
  * transaction may still land, so the reservation stands at its maximum.
  */
+/** What the chain took from a signed envelope. */
+export interface SubmitResult {
+  readonly txHash: string;
+  /**
+   * The address a create deployed, as the chain returned it. Only a create
+   * has one; it is absent when the answer carried none.
+   */
+  readonly contract?: string;
+}
+
 export interface FeeBudget {
   /** Throws to refuse the fee; nothing is sent then. */
   reserve(fee: SponsoredFee): Promise<void>;
@@ -132,7 +142,7 @@ export interface ChainAdapter {
     expected: SigningRequest,
     o: CallOptions,
     budget?: FeeBudget,
-  ): Promise<{ txHash: string }>;
+  ): Promise<SubmitResult>;
   sponsorFee(signedXdr: string, principal: string, o: CallOptions): Promise<string>; // fee bump envelope
   checkPayout(intent: PayoutIntent, agent: string, o: CallOptions): Promise<CheckResult>; // simulation only
   requestPayout(intent: PayoutIntent, agent: TxSigner, o: CallOptions): Promise<{ txHash: string }>;

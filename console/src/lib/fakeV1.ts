@@ -429,7 +429,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       contractId: strkey('C'),
       createdAt: iso(t0),
       principal,
-      approvers: [],
+      approvers: [principal],
       approvalsRequired: 1,
       limits: {
         totalBudget: 5_000n * UNIT,
@@ -570,7 +570,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
           contractId,
           createdAt: iso(),
           principal: t.address,
-          approvers: [],
+          approvers: [t.address],
           approvalsRequired: 1,
           limits: {
             totalBudget: 1_000n * UNIT,
@@ -596,16 +596,20 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         if (action.kind === 'withdraw' && action.amount > m.balance - committed(m)) {
           throw fail('INVALID_REQUEST', 400, 'That is more than the mandate holds free.');
         }
-        if (action.kind === 'approve' || action.kind === 'reject') {
+        const decides = action.kind === 'approve' || action.kind === 'reject';
+        if (decides) {
           const p = d.payouts.get(action.payoutId);
           if (p === undefined || p.mandateId !== m.id) throw fail('NOT_FOUND', 404);
           if (p.status !== 'pending_approval') {
             throw fail('INVALID_REQUEST', 400, 'That payout is not waiting for approval.');
           }
+          // The contract takes a decision only from a wallet it names as an approver.
+          if (!m.approvers.includes(t.address)) throw fail('FORBIDDEN', 403);
         }
         return newSigningRequest(
           t,
-          m.principal,
+          // A decision is signed by the approver who makes it; the rest by the owner.
+          decides ? t.address : m.principal,
           action.kind,
           `${action.kind} on ${mask(m.contractId)}`,
           {
@@ -636,7 +640,9 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
             contractId: strkey('C'),
             createdAt: at,
             principal: pending.principal,
-            approvers: pending.input.approvers,
+            // With no approvers named, the owner approves their own large payouts.
+            approvers:
+              pending.input.approvers.length === 0 ? [pending.principal] : pending.input.approvers,
             approvalsRequired: pending.input.approvalsRequired,
             limits: {
               totalBudget: l.totalBudget.amount,
@@ -774,10 +780,13 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         if (p === undefined) throw fail('NOT_FOUND', 404);
         return payoutWire(t, d, p);
       }),
+    // Oldest first: the payout that has waited longest is decided first.
     approvals: (q) =>
       step((t, d) =>
         page(
-          filtered(d, { status: 'pending_approval' }).map((p) => payoutWire(t, d, p)),
+          filtered(d, { status: 'pending_approval' })
+            .reverse()
+            .map((p) => payoutWire(t, d, p)),
           q,
         ),
       ),

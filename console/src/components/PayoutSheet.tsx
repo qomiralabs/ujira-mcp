@@ -5,7 +5,7 @@
 // for, the path it took from left to right, its legs with their Stellar
 // transactions, and its receipt. The table stays where it was underneath.
 
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 import { useResource } from '../app/hooks';
 import { methodLabel, timelineOf, type Step, type StepState } from '../lib/payoutsV1';
@@ -165,11 +165,13 @@ function Detail({
   v1,
   projectId,
   mandate,
+  waitingAction,
 }: {
   p: PayoutDetail;
   v1: V1Api;
   projectId: string;
   mandate: string;
+  waitingAction: ((p: PayoutDetail) => ReactNode) | undefined;
 }) {
   const word = statusWord(p.status);
   const legsId = useId();
@@ -189,12 +191,14 @@ function Detail({
         ) : null}
       </div>
       <Timeline steps={timelineOf(p)} />
-      {p.status === 'pending_approval' ? (
+      {p.status !== 'pending_approval' ? null : waitingAction === undefined ? (
         <Link to="/approvals" className="btn btn-primary btn-small sheet-cta">
           Open approvals
           <Icon name="arrow" size={16} />
         </Link>
-      ) : null}
+      ) : (
+        waitingAction(p)
+      )}
       <div className="perf" aria-hidden="true" />
       <dl className="rules sheet-facts">
         <div>
@@ -275,12 +279,15 @@ export function PayoutSheet({
   id,
   mandateLabel,
   onClose,
+  waitingAction,
 }: {
   v1: V1Api;
   projectId: string;
   id: string;
   mandateLabel: (p: PayoutDetail) => string;
   onClose: () => void;
+  /** What a payout waiting for approval offers; a link to Approvals when not set. */
+  waitingAction?: (p: PayoutDetail) => ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -334,7 +341,13 @@ export function PayoutSheet({
                 <p>Could not refresh: {payout.error} Showing the last known state.</p>
               </Notice>
             )}
-            <Detail p={p} v1={v1} projectId={projectId} mandate={mandateLabel(p)} />
+            <Detail
+              p={p}
+              v1={v1}
+              projectId={projectId}
+              mandate={mandateLabel(p)}
+              waitingAction={waitingAction}
+            />
           </>
         )}
       </div>

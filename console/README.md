@@ -82,6 +82,12 @@ keyed by the open project. Create is two wallet signatures, `POST /v1/mandates/p
 `POST /v1/signing/submit`, and a step is done only once the mandate read back from the server shows
 it; until then the page says what it waits for. Revoke asks for the mandate's name typed back.
 
+The approvals screen (`approvals`) reads `GET /v1/approvals`, oldest first, with the rule and the
+budget left from each mandate. Approve and reject restate the amount and the recipient, then sign
+an `approve` or `reject` action in the approver's wallet; the row waits until the payout read back
+from the server has left `pending_approval`. A member the mandate does not name as an approver sees
+the item and the reason, and cannot sign. J and K move through the queue; A and R open the confirm.
+
 ## Checks
 
 ```sh

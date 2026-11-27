@@ -1867,6 +1867,172 @@ input.mono {
   font-weight: 600;
 }
 
+/* The approvals queue on /v1: one line per payout, the chosen one marked. */
+
+/* Positioned, so screen reader text in the cells scrolls and clips with them. */
+.approvals-scroll {
+  position: relative;
+  border-top: 1px solid var(--line);
+}
+
+.approvals-scroll:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+.approvals-table td {
+  height: 56px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.approvals-table .arow {
+  cursor: pointer;
+}
+
+.approvals-table .arow-on {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--teal-mid);
+}
+
+.approvals-table .c-rule,
+.approvals-table .c-left {
+  color: var(--text-2);
+}
+
+.approvals-table th.c-act,
+.approvals-table td.c-act {
+  text-align: right;
+}
+
+.approvals-table .c-act .dialog {
+  text-align: left;
+  white-space: normal;
+}
+
+.approvals-table .arow-error td {
+  height: auto;
+  padding: 0 24px 14px;
+  white-space: normal;
+}
+
+.row-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.kbd-hint kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  font: 600 12px/1 var(--mono);
+  color: var(--text);
+}
+
+/* Where the whole line does not fit, a waiting payout is a short card, with
+   the decision in reach rather than off to the side. */
+@media (max-width: 1180px) {
+  .ledger.approvals-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .ledger.approvals-table tbody tr.arow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'to amount'
+      'rule left'
+      'id status'
+      'act act';
+    gap: 6px 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .ledger.approvals-table tbody tr.arow:last-child {
+    border-bottom: 0;
+  }
+
+  .ledger.approvals-table tbody tr.arow-error {
+    display: block;
+  }
+
+  .ledger.approvals-table td,
+  .ledger.approvals-table td:first-child,
+  .ledger.approvals-table td:last-child {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  .ledger.approvals-table tr.arow-error td {
+    padding: 0 24px 14px;
+  }
+
+  .ledger.approvals-table .c-to {
+    grid-area: to;
+    max-width: none;
+  }
+
+  .ledger.approvals-table .c-amount {
+    grid-area: amount;
+  }
+
+  .ledger.approvals-table .c-rule {
+    grid-area: rule;
+    font-size: 14px;
+  }
+
+  .ledger.approvals-table .c-left {
+    grid-area: left;
+  }
+
+  .ledger.approvals-table .c-id {
+    grid-area: id;
+  }
+
+  .ledger.approvals-table .c-status {
+    grid-area: status;
+    justify-self: end;
+  }
+
+  .ledger.approvals-table td.c-act {
+    grid-area: act;
+    text-align: left;
+    margin-top: 4px;
+  }
+}
+
+@media (max-width: 720px) {
+  .kbd-hint {
+    display: none;
+  }
+
+  .ledger.approvals-table tbody tr.arow {
+    padding: 14px 18px;
+  }
+}
+
 /* Overview pieces */
 
 .welcome {

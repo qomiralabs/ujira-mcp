@@ -57,13 +57,13 @@ export function bodyGuard(limit: number = MAX_BODY_BYTES): MiddlewareHandler {
   };
 }
 
-/** Reads the whole body, refusing it as soon as it passes the limit. */
-export async function readBodyText(
+/** Reads the whole body as bytes, refusing it as soon as it passes the limit. */
+export async function readBodyBytes(
   request: Request,
   limit: number = MAX_BODY_BYTES,
-): Promise<string> {
+): Promise<Buffer> {
   const stream = request.body;
-  if (stream === null) return '';
+  if (stream === null) return Buffer.alloc(0);
   // Typed loosely by the platform; a request body stream yields bytes.
   const reader = (stream as ReadableStream<Uint8Array>).getReader();
   const chunks: Uint8Array[] = [];
@@ -78,7 +78,15 @@ export async function readBodyText(
     }
     chunks.push(value);
   }
-  return Buffer.concat(chunks, size).toString('utf8');
+  return Buffer.concat(chunks, size);
+}
+
+/** Reads the whole body as UTF-8 text, refusing it as soon as it passes the limit. */
+export async function readBodyText(
+  request: Request,
+  limit: number = MAX_BODY_BYTES,
+): Promise<string> {
+  return (await readBodyBytes(request, limit)).toString('utf8');
 }
 
 /** The body as parsed JSON. An empty body is a missing body, not an empty object. */
@@ -86,7 +94,11 @@ export async function readJsonBody(
   request: Request,
   limit: number = MAX_BODY_BYTES,
 ): Promise<unknown> {
-  const text = await readBodyText(request, limit);
+  return parseJsonText(await readBodyText(request, limit));
+}
+
+/** Text already read from a body, as parsed JSON, with the same refusals as readJsonBody. */
+export function parseJsonText(text: string): unknown {
   if (text.trim() === '') {
     throw new ApiError('INVALID_REQUEST', 'This route needs a JSON body', {
       details: [{ path: 'body', issue: 'required' }],

@@ -14,6 +14,8 @@ import {
 } from './routes';
 
 const ID = `C${'A'.repeat(55)}`;
+// Mandates on /v1 are named by a UUID.
+const UUID = '0b8f6a4c-58c3-4a3b-9f0e-6c1d2e3f4a5b';
 
 describe('dashboard routes', () => {
   afterEach(() => {
@@ -32,6 +34,8 @@ describe('dashboard routes', () => {
     ['/app/mandates/', { name: 'mandates' }],
     ['/app/mandates/new', { name: 'new' }],
     [`/app/mandates/${ID}`, { name: 'mandate', id: ID }],
+    [`/app/mandates/${UUID}`, { name: 'mandate', id: UUID }],
+    [`/app/mandates/${UUID.toUpperCase()}`, { name: 'not-found' }],
     ['/app/approvals', { name: 'approvals' }],
     ['/app/payouts', { name: 'payouts' }],
     ['/app/receipts', { name: 'receipts' }],

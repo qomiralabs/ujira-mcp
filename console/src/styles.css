@@ -806,6 +806,125 @@ select {
   background: var(--saffron);
 }
 
+/* The budget as one bar: used, then committed, then what remains. */
+
+.meter-split {
+  display: flex;
+}
+
+.meter-split > span {
+  flex: none;
+  border-radius: 0;
+}
+
+.meter-committed {
+  display: block;
+  height: 100%;
+  background: var(--teal-mid);
+}
+
+.meter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+}
+
+.meter-legend div {
+  display: grid;
+  gap: 2px;
+}
+
+.meter-legend dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.meter-legend dd {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.meter-key {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface) 70%, var(--line-2));
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.meter-key-used {
+  background: var(--saffron);
+  box-shadow: none;
+}
+
+.meter-key-committed {
+  background: var(--teal-mid);
+  box-shadow: none;
+}
+
+/* Ticks for recipients */
+
+.pick-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.pick-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--r-row);
+  background: var(--row-bg);
+}
+
+.pick-list input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
+}
+
+:root[data-theme='dark'] .pick-list input {
+  accent-color: var(--teal-mid);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .pick-list input {
+    accent-color: var(--teal-mid);
+  }
+}
+
+.pick-list label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+}
+
+.pick-list .mono {
+  overflow-wrap: anywhere;
+}
+
+.title-name {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.mandate-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .warn-text {
   color: var(--wait-fg);
   font-weight: 500;

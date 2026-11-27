@@ -37,6 +37,20 @@ export function parseV1Screens(raw: string | undefined): ReadonlySet<V1Screen> {
   return new Set(names.filter(isScreen));
 }
 
+/**
+ * The screens for this page load. In mock mode, where every client is a fake,
+ * `?v1=mandates` adds screens too, so the browser flows can walk both paths
+ * in one build. A live build only ever reads the build flag.
+ */
+export function v1ScreensFor(
+  raw: string | undefined,
+  mock: boolean,
+  search: string = location.search,
+): ReadonlySet<V1Screen> {
+  const extra = mock ? (new URLSearchParams(search).get('v1') ?? '') : '';
+  return parseV1Screens([raw ?? '', extra].join(','));
+}
+
 /** The /v1 client when this screen has moved and someone is signed in; null means use /api. */
 export function useV1(screen: V1Screen): V1Api | null {
   const { v1, v1Screens } = useApp();

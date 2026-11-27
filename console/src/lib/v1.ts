@@ -280,9 +280,12 @@ export interface MandateLimitsInput {
 
 /** A new mandate. The server names the project's agent key and the UJIRA executor. */
 export interface PrepareMandateInput {
+  /** What the principal calls it; typed back to confirm a revoke. */
+  readonly name?: string | undefined;
   readonly approvers: readonly string[];
   readonly approvalsRequired: number;
   readonly limits: MandateLimitsInput;
+  /** Ids of project recipients the mandate may pay from the start. */
   readonly recipients: readonly string[];
 }
 

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { z } from 'zod';
 
+import { signInEnabled } from '../auth/settings.js';
 import { TESTNET_RPC_URL } from '../chain/stellar/gateway.js';
 import { TESTNET_FRIENDBOT_URL, TESTNET_HORIZON_URL } from '../chain/stellar/network.js';
 import {
@@ -40,6 +41,8 @@ export interface ConsoleSettings {
   readonly consoleDir: string;
   /** The marketing site and the Instaward page, served at the root. */
   readonly siteDir: string;
+  /** The built embed widget, served under /embed/v1/. */
+  readonly embedDir: string;
   /** Pages asked for on any other host redirect to this one, such as ujira.co. */
   readonly canonicalHost?: string;
   readonly publicOrigin?: string;
@@ -50,6 +53,8 @@ export interface ConsoleSettings {
   readonly factory: string;
   readonly usdc: { readonly code: 'USDC'; readonly issuer: string; readonly contract: string };
   readonly limits: ConsoleLimits;
+  /** True when /v1 serves wallet sign in (UJIRA_SIGN_IN=on); the dashboard then asks for it. */
+  readonly signIn?: boolean;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -160,6 +165,7 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
     dataDir,
     consoleDir: resolve(value(env, 'UJIRA_CONSOLE_DIR') ?? packageDir('console', 'dist')),
     siteDir: resolve(value(env, 'UJIRA_SITE_DIR') ?? packageDir('site')),
+    embedDir: resolve(value(env, 'UJIRA_EMBED_DIR') ?? packageDir('embed', 'dist')),
     ...(canonicalHost === undefined ? {} : { canonicalHost }),
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
     horizonUrl: url(env, 'UJIRA_HORIZON_URL', TESTNET_HORIZON_URL),
@@ -175,6 +181,7 @@ export function loadConsoleSettings(env: Env = process.env): ConsoleSettings {
       apiCallsPerMinute: whole(env, 'UJIRA_API_CALLS_PER_MINUTE', 240, 1, 100_000),
       mandatePayoutsPerHour: whole(env, 'UJIRA_MANDATE_PAYOUTS_PER_HOUR', 30, 1, 10_000),
     },
+    signIn: signInEnabled(env),
   };
 }
 

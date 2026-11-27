@@ -67,6 +67,7 @@ export interface FakeV1Api extends V1Api {
 
 interface MandateRow {
   readonly id: string;
+  readonly name: string | null;
   readonly contractId: string;
   readonly createdAt: string;
   readonly principal: string;
@@ -228,6 +229,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     const free = m.balance - committed(m);
     return parse(mandateSchema, {
       id: m.id,
+      name: m.name,
       contractId: m.contractId,
       network: FAKE_NETWORK,
       asset: FAKE_ASSET,
@@ -421,6 +423,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     const t0 = now() - 3 * day;
     const m: MandateRow = {
       id: crypto.randomUUID(),
+      name: 'Weekly payouts',
       contractId: strkey('C'),
       createdAt: iso(t0),
       principal,
@@ -526,7 +529,18 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       }),
     mandate: (id) => step((_t, d) => mandateWire(mandateOf(d, id))),
     prepareMandate: (input) =>
-      step((t) => {
+      step((t, d) => {
+        const name = input.name?.trim() ?? '';
+        if (input.name !== undefined && (name === '' || name.length > 60)) {
+          throw fail('INVALID_REQUEST', 400, 'Name the mandate in up to 60 characters.');
+        }
+        // Only recipients of this project with a wallet can go on the allow list.
+        for (const rid of input.recipients) {
+          const r = d.recipients.get(rid);
+          if (r === undefined || r.address === null) {
+            throw fail('INVALID_REQUEST', 400, 'Every recipient needs a wallet first.');
+          }
+        }
         const l = input.limits;
         for (const a of [l.totalBudget, l.perPaymentCap, l.perRecipientDailyCap]) amountIn(a);
         if (l.approvalThreshold.amount < 0n) throw fail('INVALID_REQUEST', 400);
@@ -550,6 +564,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         if (!importable.has(contractId)) throw fail('FORBIDDEN', 403);
         const m: MandateRow = {
           id: crypto.randomUUID(),
+          name: null,
           contractId,
           createdAt: iso(),
           principal: t.address,
@@ -615,6 +630,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
           const l = pending.input.limits;
           const m: MandateRow = {
             id: crypto.randomUUID(),
+            name: pending.input.name?.trim() ?? null,
             contractId: strkey('C'),
             createdAt: at,
             principal: pending.principal,

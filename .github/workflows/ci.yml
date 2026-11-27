@@ -209,6 +209,66 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm audit --omit=dev
 
+  # The image the host runs, built from the Dockerfile and run the way a host
+  # runs it: both roles (the default) and the web role alone answer /healthz,
+  # the worker role alone opens no port, an unknown role refuses to start, and
+  # SIGTERM stops each within 20 s, the web role first. scripts/check-image.sh
+  # holds the checks, so they run the same on a laptop.
+  image:
+    name: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the image
+        run: docker build --tag ujira-mcp:ci .
+
+      - name: Run each role
+        run: scripts/check-image.sh ujira-mcp:ci
+
+  # The local Postgres in docker-compose.yml: it comes up healthy and takes a
+  # password login from the host with the URL the README documents.
+  local-db:
+    name: local-db
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Start Postgres
+        run: docker compose up --detach --wait db
+
+      - name: Connect with the documented URL
+        env:
+          UJIRA_DB_MIGRATOR_URL: postgresql://ujira:ujira@127.0.0.1:54329/ujira
+        run: |
+          version=$(psql "$UJIRA_DB_MIGRATOR_URL" --no-psqlrc --tuples-only --no-align --command 'show server_version')
+          echo "server_version $version"
+          case "$version" in
+            17.*) ;;
+            *)
+              echo "expected Postgres 17, got $version" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Stop Postgres
+        if: ${{ always() }}
+        run: docker compose down --volumes
+
   # The console web app served at /app. Same rules as the server, plus the
   # production build the image ships and the license allowlist.
   console:
@@ -308,3 +368,77 @@ jobs:
           path: console/e2e/screenshots/
           if-no-files-found: warn
           retention-days: 14
+
+  # The embed widget served at /embed/v1/ujira-embed.js. Same rules as the
+  # console, plus the size budget, which the build itself enforces, and the
+  # browser tests against the built file on a plain HTML page, with axe.
+  embed:
+    name: embed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+        working-directory: embed
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install
+        id: install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
+
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run format:check
+
+      - name: Test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test
+
+      # Builds dist/ujira-embed.js and fails above 60 KB gzipped.
+      - name: Build and check the size budget
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run build
+
+      - name: Check licenses
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run licenses
+
+      - name: Audit production dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --omit=dev
+
+      - name: Install the browser
+        id: browser
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: timeout 600 node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Browser tests with axe
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        run: npm run e2e
+
+      - name: Keep the browser test report
+        if: ${{ failure() && steps.browser.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: embed-playwright-report
+          path: embed/playwright-report
+          if-no-files-found: warn
+          retention-days: 7

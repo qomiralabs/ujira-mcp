@@ -84,12 +84,16 @@ function positive(input: string, name: string): { minor?: string; error?: string
   return { minor: parsed.minor };
 }
 
-export function validateDraft(
-  draft: MandateDraft,
-  options: { walletUsdc?: string | null; nowSeconds: number; maxRecipients?: number },
-): { ok: true; plan: MandatePlan } | { ok: false; errors: DraftErrors } {
-  const errors: Partial<Record<DraftField, string>> = {};
-  const recipientRows: Record<number, string> = {};
+export type RulesDraft = Omit<MandateDraft, 'recipients'>;
+export type RulesPlan = Omit<MandatePlan, 'recipients'>;
+type RulesField = Exclude<DraftField, 'recipients'>;
+
+/** The money rules and the end date of a mandate, without its recipients. */
+export function validateRules(
+  draft: RulesDraft,
+  options: { walletUsdc?: string | null; nowSeconds: number },
+): { ok: true; rules: RulesPlan } | { ok: false; errors: Partial<Record<RulesField, string>> } {
+  const errors: Partial<Record<RulesField, string>> = {};
 
   const budget = positive(draft.budget, 'The budget');
   if (budget.error !== undefined) errors.budget = budget.error;
@@ -141,6 +145,28 @@ export function validateDraft(
     errors.expiryDays = `Choose a whole number of days from 1 to ${MAX_EXPIRY_DAYS}.`;
   }
 
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    rules: {
+      budget: budget.minor ?? '0',
+      perPaymentCap: cap.minor ?? '0',
+      dailyCap: daily.minor ?? '0',
+      approvalThreshold: threshold.minor ?? '0',
+      expiresAt: options.nowSeconds + Number(days) * 86_400,
+      fund: fund.minor ?? '0',
+    },
+  };
+}
+
+export function validateDraft(
+  draft: MandateDraft,
+  options: { walletUsdc?: string | null; nowSeconds: number; maxRecipients?: number },
+): { ok: true; plan: MandatePlan } | { ok: false; errors: DraftErrors } {
+  const rules = validateRules(draft, options);
+  const errors: Partial<Record<DraftField, string>> = rules.ok ? {} : { ...rules.errors };
+  const recipientRows: Record<number, string> = {};
+
   const limit = options.maxRecipients ?? 10;
   if (draft.recipients.length === 0) {
     errors.recipients = 'Add at least one recipient, or press "Add a test recipient".';
@@ -160,7 +186,7 @@ export function validateDraft(
     labels.add(label);
   });
 
-  if (Object.keys(errors).length > 0 || Object.keys(recipientRows).length > 0) {
+  if (!rules.ok || Object.keys(errors).length > 0 || Object.keys(recipientRows).length > 0) {
     return {
       ok: false,
       errors: Object.keys(recipientRows).length > 0 ? { ...errors, recipientRows } : errors,
@@ -169,12 +195,7 @@ export function validateDraft(
   return {
     ok: true,
     plan: {
-      budget: budget.minor ?? '0',
-      perPaymentCap: cap.minor ?? '0',
-      dailyCap: daily.minor ?? '0',
-      approvalThreshold: threshold.minor ?? '0',
-      expiresAt: options.nowSeconds + Number(days) * 86_400,
-      fund: fund.minor ?? '0',
+      ...rules.rules,
       recipients: draft.recipients.map((r) => ({
         label: r.label.trim(),
         address: r.address.trim(),

@@ -2,23 +2,25 @@
 // Copyright 2026 Qomira Labs
 
 // Every page on the one domain: the marketing site at the root, the
-// Instaward proof page, and the dashboard app under /app. The API and the
-// MCP routes are answered before a request gets here, so nothing below can
-// change them.
+// Instaward proof page, the dashboard app under /app, and the embed widget
+// under /embed/v1/. The API and the MCP routes are answered before a request
+// gets here, so nothing below can change them.
 //
 // Links to where these pages used to live keep working through permanent
 // redirects. With a canonical host set, a page asked for on any other host
-// (the platform URL, www) moves to the canonical one, while the API and MCP
-// keep answering everywhere so connectors already pointed at an old host
-// do not break.
+// (the platform URL, www) moves to the canonical one, while the API, MCP and
+// the widget keep answering everywhere so connectors and pages already
+// pointed at an old host do not break.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 
 import {
+  CACHE_EMBED,
   CACHE_IMMUTABLE,
   CACHE_REVALIDATE,
   CACHE_SHORT,
+  EMBED_HEADERS,
   SECURITY_HEADERS,
   cleanPath,
   fileIn,
@@ -31,11 +33,19 @@ export interface WebOptions {
   readonly siteDir: string;
   /** The built dashboard app, served under /app. */
   readonly appDir: string;
+  /** The built embed widget, ujira-embed.js, served under /embed/v1/. */
+  readonly embedDir: string;
   /** Pages on any other host redirect here; unset leaves every host as it is. */
   readonly canonicalHost?: string;
 }
 
 export const APP_BASE = '/app';
+
+/** The widget's path carries its major version; a breaking change is v2, beside v1. */
+export const EMBED_BASE = '/embed/v1/';
+
+/** One script file name directly under the versioned folder, nothing deeper. */
+const EMBED_FILE = /^[a-z0-9][a-z0-9-]*\.js$/;
 
 /** Site folders served as they are. Everything else at the root is a named page or 404. */
 const SITE_FOLDERS = ['/assets/', '/data/'];
@@ -168,11 +178,28 @@ export function createWeb(o: WebOptions) {
     await sendFile(req, res, appIndex, CACHE_REVALIDATE);
   }
 
+  /** The widget script, for a page on any origin; anything else under /embed is a 404. */
+  async function embed(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+    const name = path.startsWith(EMBED_BASE) ? path.slice(EMBED_BASE.length) : '';
+    const file = EMBED_FILE.test(name) ? fileIn(o.embedDir, `/${name}`) : undefined;
+    if (file === undefined || !(await isFile(file))) {
+      await notFound(req, res);
+      return;
+    }
+    await sendFile(req, res, file, CACHE_EMBED, 200, EMBED_HEADERS);
+  }
+
   return async (req: IncomingMessage, res: ServerResponse, rawPath: string): Promise<boolean> => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return false;
     const rawUrl = req.url ?? rawPath;
     const query = queryOf(rawUrl);
     const path = cleanPath(rawPath);
+    // Before the canonical host: a page elsewhere that loads the widget from
+    // an old host keeps working, and a script is never sent through a redirect.
+    if (path !== undefined && (path === '/embed' || path.startsWith('/embed/'))) {
+      await embed(req, res, path);
+      return true;
+    }
     const moved = path === undefined ? undefined : movedTo(path, new URLSearchParams(query));
     const canonical = o.canonicalHost;
     if (canonical !== undefined && !isCanonicalHost(requestHost(req), canonical)) {

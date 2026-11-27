@@ -2,109 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// Starts the public MCP server over HTTP. Configuration comes only from the
-// environment; see the README. Every log line is one JSON object on stdout,
-// passed through the redacting sink in src/log.ts, so none carries a key, a
-// signature, a caller's address or a request body.
-//
-// This is a composition root, one of the few files allowed to import
-// src/demo, and it builds the demo only when UJIRA_DEMO_FEATURES is on.
+// The `ujira-mcp-http` command: the web role on its own, whatever
+// UJIRA_ROLES says. The image runs src/server/main.ts, which picks the roles.
+// Configuration comes only from the environment; see the README. Every log
+// line is one JSON object on stdout, passed through the redacting sink in
+// src/log.ts, so none carries a key, a signature, a caller's address or a
+// request body.
 
-import { accessSync, constants, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-
-import { createV1App } from '../api/app.js';
-import { nodeHandler } from '../api/node.js';
-import { createEngine, demoFeatures, loadSettings } from '../config.js';
-import { consoleFromEnv } from '../console/index.js';
-import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { jsonLog } from '../log.js';
-import { observabilityFromEnv } from '../server/observability.js';
-import { createHttpServer } from './http.js';
-import { loadHttpSettings } from './public.js';
+import { runServer } from '../server/run.js';
+import { ListenError, startWeb } from '../server/web.js';
 
 const log = jsonLog({
   service: 'ujira-mcp-http',
   write: (json) => process.stdout.write(`${json}\n`),
 });
 
-/**
- * A receipt is written after the money moves, so a log it cannot write to
- * must stop the server at start, not after a payout.
- */
-function checkReceiptsWritable(path: string): void {
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    accessSync(dirname(path), constants.W_OK);
-  } catch (error) {
-    throw new EngineError(
-      'config_invalid',
-      'the directory of UJIRA_RECEIPTS_FILE is not writable',
-      {
-        cause: error,
-      },
-    );
-  }
-}
-
-function main(): void {
-  // First, so a demo asked for on another network stops the server before anything else.
-  const withDemo = demoFeatures();
-  const settings = loadSettings();
-  const http = loadHttpSettings();
-  checkReceiptsWritable(settings.receiptsPath);
-  const demo = withDemo ? createDemo({ base: settings, log }) : undefined;
-  const wiring = createEngine(settings, {
-    log,
-    ...(demo === undefined ? {} : { extraRails: (mandate) => demo.rails(mandate) }),
-  });
-  const observe = observabilityFromEnv({ env: process.env, settings, wiring, log });
-  const { routes, keepAlive } = consoleFromEnv({
-    base: settings,
-    wiring,
-    http,
-    log,
-    ...(demo === undefined ? {} : { extend: (parts) => demo.console(parts) }),
-  });
-  const server = createHttpServer({
-    settings: http,
-    log,
-    extra: routes,
-    v1: nodeHandler(createV1App({ log }).app),
-    deepHealth: observe.deepHealth,
-    ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
-  });
-  log(demo === undefined ? 'demo off' : demo.summary());
-  demo?.start();
-  log(`keep alive: ${keepAlive === undefined ? 'off' : 'on'}`);
-  keepAlive?.start();
-  observe.start();
-  server.on('error', (error: NodeJS.ErrnoException) => {
-    process.stderr.write(`ujira-mcp-http: cannot listen (${error.code ?? error.name})\n`);
-    process.exit(1);
-  });
-  server.listen(http.port, http.host, () => {
-    log(
-      `ready on testnet at ${http.host}:${http.port}, mandate ${settings.mandateId}, agent ${settings.agent.publicKey}`,
-    );
-  });
-  const stop = () => {
-    demo?.stop();
-    keepAlive?.stop();
-    void observe.stop();
-    server.close();
-    // Let a payout in flight finish, but not forever.
-    setTimeout(() => process.exit(0), 10_000).unref();
-  };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
-}
-
 try {
-  main();
+  await runServer({
+    roles: ['web'],
+    factories: { web: () => startWeb(process.env, log) },
+    proc: process,
+    log,
+  });
 } catch (error) {
-  const message = error instanceof EngineError ? error.message : 'failed to start';
+  const message =
+    error instanceof EngineError || error instanceof ListenError
+      ? error.message
+      : 'failed to start';
   process.stderr.write(`ujira-mcp-http: ${message}\n`);
   process.exit(1);
 }

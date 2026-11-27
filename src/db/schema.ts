@@ -211,6 +211,70 @@ export interface WebhookDeliveriesTable {
   readonly created_at: DefaultTimestamp;
 }
 
+export interface AgentKeysTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly network: string;
+  readonly public_key: string;
+  readonly secret_ciphertext: Buffer;
+  readonly secret_nonce: Buffer;
+  readonly status: Generated<string>;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface MandatesTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly name: string;
+  readonly chain: string;
+  readonly network: string;
+  readonly contract_address: string;
+  readonly asset: string;
+  readonly scale: number;
+  readonly agent_key_id: string | null;
+  readonly agent_address: string;
+  readonly principal_wallet: string;
+  readonly created_tx_hash: Buffer | null;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface RecipientsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly mandate_id: string;
+  readonly label: string;
+  readonly recipient_ref: Buffer;
+  readonly status: Generated<string>;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface RecipientPiiTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly recipient_id: string;
+  readonly email_ciphertext: Buffer;
+  readonly email_nonce: Buffer;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+export interface PayoutMethodsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly recipient_id: string;
+  readonly method: string;
+  readonly destination_address: string;
+  readonly verified_at: NullableTimestamp;
+  readonly created_at: Generated<Date>;
+}
+
 export interface Schema {
   'ujira.chains': ChainsTable;
   'ujira.currencies': CurrenciesTable;
@@ -232,6 +296,11 @@ export interface Schema {
   'ujira.outbox_events': OutboxEventsTable;
   'ujira.webhook_endpoints': WebhookEndpointsTable;
   'ujira.webhook_deliveries': WebhookDeliveriesTable;
+  'ujira.agent_keys': AgentKeysTable;
+  'ujira.mandates': MandatesTable;
+  'ujira.recipients': RecipientsTable;
+  'ujira.recipient_pii': RecipientPiiTable;
+  'ujira.payout_methods': PayoutMethodsTable;
 }
 
 // Every column above, by table, for the schema test. Checked against the
@@ -360,6 +429,65 @@ export const SCHEMA_COLUMNS = {
     status: true,
     response_status: true,
     error_code: true,
+    created_at: true,
+  },
+  'ujira.agent_keys': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    network: true,
+    public_key: true,
+    secret_ciphertext: true,
+    secret_nonce: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.mandates': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    name: true,
+    chain: true,
+    network: true,
+    contract_address: true,
+    asset: true,
+    scale: true,
+    agent_key_id: true,
+    agent_address: true,
+    principal_wallet: true,
+    created_tx_hash: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.recipients': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    mandate_id: true,
+    label: true,
+    recipient_ref: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.recipient_pii': {
+    principal_id: true,
+    project_id: true,
+    recipient_id: true,
+    email_ciphertext: true,
+    email_nonce: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.payout_methods': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    recipient_id: true,
+    method: true,
+    destination_address: true,
+    verified_at: true,
     created_at: true,
   },
 } as const satisfies { readonly [T in keyof Schema]: Record<keyof Schema[T], true> };

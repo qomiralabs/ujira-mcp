@@ -49,6 +49,7 @@
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "demo": "tsx examples/demo.ts",
     "console:e2e": "tsx examples/console-e2e.ts",
+    "start": "node dist/server/main.js",
     "start:http": "node dist/mcp/http-main.js",
     "prepack": "npm run build"
   },

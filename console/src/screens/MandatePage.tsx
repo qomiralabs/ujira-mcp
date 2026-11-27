@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { explorerAccount, explorerContract, useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
 import { usePortfolio } from '../app/portfolio';
+import { useSession } from '../app/session';
+import { useV1 } from '../app/switch';
 import { AgentPanel } from '../components/AgentPanel';
 import { Approvals } from '../components/Approvals';
 import { ConnectClaude } from '../components/ConnectClaude';
@@ -34,6 +36,7 @@ import type { Mandate } from '../lib/schemas';
 import { buildSignSubmit } from '../lib/sign';
 import { shortAddress } from '../lib/strkey';
 import { MANDATE_STATUS, mandateStatus } from '../lib/words';
+import { MandateV1 } from './MandatesV1';
 
 const POLL_MS = 15_000;
 
@@ -367,6 +370,15 @@ function BackLink() {
 }
 
 export function MandatePage({ id }: { id: string }) {
+  const v1 = useV1('mandates');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <MandateV1 key={session.project.id} v1={v1} projectId={session.project.id} id={id} />;
+  }
+  return <MandatePageApi id={id} />;
+}
+
+function MandatePageApi({ id }: { id: string }) {
   const { api, config } = useApp();
   const portfolio = usePortfolio();
   const reloadPortfolio = portfolio?.reload;

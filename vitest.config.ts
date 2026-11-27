@@ -35,7 +35,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
-          exclude: ['src/db/**'],
+          exclude: ['src/db/**', '**/*.db.test.ts'],
         },
       },
       {
@@ -43,11 +43,12 @@ export default defineConfig({
         // through the global setup, which needs a docker daemon: they fail
         // without one rather than skipping, so an empty run cannot look like
         // a passing one. The template database is migrated once, and each
-        // test file gets a fresh clone of it.
+        // test file gets a fresh clone of it. A module outside src/db that
+        // needs a real database names its test *.db.test.ts.
         extends: true,
         test: {
           name: 'db',
-          include: ['src/db/**/*.test.ts'],
+          include: ['src/db/**/*.test.ts', 'src/**/*.db.test.ts', 'test/**/*.db.test.ts'],
           globalSetup: ['src/db/testing/global-setup.ts'],
           hookTimeout: 180_000,
           testTimeout: 120_000,
@@ -64,10 +65,12 @@ export default defineConfig({
         '**/*.d.ts',
         // Broken on purpose for the lint tests, and never run.
         'src/**/*.fixture.ts',
-        // main.ts and http-main.ts only wire the real network to stdio or a
-        // port; the servers they start are covered in memory and over HTTP.
+        // The entry points only wire the real network to stdio, a port or a
+        // signal; what they start is covered in memory and over HTTP, and
+        // test/server-process.test.ts runs src/server/main.ts as a child.
         'src/mcp/main.ts',
         'src/mcp/http-main.ts',
+        'src/server/main.ts',
         // The only code that runs in the vitest global setup, in the main
         // process, where the workers' coverage cannot see it. Its behaviour is
         // covered by testing/harness.test.ts against the real container.

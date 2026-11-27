@@ -117,6 +117,35 @@ export {
   type WebhookEndpoint,
   type WebhookEndpointStatus,
 } from './repositories/outbox.js';
+export { RepositoryInputError, type AccountParser } from './repositories/values.js';
+export {
+  agentKeys,
+  type AgentKey,
+  type AgentKeyStatus,
+  type NewAgentKey,
+  type SealedAgentSecret,
+} from './repositories/agent-keys.js';
+export {
+  mandates,
+  type Mandate,
+  type MandateAgent,
+  type NewMandate,
+} from './repositories/mandates.js';
+export {
+  payoutMethods,
+  PayoutMethodRefusedError,
+  recipientPii,
+  recipients,
+  type DestinationCheck,
+  type NewRecipient,
+  type NewWalletMethod,
+  type PayoutMethod,
+  type PayoutMethodKind,
+  type PayoutMethodRefusal,
+  type Recipient,
+  type RecipientStatus,
+  type SealedEmail,
+} from './repositories/recipients.js';
 export {
   SECURITY_EVENT_KINDS,
   securityEvents,

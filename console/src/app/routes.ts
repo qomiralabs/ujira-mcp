@@ -40,7 +40,9 @@ const SIMPLE: Readonly<Record<string, Exclude<PageName, 'mandate' | 'not-found'>
   '/activity': 'activity',
 };
 
-const MANDATE_PATH = /^\/mandates\/([A-Z0-9]{56})$/;
+// A contract address on /api, a UUID on /v1.
+const MANDATE_PATH =
+  /^\/mandates\/([A-Z0-9]{56}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 /** The page for a location path, with the base prefix taken off first. */
 export function parsePath(pathname: string, base: string = BASE_PATH): Route {

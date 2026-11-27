@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from './app/App';
 import { migrateLegacyHash } from './app/routes';
-import { parseV1Screens } from './app/switch';
+import { v1ScreensFor } from './app/switch';
 import { createHttpApi, type ConsoleApi } from './lib/api';
 import { createHttpAuthApi, type AuthApi } from './lib/auth';
 import { createHttpV1Api, createV1Transport, type V1Api } from './lib/v1';
@@ -18,7 +18,7 @@ import { mockRequested } from './lib/wallet';
 // Links from before the move to /app used hash routes; read them as paths.
 migrateLegacyHash();
 const mock = mockRequested();
-const v1Screens = parseV1Screens(import.meta.env.VITE_V1_SCREENS);
+const v1Screens = v1ScreensFor(import.meta.env.VITE_V1_SCREENS, mock);
 
 async function clients(): Promise<{ api: ConsoleApi; auth: AuthApi; v1: V1Api }> {
   if (mock) {

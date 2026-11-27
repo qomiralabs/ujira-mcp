@@ -132,6 +132,7 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
   const pages = createWeb({
     siteDir: settings.siteDir,
     appDir: settings.consoleDir,
+    embedDir: settings.embedDir,
     ...(settings.canonicalHost === undefined ? {} : { canonicalHost: settings.canonicalHost }),
   });
   /** Labels typed for an allow_recipients transaction that has not landed yet. */
@@ -188,6 +189,9 @@ export function createConsole(o: ConsoleOptions): ExtraRoutes {
       // The dashboard offers the faucet unless told it is off.
       faucet: { amount: '0', enabled: false },
       ...extension?.config(),
+      // Last, so nothing can tell the dashboard to ask for a sign in the
+      // server is not serving.
+      signIn: settings.signIn === true,
     };
   }
 

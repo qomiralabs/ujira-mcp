@@ -68,8 +68,16 @@ describe('console API: config and accounts', () => {
       sdpAvailable: false,
       sdpProofUrl: 'https://qomiralabs.github.io/ujira-demo/instaward.html',
       faucet: { amount: '500000000', target: '500000000', cooldownSeconds: 600, enabled: true },
+      // Off until UJIRA_SIGN_IN turns it on, so the live site does not change.
+      signIn: false,
     });
     expect(JSON.stringify(json)).not.toContain(treasury.publicKey);
+  });
+
+  it('tells the dashboard to ask for a sign in once the server serves it', async () => {
+    const { base } = await start({ settings: consoleSettings({ signIn: true }) });
+    const { json } = await api(base, '/api/config');
+    expect(json).toMatchObject({ signIn: true });
   });
 
   it('reads an account, and says when it does not exist', async () => {

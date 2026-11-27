@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Qomira Labs
+#
+# Local services only; nothing here is used in production. `docker compose up
+# db` starts Postgres 17 for the server and the database tests, with the
+# connection settings listed under "Local Postgres" in the README.
+#
+# The login and password are fixed local development values, not secrets:
+# the port is published on the loopback address only, and a real database
+# never uses them.
+
+name: ujira-mcp
+
+services:
+  db:
+    # The same release the database test harness pins, by digest, so a local
+    # run and CI see the same server.
+    image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+    environment:
+      POSTGRES_USER: ujira
+      POSTGRES_PASSWORD: ujira
+      POSTGRES_DB: ujira
+      # Password logins over TCP, the way the hosted poolers work.
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      # 54329, not 5432, so it never fights another Postgres on the machine.
+      - '127.0.0.1:${UJIRA_DB_PORT:-54329}:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ujira -d ujira -h 127.0.0.1']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 20s
+
+volumes:
+  db-data:

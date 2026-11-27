@@ -6,6 +6,8 @@
 import { useId, useState, type ReactNode } from 'react';
 
 import { useApp } from '../app/context';
+import { useSession } from '../app/session';
+import { useV1 } from '../app/switch';
 import {
   allPayouts,
   allReceipts,
@@ -25,6 +27,7 @@ import { Amount, Empty, ErrorNotice, Icon, Notice, Skeleton, SoonRow } from '../
 import { formatUsdc } from '../lib/money';
 import type { Mandate, Receipt } from '../lib/schemas';
 import { shortAddress } from '../lib/strkey';
+import { MandatesV1 } from './MandatesV1';
 
 /** Shows the page once a wallet is connected, else asks for one. */
 function WithPortfolio({
@@ -85,6 +88,11 @@ function PortfolioProblems({ portfolio }: { portfolio: Portfolio }) {
 }
 
 export function MandatesPage() {
+  const v1 = useV1('mandates');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <MandatesV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
   return (
     <WithPortfolio what="your mandates">
       {(portfolio) => (

@@ -2,9 +2,10 @@
 // Copyright 2026 Qomira Labs
 
 // The /v1 routes that need a database: sign in, principals and projects, API
-// keys, payouts, recipients and mandates, all on one database and one chain
-// adapter, behind one authenticate. Kept apart from the web role so a test can
-// build exactly what the server mounts, on a test database and a fake chain.
+// keys, payouts, recipients, mandates and the MCP over payouts, all on one
+// database and one chain adapter, behind one authenticate. Kept apart from the
+// web role so a test can build exactly what the server mounts, on a test
+// database and a fake chain.
 //
 // Every new project gets its agent key here, and recipients seal a person's
 // email, both under the key encryption key. A project without a key could
@@ -34,6 +35,8 @@ import { payoutJobQueue, type Database } from '../db/index.js';
 import { createAgentKeyService, type AgentKeyService } from '../keys/agent-keys.js';
 import { postgresAgentKeyStore } from '../keys/postgres-store.js';
 import type { Sealer } from '../keys/sealer.js';
+import { v1McpRoutes } from '../mcp/v1.js';
+import { databaseMcpReads } from '../mcp/v1-reads.js';
 import {
   databaseFeeLedger,
   DEFAULT_FEE_SPONSOR_DAILY_CAP,
@@ -110,21 +113,24 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
     },
   });
   const authenticate = createAuthenticate({ tokens, session });
+  const payouts = createPayoutService({
+    store: databasePayoutStore(db, payoutJobQueue),
+    chain: o.adapter,
+    destinationAsset: () => RECIPIENT_DESTINATION_ASSET,
+    log,
+  });
   const routes: Route[] = [
     ...authRoutes(session),
     ...tenancyRoutes({ signIn, tenancy, origin: o.origin }),
     ...apiKeyRoutes({ keys, authenticate }),
     // A payout is written with its first job, which the worker role runs.
     ...payoutRoutes({
-      service: createPayoutService({
-        store: databasePayoutStore(db, payoutJobQueue),
-        chain: o.adapter,
-        destinationAsset: () => RECIPIENT_DESTINATION_ASSET,
-        log,
-      }),
+      service: payouts,
       authenticate,
       idempotency: { store: databaseIdempotencyStore(db), log },
     }),
+    // The same payout service, so a tool call and POST /v1/payouts share every rule.
+    ...v1McpRoutes({ payouts, reads: databaseMcpReads(db), authenticate, log }),
   ];
   if (o.executor !== undefined) {
     // Every principal signed transaction goes out fee bumped, charged to the

@@ -70,7 +70,7 @@ const metadataSchema = z
       }),
   );
 
-const createBody = z
+export const createPayoutBody = z
   .object({
     mandateId: lowerUuid,
     recipientId: lowerUuid,
@@ -80,7 +80,7 @@ const createBody = z
   })
   .strict();
 
-const quoteBody = z
+export const quotePayoutBody = z
   .object({
     mandateId: lowerUuid,
     recipientId: lowerUuid,
@@ -279,7 +279,7 @@ export function payoutRoutes(o: PayoutRouteOptions): Route[] {
     description:
       'Quotes the payout against the mandate, then writes it with its leg and its first job in one transaction. A payout the mandate refuses is written as blocked with the spec error in blockedBy, and gets a receipt later. The same Idempotency-Key and body answer the first payout again; the same task on the mandate under another key is TASK_ID_REUSED.',
     tags: ['payouts'],
-    body: createBody,
+    body: createPayoutBody,
     status: 202,
     response: z.object({ payout: payoutDetailSchema }).strict(),
     responseDescription: 'The payout, accepted',
@@ -317,7 +317,7 @@ export function payoutRoutes(o: PayoutRouteOptions): Route[] {
     description:
       'What the mandate would do with this payout now: allowed, approval_required, or blocked with the spec error. Nothing is written.',
     tags: ['payouts'],
-    body: quoteBody,
+    body: quotePayoutBody,
     response: z.object({ quote: quoteSchema }).strict(),
     errors: [...AUTH_ERRORS, 'NOT_FOUND', 'MANDATE_REFUSED', 'CHAIN_UNAVAILABLE', 'DB_UNAVAILABLE'],
     handler: async ({ body }, c) => {

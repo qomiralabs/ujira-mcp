@@ -124,7 +124,8 @@ export function createV1App(options: V1AppOptions = {}): V1App {
   app.use(bodyGuard(options.maxBodyBytes ?? MAX_BODY_BYTES));
 
   for (const route of routes) {
-    app.on(route.method.toUpperCase(), honoPath(route.path), (c) => route.run(c));
+    const methods = [route.method, ...(route.alsoMounted ?? [])].map((m) => m.toUpperCase());
+    app.on(methods, honoPath(route.path), (c) => route.run(c));
   }
 
   app.notFound((c) => errorResponse(c, 'NOT_FOUND', 404, 'No such route'));

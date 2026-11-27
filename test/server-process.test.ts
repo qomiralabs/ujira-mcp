@@ -125,6 +125,50 @@ describe('src/server/main.ts', { timeout: 60_000 }, () => {
     expect(run.out()).not.toContain('not-shown');
   });
 
+  it('skips the migrations when no database is configured, before any role starts', async () => {
+    const run = start({ UJIRA_ROLES: 'worker' });
+    await until(() => run.out().includes('ujira-server: running worker'), 15_000);
+    const lines = run.out().split('\n');
+    const skipped = lines.indexOf(
+      'ujira-server: migrations skipped: UJIRA_DB_MIGRATOR_URL is not set',
+    );
+    expect(skipped).toBeGreaterThan(-1);
+    expect(skipped).toBeLessThan(lines.indexOf('ujira-server: running worker'));
+    run.child.kill('SIGTERM');
+    expect(await run.exited).toEqual({ code: 0, signal: null });
+  });
+
+  it('exits 1 without listening when the migrations fail, and never prints the password', async () => {
+    const env = await webEnv();
+    const port = Number(env['PORT']);
+    const password = 'migrator-password-not-real-9c1e';
+    // Nothing listens on this port, so the run fails to connect.
+    const database = await freePort();
+    const run = start({
+      ...env,
+      UJIRA_DB_TLS: 'off',
+      UJIRA_DB_MIGRATOR_URL: `postgresql://ujira_migrator:${password}@127.0.0.1:${String(database)}/ujira`,
+    });
+    expect(await run.exited).toEqual({ code: 1, signal: null });
+    expect(run.err()).toMatch(/^ujira-server: migrations failed: .+\n$/);
+    expect(run.out()).toContain('ujira-server: migrations starting, under the migrator login');
+    expect(run.out()).not.toContain('running');
+    expect(run.out() + run.err()).not.toContain(password);
+    expect(await tryConnect(port)).toBe('ECONNREFUSED');
+  });
+
+  it('refuses a migrator URL on the PgBouncer port before connecting', async () => {
+    const run = start({
+      UJIRA_ROLES: 'worker',
+      UJIRA_DB_MIGRATOR_URL: 'postgresql://ujira_migrator:secret@db.example.test:6432/ujira',
+    });
+    expect(await run.exited).toEqual({ code: 1, signal: null });
+    expect(run.err()).toBe(
+      'ujira-server: migrations refused: UJIRA_DB_MIGRATOR_URL must not use the transaction pooler port 6432: the migration lock is held in the session, so connect directly on 5432\n',
+    );
+    expect(run.out()).not.toContain('running');
+  });
+
   it('runs web and worker when UJIRA_ROLES is unset, answers /healthz, and stops web first', async () => {
     const env = await webEnv();
     const port = Number(env['PORT']);

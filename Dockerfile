@@ -51,6 +51,9 @@ COPY package.json package-lock.json LICENSE ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm cache clean --force
 COPY --from=build /app/dist ./dist
+# The server runs the pending migrations before its roles start, when
+# UJIRA_DB_MIGRATOR_URL is set; dist/db/migrate.js reads them from here.
+COPY db/migrations ./db/migrations
 COPY --from=console /console/dist ./console/dist
 COPY --from=embed /embed/dist ./embed/dist
 COPY site ./site

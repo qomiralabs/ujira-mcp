@@ -59,6 +59,12 @@ export {
   type MigrationDirection,
   type MigrationRun,
 } from './migrate.js';
+export {
+  migrateBeforeStart,
+  MigrationStartError,
+  START_LOCK_WAIT_MS,
+  type StartMigration,
+} from './migrate-start.js';
 export { TENANT_SETTINGS, type TenantContext, type TenantScope } from './tenant.js';
 export {
   constraintViolation,

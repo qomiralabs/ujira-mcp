@@ -60,7 +60,7 @@ export interface Clock {
   now: number;
 }
 
-interface SessionRow {
+export interface SessionRow {
   readonly id: string;
   readonly memberId: string;
   readonly wallet: string;
@@ -84,13 +84,13 @@ export class MemorySignInStore implements SignInStore {
   /** When set, every call rejects with it, as an outage would. */
   failWith: Error | undefined;
 
-  constructor(private readonly clock: Clock) {}
+  constructor(protected readonly clock: Clock) {}
 
-  private check(): void {
+  protected check(): void {
     if (this.failWith !== undefined) throw this.failWith;
   }
 
-  private live(hash: Buffer): SessionRow | undefined {
+  protected live(hash: Buffer): SessionRow | undefined {
     const row = this.sessions.get(hash.toString('hex'));
     if (row === undefined || row.revoked !== null) return undefined;
     const now = this.clock.now;
@@ -103,7 +103,7 @@ export class MemorySignInStore implements SignInStore {
     this.memberships.set(memberId, [...(this.memberships.get(memberId) ?? []), principal]);
   }
 
-  private memberOf(walletAddress: string): string {
+  protected memberOf(walletAddress: string): string {
     const known = this.members.get(walletAddress);
     if (known !== undefined) return known;
     const id = randomUUID();
@@ -249,6 +249,8 @@ export interface CallOptions {
   /** null sends no Origin header. */
   readonly origin?: string | null;
   readonly client?: string;
+  /** Sent as Ujira-Project, the project the request names. */
+  readonly project?: string;
 }
 
 export type Call = (method: string, path: string, o?: CallOptions) => Promise<Answer>;
@@ -260,6 +262,7 @@ export function clientFor(app: V1App['app']): Call {
     const origin = o.origin === undefined ? ORIGIN : o.origin;
     if (origin !== null) headers['origin'] = origin;
     if (o.cookie !== undefined) headers['cookie'] = `${SESSION_COOKIE}=${o.cookie}`;
+    if (o.project !== undefined) headers['ujira-project'] = o.project;
     const res = await app.fetch(
       new Request(`${ORIGIN}${path}`, {
         method,

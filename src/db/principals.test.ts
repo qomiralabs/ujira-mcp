@@ -11,6 +11,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database } from './database.js';
+import { audit } from './repositories/audit.js';
 import { entryPoints } from './repositories/entry-points.js';
 import { PageRequestError } from './repositories/page.js';
 import { members, principals, projects } from './repositories/tenancy.js';
@@ -144,6 +145,59 @@ describe('principals', () => {
     expect(await codeOf(create({ projectName: '' }))).toBe('23514');
     expect(await codeOf(create({ ownerWallet: 'not a wallet' }))).toBe('23514');
     expect(await counts()).toEqual(middle);
+  });
+
+  it('create_principal starts the audit chain with principal.created by its owner, or writes none', async () => {
+    const created = await create();
+    const rows = await admin.query<{
+      project_id: string;
+      seq: string;
+      action: string;
+      actor_kind: string;
+      actor_id: string;
+    }>(
+      `select project_id, seq::text as seq, action, actor_kind, actor_id
+         from ujira.audit_log where principal_id = $1 order by seq`,
+      [created.principalId],
+    );
+    expect(rows.rows).toEqual([
+      {
+        project_id: created.projectId,
+        seq: '1',
+        action: 'principal.created',
+        actor_kind: 'member',
+        actor_id: created.memberId,
+      },
+    ]);
+    const verified = await db.principal(created).transaction(async (tx) => audit.verify(tx));
+    expect(verified).toEqual({ rows: 1n, firstBreak: null });
+
+    const before = await admin.query<{ count: number }>(
+      'select count(*)::integer as count from ujira.audit_log',
+    );
+    expect(await codeOf(create({ projectName: '' }))).toBe('23514');
+    const after = await admin.query<{ count: number }>(
+      'select count(*)::integer as count from ujira.audit_log',
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it('lets create_principal write no audit row but its own', async () => {
+    // The definer role may insert only principal.created by a member; any
+    // other row is refused by its policy even if the function were changed.
+    const policy = await admin.query<{ check: string }>(
+      `select pg_get_expr(p.polwithcheck, p.polrelid) as check
+         from pg_policy p
+        where p.polrelid = 'ujira.audit_log'::regclass and p.polname = 'create_principal'`,
+    );
+    expect(policy.rows[0]?.check).toContain('principal.created');
+    const rights = await admin.query<Record<string, boolean>>(
+      `select has_table_privilege('ujira_fn_principals', 'ujira.audit_log', 'INSERT') as insert,
+              has_table_privilege('ujira_fn_principals', 'ujira.audit_log', 'SELECT') as select,
+              has_table_privilege('ujira_fn_principals', 'ujira.audit_log', 'UPDATE') as update,
+              has_table_privilege('ujira_fn_principals', 'ujira.audit_heads', 'UPDATE') as heads`,
+    );
+    expect(rights.rows).toEqual([{ insert: true, select: false, update: false, heads: false }]);
   });
 
   it('keeps one member for a wallet that owns several principals', async () => {

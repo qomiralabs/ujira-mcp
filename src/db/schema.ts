@@ -317,6 +317,81 @@ export interface FeeSponsorshipsTable {
   readonly updated_at: Generated<Date>;
 }
 
+// ujira.amount is numeric, so it reads back as text.
+type Amount = ColumnType<string, string, string>;
+type DefaultAmount = ColumnType<string, string | undefined, string>;
+type DefaultJsonb = ColumnType<unknown, string | undefined, string>;
+
+export interface PayoutsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly idempotency_key: string;
+  readonly request_hash: Buffer;
+  readonly mandate_id: string;
+  readonly recipient_id: string;
+  readonly task_id: string;
+  readonly onchain_payout_id: Buffer;
+  readonly network: string;
+  readonly chain: string;
+  readonly amount: Amount;
+  readonly fee_amount: DefaultAmount;
+  readonly asset: string;
+  readonly scale: number;
+  readonly metadata: DefaultJsonb;
+  readonly status: Generated<string>;
+  readonly blocked_by: string | null;
+  readonly request_tx_hash: Buffer | null;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+  readonly settled_at: NullableTimestamp;
+}
+
+export interface PayoutLegsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly payout_id: string;
+  readonly recipient_id: string;
+  readonly leg_index: number;
+  readonly payout_method_id: string;
+  readonly method: string;
+  readonly destination_address: string;
+  readonly network: string;
+  readonly chain: string;
+  readonly asset: string;
+  readonly scale: number;
+  readonly amount: Amount;
+  readonly fee_amount: DefaultAmount;
+  // Stamped by the database from the payout and the index.
+  readonly leg_key: Generated<Buffer>;
+  readonly chain_tx_hash: Buffer | null;
+  readonly status: Generated<string>;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
+// Everything but the payout and the chain reference is copied from the payout
+// by the database when the row is written.
+export interface ReceiptsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly payout_id: string;
+  readonly status: Generated<string>;
+  readonly blocked_by: Generated<string | null>;
+  readonly network: Generated<string>;
+  readonly chain: Generated<string>;
+  readonly amount: Generated<string>;
+  readonly fee_amount: Generated<string>;
+  readonly asset: Generated<string>;
+  readonly scale: Generated<number>;
+  readonly chain_receipt_ref: string | null;
+  readonly request_tx_hash: Generated<Buffer | null>;
+  readonly settled_at: Generated<Date | null>;
+  readonly created_at: Generated<Date>;
+}
+
 export interface Schema {
   'ujira.chains': ChainsTable;
   'ujira.currencies': CurrenciesTable;
@@ -346,6 +421,9 @@ export interface Schema {
   'ujira.fee_sponsor_days': FeeSponsorDaysTable;
   'ujira.fee_sponsorships': FeeSponsorshipsTable;
   'ujira.signing_requests': SigningRequestsTable;
+  'ujira.payouts': PayoutsTable;
+  'ujira.payout_legs': PayoutLegsTable;
+  'ujira.receipts': ReceiptsTable;
 }
 
 // Every column above, by table, for the schema test. Checked against the
@@ -565,5 +643,69 @@ export const SCHEMA_COLUMNS = {
     status: true,
     created_at: true,
     updated_at: true,
+  },
+  'ujira.payouts': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    idempotency_key: true,
+    request_hash: true,
+    mandate_id: true,
+    recipient_id: true,
+    task_id: true,
+    onchain_payout_id: true,
+    network: true,
+    chain: true,
+    amount: true,
+    fee_amount: true,
+    asset: true,
+    scale: true,
+    metadata: true,
+    status: true,
+    blocked_by: true,
+    request_tx_hash: true,
+    created_at: true,
+    updated_at: true,
+    settled_at: true,
+  },
+  'ujira.payout_legs': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    payout_id: true,
+    recipient_id: true,
+    leg_index: true,
+    payout_method_id: true,
+    method: true,
+    destination_address: true,
+    network: true,
+    chain: true,
+    asset: true,
+    scale: true,
+    amount: true,
+    fee_amount: true,
+    leg_key: true,
+    chain_tx_hash: true,
+    status: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.receipts': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    payout_id: true,
+    status: true,
+    blocked_by: true,
+    network: true,
+    chain: true,
+    amount: true,
+    fee_amount: true,
+    asset: true,
+    scale: true,
+    chain_receipt_ref: true,
+    request_tx_hash: true,
+    settled_at: true,
+    created_at: true,
   },
 } as const satisfies { readonly [T in keyof Schema]: Record<keyof Schema[T], true> };

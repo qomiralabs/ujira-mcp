@@ -219,6 +219,51 @@ describe('the fake /v1 API', () => {
     expect(outcomes).toEqual(['paid', 'rejected']);
   });
 
+  it('names the owner as the approver, and lists what waits oldest first', async () => {
+    let clock = Date.parse('2026-11-27T09:00:00.000Z');
+    const { auth } = await signedIn(ALICE);
+    const v1 = createFakeV1Api(auth, { delayMs: 0, demo: false, now: () => clock });
+    const { mandateId, recipientId } = await ready(v1);
+    expect((await v1.mandate(mandateId)).config.approvers).toEqual([ALICE]);
+    const ids: string[] = [];
+    for (const task of ['first', 'second', 'third']) {
+      clock += 60_000;
+      const p = await v1.createPayout(
+        { mandateId, recipientId, amount: usdc(60n), taskId: task },
+        task,
+      );
+      ids.push(p.id);
+    }
+    expect((await v1.approvals()).items.map((p) => p.id)).toEqual(ids);
+  });
+
+  it('takes a decision only from an approver, and signs it as that approver', async () => {
+    const { v1, mandateId, recipientId } = await setup();
+    const create = await v1.prepareMandate({ ...RULES, approvers: [BOB] });
+    const other = (await v1.submitSigned(create.id, 'signed')).mandateId ?? '';
+    const fund = await v1.mandateAction(other, { kind: 'fund', amount: 500n * UNIT });
+    await v1.submitSigned(fund.id, 'signed');
+    const held = await v1.createPayout(
+      { mandateId: other, recipientId, amount: usdc(60n), taskId: 'held' },
+      'held',
+    );
+    await expect(
+      v1.mandateAction(other, { kind: 'approve', payoutId: held.id }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403 });
+    await expect(
+      v1.mandateAction(other, { kind: 'reject', payoutId: held.id }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(v1.signingRequests()).toBe(0);
+    expect((await v1.payout(held.id)).status).toBe('pending_approval');
+
+    const mine = await v1.createPayout(
+      { mandateId, recipientId, amount: usdc(60n), taskId: 'mine' },
+      'mine',
+    );
+    const approve = await v1.mandateAction(mandateId, { kind: 'approve', payoutId: mine.id });
+    expect(approve.signer).toBe(ALICE);
+  });
+
   it('spends a signing request once', async () => {
     const { v1, mandateId } = await setup();
     const pause = await v1.mandateAction(mandateId, { kind: 'pause' });

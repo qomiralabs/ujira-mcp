@@ -43,7 +43,8 @@ export const mandate = {
   config: {
     principal: IDS.principalAddress,
     agents: ['GBT7ITQKEX3Z2YWIYLPRQ5W3JLA2TJ3JTABB765ZYNG7VLX5YYUPI3DT'],
-    approvers: [],
+    // The chain names the owner as the approver when the mandate is created without one.
+    approvers: [IDS.principalAddress],
     approvalsRequired: 1,
     executors: ['GBT7ITQKEX3Z2YWIYLPRQ5W3JLA2TJ3JTABB765ZYNG7VLX5YYUPI3DT'],
     limits: {

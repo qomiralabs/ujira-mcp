@@ -124,6 +124,12 @@ export interface Route {
   readonly responseDescription: string;
   /** Whether the route takes an Idempotency-Key and replays its answers. */
   readonly idempotent: boolean;
+  /**
+   * Methods mounted on the same path and handed to `run` as well, but left out
+   * of the OpenAPI document. A protocol such as MCP must answer some methods
+   * with 405 rather than the 404 an unknown route gets.
+   */
+  readonly alsoMounted?: readonly HttpMethod[];
   run(c: V1Context): Promise<Response>;
 }
 

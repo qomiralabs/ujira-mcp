@@ -16,19 +16,21 @@ import { describe, expect, it } from 'vitest';
 
 import { ISRG_ROOT_X1, ISRG_ROOT_YR, PINNED_ROOT_FINGERPRINTS, PINNED_TLS } from './tls.js';
 
+// The vendored files end in .crt, not .pem: .gitignore drops *.pem so a key
+// file is never committed by accident, and it would drop these too.
 const certFile = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../../db/certs/${name}`, import.meta.url)), 'utf8');
 
 const ROOTS = [
-  { name: 'ISRG Root X1', pem: ISRG_ROOT_X1, file: 'isrg-root-x1.pem', key: 'x1' },
-  { name: 'Root YR', pem: ISRG_ROOT_YR, file: 'isrg-root-yr.pem', key: 'yr' },
+  { name: 'ISRG Root X1', pem: ISRG_ROOT_X1, file: 'isrg-root-x1.crt', key: 'x1' },
+  { name: 'Root YR', pem: ISRG_ROOT_YR, file: 'isrg-root-yr.crt', key: 'yr' },
 ] as const;
 
 // The YR2 intermediate and the cross signed Root YR, as the Render endpoint
 // sent them on 2026-11-27. The leaf is left out: it is renewed every few
 // months, and the test would then only prove an old certificate.
 function serverIntermediates(): readonly X509Certificate[] {
-  const text = certFile('render-chain-intermediates.pem');
+  const text = certFile('render-chain-intermediates.crt');
   const blocks = text.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
   return blocks.map((block) => new X509Certificate(block));
 }
@@ -72,7 +74,7 @@ describe('the pinned TLS trust', () => {
   it('anchors the chain the database server sends, through either root', () => {
     const [intermediate, crossSigned] = serverIntermediates();
     if (intermediate === undefined || crossSigned === undefined) {
-      throw new Error('db/certs/render-chain-intermediates.pem must hold two certificates');
+      throw new Error('db/certs/render-chain-intermediates.crt must hold two certificates');
     }
     const x1 = new X509Certificate(ISRG_ROOT_X1);
     const yr = new X509Certificate(ISRG_ROOT_YR);

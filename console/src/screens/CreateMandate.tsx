@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction, useResource } from '../app/hooks';
+import { useSession } from '../app/session';
+import { useV1 } from '../app/switch';
 import { ConnectPrompt } from '../components/Connect';
 import { Link } from '../components/Link';
 import { SigningSteps, type SigningStep } from '../components/SigningSteps';
@@ -22,6 +24,7 @@ import {
 } from '../lib/mandateForm';
 import { compareMinor, formatAmount, formatUsdc, parseAmount } from '../lib/money';
 import type { Wallet } from '../lib/wallet';
+import { CreateMandateV1 } from './CreateMandateV1';
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -328,6 +331,15 @@ function CreateForm({ wallet, onPlan }: { wallet: Wallet; onPlan: (p: MandatePla
 }
 
 export function CreateMandate() {
+  const v1 = useV1('mandates');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <CreateMandateV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
+  return <CreateMandateApi />;
+}
+
+function CreateMandateApi() {
   const { wallet, api } = useApp();
   const [plan, setPlan] = useState<MandatePlan | null>(null);
   if (wallet === null) {

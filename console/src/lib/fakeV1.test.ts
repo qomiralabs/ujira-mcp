@@ -216,6 +216,27 @@ describe('the fake /v1 API', () => {
     expect(v1.signingRequests()).toBe(0);
   });
 
+  it('keeps the name a mandate was created with, and checks its recipients', async () => {
+    const { v1, recipientId } = await setup();
+    await expect(v1.prepareMandate({ ...RULES, name: '  ' })).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+    await expect(
+      v1.prepareMandate({ ...RULES, name: 'Grants', recipients: ['not-a-recipient'] }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    const { recipient: noWallet } = await v1.createRecipient({ label: 'Kofi' });
+    await expect(
+      v1.prepareMandate({ ...RULES, name: 'Grants', recipients: [noWallet.id] }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    const create = await v1.prepareMandate({
+      ...RULES,
+      name: ' Grants ',
+      recipients: [recipientId],
+    });
+    const { mandateId } = await v1.submitSigned(create.id, 'signed');
+    expect((await v1.mandate(mandateId ?? '')).name).toBe('Grants');
+  });
+
   it('refuses a withdrawal of more than is free', async () => {
     const { v1, mandateId } = await setup();
     await expect(

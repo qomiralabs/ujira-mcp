@@ -440,6 +440,7 @@ export function ConfirmDialog({
   confirmLabel,
   danger = false,
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: {
@@ -449,6 +450,8 @@ export function ConfirmDialog({
   confirmLabel: string;
   danger?: boolean;
   busy?: boolean;
+  /** Holds the confirm button until the person has done what the dialog asks. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -486,7 +489,7 @@ export function ConfirmDialog({
           type="button"
           className={danger ? 'btn btn-danger' : 'btn btn-primary'}
           onClick={onConfirm}
-          disabled={busy}
+          disabled={busy || confirmDisabled}
         >
           {busy ? <Spinner /> : null}
           {confirmLabel}

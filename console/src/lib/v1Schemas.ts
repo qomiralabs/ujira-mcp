@@ -76,6 +76,8 @@ export type Submitted = z.output<typeof submittedSchema>;
 
 export const mandateSchema = z.looseObject({
   id,
+  // The principal's own name for it; absent on mandates made before names existed.
+  name: z.optional(z.nullable(text)),
   contractId: text,
   network: text,
   asset: text,

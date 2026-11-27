@@ -13,6 +13,7 @@ import pg from 'pg';
 import { HARNESS_ADMIN_PASSWORD, harnessPassword } from './credentials.js';
 import {
   LOGIN_ROLES,
+  type LoginRole,
   PLATFORM_ROLES,
   TEMPLATE_DATABASE,
   quoteIdentifier,
@@ -48,8 +49,13 @@ async function withClient<T>(url: string, work: (client: pg.Client) => Promise<T
 }
 
 // Starts the container and builds the template. Called once per run.
+// `afterLogins` runs on the template once the logins have passwords, for a
+// step that must run as a service login rather than as the superuser.
 export async function startHarness(
   migrate: (url: string) => Promise<void>,
+  afterLogins: (templateUrlOf: (role: LoginRole) => string) => Promise<void> = async () => {
+    // Nothing to run as a login by default.
+  },
 ): Promise<StartedHarness> {
   // Password authentication stays on, with a fixed value from credentials.ts
   // rather than trust authentication, so the test path logs in the way a
@@ -83,6 +89,11 @@ export async function startHarness(
       url.password = password;
       roleUrls[role] = url.toString();
     }
+  });
+  await afterLogins((role) => {
+    const url = roleUrls[role];
+    if (url === undefined) throw new Error(`no login was made for ${role}`);
+    return withDatabase(url, TEMPLATE_DATABASE);
   });
   // A template cannot be cloned while anything is connected to it, and
   // nothing should write to it after this point either.

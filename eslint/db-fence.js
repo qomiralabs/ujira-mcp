@@ -32,6 +32,11 @@ export const DB_RESTRICTED_PATHS = [
     name: '@testcontainers/postgresql',
     message: 'Test databases come from src/db/testing/index.js, which owns the container.',
   },
+  {
+    // It opens its own pool to Postgres, so it is the driver by another name.
+    name: 'graphile-worker',
+    message: 'The job queue runs from src/db, through startJobRunner and jobs.enqueuePayout.',
+  },
 ];
 
 export const DB_RESTRICTED_PATTERNS = [

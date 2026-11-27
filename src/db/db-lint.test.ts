@@ -66,6 +66,7 @@ describe('the driver fence', () => {
     ["import { Pool } from 'pg';\nexport const pool = Pool;\n", 'pg named'],
     ["import { Kysely } from 'kysely';\nexport const k = Kysely;\n", 'kysely'],
     ["import { runner } from 'node-pg-migrate';\nexport const m = runner;\n", 'node-pg-migrate'],
+    ["import { run } from 'graphile-worker';\nexport const r = run;\n", 'the job queue library'],
     [
       "import { PostgreSqlContainer } from '@testcontainers/postgresql';\nexport const c = PostgreSqlContainer;\n",
       'the test container',

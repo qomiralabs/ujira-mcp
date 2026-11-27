@@ -233,6 +233,39 @@ function readTlsMode(env: DatabaseEnvironment): TlsMode {
   return raw;
 }
 
+function checkTlsOff(tls: TlsMode, role: Role, url: string): void {
+  if (tls === 'off' && !LOOPBACK_HOSTS.has(new URL(url).hostname.toLowerCase())) {
+    fail(
+      `UJIRA_DB_TLS=off is only allowed for a loopback host, and ${URL_KEYS[role]} names another host; a connection to it would send tenant identifiers in the clear`,
+    );
+  }
+}
+
+/** What installing the job queue needs: the worker login alone, under the same rules. */
+export type QueueInstallConfig = Pick<DatabaseConfig, 'worker' | 'tlsOptions' | 'acquireTimeoutMs'>;
+
+/**
+ * Reads only the worker's URL, so the migration step can install the queue
+ * without the app's settings. The rules are the full loader's: the session
+ * pooler, pinned TLS unless the host is loopback, no extra URL parameters.
+ */
+export function loadQueueInstallConfig(env: DatabaseEnvironment): QueueInstallConfig {
+  const tls = readTlsMode(env);
+  const url = readUrl(env, 'worker');
+  checkTlsOff(tls, 'worker', url);
+  return Object.freeze({
+    // One connection runs the library's migrations; the second is its own
+    // floor for any pool it is handed.
+    worker: Object.freeze({ url: new ConnectionUrl(url), poolSize: 2 }),
+    tlsOptions: tls === 'pinned' ? PINNED_TLS : undefined,
+    acquireTimeoutMs: readInt(
+      env,
+      'UJIRA_DB_ACQUIRE_TIMEOUT_MS',
+      TIMEOUT_DEFAULTS.acquireTimeoutMs,
+    ),
+  });
+}
+
 export function loadDatabaseConfig(env: DatabaseEnvironment): DatabaseConfig {
   const tls = readTlsMode(env);
   const roles = {} as Record<Role, RoleConnection>;
@@ -243,11 +276,7 @@ export function loadDatabaseConfig(env: DatabaseEnvironment): DatabaseConfig {
       : POOL_DEFAULTS[role];
     total += poolSize;
     const url = readUrl(env, role);
-    if (tls === 'off' && !LOOPBACK_HOSTS.has(new URL(url).hostname.toLowerCase())) {
-      fail(
-        `UJIRA_DB_TLS=off is only allowed for a loopback host, and ${URL_KEYS[role]} names another host; a connection to it would send tenant identifiers in the clear`,
-      );
-    }
+    checkTlsOff(tls, role, url);
     roles[role] = Object.freeze({ url: new ConnectionUrl(url), poolSize });
   }
   if (total > CONNECTION_BUDGET.reservedForUs) {

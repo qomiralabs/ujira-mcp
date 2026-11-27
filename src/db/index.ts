@@ -22,12 +22,31 @@ export {
 export {
   CONNECTION_BUDGET,
   loadDatabaseConfig,
+  loadQueueInstallConfig,
   POOL_DEFAULTS,
   type DatabaseConfig,
   type DatabaseEnvironment,
+  type QueueInstallConfig,
   type RoleConnection,
   type TlsMode,
 } from './config.js';
+export {
+  ABORT_AFTER_MS,
+  installJobQueue,
+  QUEUE_SCHEMA,
+  startJobRunner,
+  type JobHandler,
+  type JobRunner,
+  type JobRunnerOptions,
+  type QueuedJob,
+} from './queue.js';
+export {
+  jobs,
+  MAX_JOB_ATTEMPTS,
+  PAYOUT_JOB_TASKS,
+  payoutJobQueue,
+  type PayoutJobTask,
+} from './repositories/jobs.js';
 export { ConnectionUrl } from './connection-url.js';
 // Exported so a deployment can check which roots it is pinning
 // without importing the driver.

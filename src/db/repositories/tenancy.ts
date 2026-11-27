@@ -183,11 +183,16 @@ export const projects = {
     return row === undefined ? undefined : toProject(row);
   },
 
-  // A new project of the transaction's principal. The id is made here: the
-  // transaction's project scope cannot read a different project back, so
-  // the insert returns nothing.
-  create: async (db: Tx, input: { readonly name: string }): Promise<string> => {
-    const id = randomUUID();
+  // A new project of the transaction's principal. The id is made here unless
+  // the caller brings one: the transaction's project scope cannot read a
+  // different project back, so the insert returns nothing. A caller that
+  // opened its transaction naming the new id can read it, and write the
+  // project's first rows, in that same transaction.
+  create: async (
+    db: Tx,
+    input: { readonly name: string; readonly id?: string },
+  ): Promise<string> => {
+    const id = input.id ?? randomUUID();
     await db
       .insertInto('ujira.projects')
       .values({ id, name: input.name, principal_id: CURRENT_PRINCIPAL })

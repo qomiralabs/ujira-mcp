@@ -19,6 +19,7 @@ import { createV1App } from '../api/app.js';
 import { nodeHandler } from '../api/node.js';
 import type { Route } from '../api/route.js';
 import { authRoutes } from '../api/routes/auth.js';
+import { tenancyRoutes } from '../api/routes/tenancy.js';
 import { postgresSignInStore } from '../auth/postgres-store.js';
 import { loadSignInSettings, type SignInSettings } from '../auth/settings.js';
 import { SignIn } from '../auth/sign-in.js';
@@ -30,6 +31,8 @@ import { createDemo } from '../demo/index.js';
 import { EngineError } from '../errors.js';
 import { createHttpServer } from '../mcp/http.js';
 import { loadHttpSettings } from '../mcp/public.js';
+import { postgresTenancyStore } from '../tenancy/postgres-store.js';
+import { Tenancy } from '../tenancy/tenancy.js';
 import { observabilityFromEnv } from './observability.js';
 import type { RoleHandle } from './run.js';
 
@@ -39,8 +42,9 @@ interface SignInWiring {
 }
 
 /**
- * The sign in routes and the database behind them, only when UJIRA_SIGN_IN
- * is on. Off, the web role needs no database at all, as before.
+ * The sign in, principal and project routes and the database behind them,
+ * only when UJIRA_SIGN_IN is on. Off, the web role needs no database at all,
+ * as before.
  */
 function signInWiring(
   settings: SignInSettings,
@@ -67,7 +71,14 @@ function signInWiring(
     origin: settings.origin,
     log,
   });
-  return { routes: authRoutes({ signIn, origin: settings.origin }), close: () => db.close() };
+  const tenancy = new Tenancy({ store: postgresTenancyStore(db), log });
+  return {
+    routes: [
+      ...authRoutes({ signIn, origin: settings.origin }),
+      ...tenancyRoutes({ signIn, tenancy, origin: settings.origin }),
+    ],
+    close: () => db.close(),
+  };
 }
 
 type Env = Readonly<Record<string, string | undefined>>;

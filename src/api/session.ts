@@ -2,7 +2,8 @@
 // Copyright 2026 Qomira Labs
 
 // The session side of /v1 authentication: the cookie, the origin check on
-// writes, and the mapping of sign in refusals onto the error envelope.
+// writes, the project a request names and the role it holds there, and the
+// mapping of sign in refusals onto the error envelope.
 //
 // A write that carries the session cookie must come from the app's own
 // origin. SameSite=Lax already keeps the cookie off most cross site requests;
@@ -13,6 +14,8 @@ import { getCookie } from 'hono/cookie';
 
 import { SignInError, type ActiveSession, type SignIn } from '../auth/sign-in.js';
 import { SESSION_COOKIE } from '../auth/session-token.js';
+import type { ProjectContext } from '../db/index.js';
+import { can, type Permission } from '../tenancy/roles.js';
 import type { V1Bindings, V1Context } from './context.js';
 import { ApiError } from './errors.js';
 
@@ -62,6 +65,20 @@ export interface SessionOptions {
   readonly origin: string;
 }
 
+/** The header a session request names its project in. Hono reads headers case blind. */
+export const PROJECT_HEADER = 'Ujira-Project';
+
+// Any case on the wire, one spelling inside: the tenant context accepts only
+// lower case, and two spellings of one id must not look like two projects.
+const PROJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Who is asking, in which project, with which role, as a session route sees them. */
+export interface ProjectCaller extends ProjectContext {
+  readonly memberId: string;
+  readonly role: string;
+  readonly session: ActiveSession;
+}
+
 /**
  * The live session behind the request's cookie. Writes check the origin
  * first. `projectId` is the project the request names, or null for routes
@@ -76,4 +93,56 @@ export async function requireSession(
   return signInCall(() =>
     o.signIn.resolve(getCookie(c, SESSION_COOKIE), options.projectId ?? null),
   );
+}
+
+/**
+ * The session and the project the request names in Ujira-Project, checked
+ * against the person's membership and role before any handler runs. The
+ * handler then opens its tenant transaction with the context this returns.
+ *
+ * In order: a write from another origin is 403, no live session is 401, a
+ * missing or malformed header is 400, a project the person cannot reach is
+ * 404 whether or not it exists, and a role without the permission is 403.
+ * The session is looked up before the header is judged, so a caller who is
+ * not signed in always gets the same answer.
+ */
+export async function requireProjectSession(
+  c: V1Context,
+  o: SessionOptions,
+  options: { readonly write: boolean; readonly permission: Permission },
+): Promise<ProjectCaller> {
+  const raw = c.req.header(PROJECT_HEADER)?.trim();
+  const projectId = raw !== undefined && PROJECT_ID.test(raw) ? raw.toLowerCase() : null;
+  const session = await requireSession(c, o, { write: options.write, projectId });
+  if (projectId === null) {
+    throw new ApiError('INVALID_REQUEST', 'Name a project in the Ujira-Project header', {
+      details: [
+        { path: 'header.ujira-project', issue: raw === undefined ? 'required' : 'invalid' },
+      ],
+    });
+  }
+  const access = session.access;
+  if (access?.projectId !== projectId) throw new ApiError('NOT_FOUND', 'No such project');
+  if (!can(access.role, options.permission)) {
+    throw new ApiError('FORBIDDEN', 'Your role cannot do this in this project');
+  }
+  return {
+    principalId: access.principalId,
+    projectId: access.projectId,
+    memberId: session.memberId,
+    role: access.role,
+    session,
+  };
+}
+
+/**
+ * The `authenticate` of a session write defined with defineIdempotentRoute:
+ * the key is stored under the project this finds, and only after these
+ * checks pass.
+ */
+export function sessionAuthenticator(
+  o: SessionOptions,
+  permission: Permission = 'write',
+): (c: V1Context) => Promise<ProjectCaller> {
+  return (c) => requireProjectSession(c, o, { write: true, permission });
 }

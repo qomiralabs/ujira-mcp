@@ -249,6 +249,7 @@ describe('startWeb', () => {
     expect(lines).toContain('sign in: off');
     expect(JSON.parse((await get(port, '/api/config')).body)).toMatchObject({ signIn: false });
     expect((await get(port, '/v1/me')).status).toBe(404);
+    expect((await get(port, '/v1/projects')).status).toBe(404);
   });
 
   it('with UJIRA_SIGN_IN on, mounts the sign in routes on the database', async () => {
@@ -278,6 +279,9 @@ describe('startWeb', () => {
     });
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('DB_UNAVAILABLE');
+    // The project routes come with sign in. Without a cookie they refuse
+    // before any query, so they answer even with no database behind them.
+    expect((await get(port, '/v1/projects')).status).toBe(401);
     expect(lines.join('\n')).not.toContain('unused');
     await web.stop();
     expect(await tryConnect(port)).toBe('ECONNREFUSED');

@@ -173,36 +173,29 @@ function savedAddress(ctx: StepContext): TemplateResult {
   </div>`;
 }
 
-/**
- * The wallet signs a message to show the address is the recipient's. With
- * Freighter, Albedo or the page's wallet that is one press; otherwise the person
- * signs in their own wallet app and pastes the signature back.
- */
-export function proveStep(ctx: StepContext): TemplateResult {
+/** Fetching the message to sign, or a failed fetch with a way to retry. */
+function proveWaiting(ctx: StepContext): TemplateResult {
   const { t, proof } = ctx;
-  const challenge = proof.challenge;
-  if (challenge === undefined) {
-    // Fetching the message to sign, or a failed fetch with a way to retry.
-    return html`<form class="step" novalidate @submit=${ctx.submit}>
-      ${heading(t('prove.heading'))} ${alertBlock(ctx.message)}
-      ${
-        proof.failed
-          ? primaryAction({ label: t('widget.retry'), busy: ctx.busy })
-          : busyBlock(t('widget.loading'), true)
-      }
-    </form>`;
-  }
-  if (proof.signer !== 'manual') {
-    return html`<form class="step" novalidate @submit=${ctx.submit}>
-      ${heading(t('prove.heading'))}
-      <p class="hint">${t('prove.hint')}</p>
-      ${savedAddress(ctx)} ${alertBlock(ctx.message)}
-      ${primaryAction({ label: t(SIGN_ACTIONS[proof.signer]), busy: ctx.busy })} ${busyLine(ctx)}
-    </form>`;
-  }
-  return html`<form class="step" novalidate @submit=${ctx.submit}>
-    ${heading(t('prove.heading'))}
-    <p class="hint">${t('prove.manual.hint')}</p>
+  return html`${alertBlock(ctx.message)}
+  ${
+    proof.failed
+      ? primaryAction({ label: t('widget.retry'), busy: ctx.busy })
+      : busyBlock(t('widget.loading'), true)
+  }`;
+}
+
+/** Freighter, Albedo or the page's wallet signs in one press. */
+function proveInOnePress(ctx: StepContext, signer: Exclude<Signer, 'manual'>): TemplateResult {
+  const { t } = ctx;
+  return html`<p class="hint">${t('prove.hint')}</p>
+    ${savedAddress(ctx)} ${alertBlock(ctx.message)}
+    ${primaryAction({ label: t(SIGN_ACTIONS[signer]), busy: ctx.busy })} ${busyLine(ctx)}`;
+}
+
+/** The person signs in their own wallet app and pastes the signature back. */
+function proveByHand(ctx: StepContext, challenge: WalletChallenge): TemplateResult {
+  const { t, proof } = ctx;
+  return html`<p class="hint">${t('prove.manual.hint')}</p>
     ${alertBlock(ctx.message)}
     <div class="field">
       <div class="answer-head">
@@ -227,7 +220,26 @@ export function proveStep(ctx: StepContext): TemplateResult {
       autocomplete: 'off',
       change: proof.changeSignature,
     })}
-    ${primaryAction({ label: t('prove.manual.action'), busy: ctx.busy })} ${busyLine(ctx)}
+    ${primaryAction({ label: t('prove.manual.action'), busy: ctx.busy })} ${busyLine(ctx)}`;
+}
+
+/**
+ * The wallet signs a message to show the address is the recipient's. With
+ * Freighter, Albedo or the page's wallet that is one press; otherwise the
+ * person signs in their own wallet app and pastes the signature back.
+ *
+ * One form and one heading for every state of the step, so the heading the
+ * step put focus on is the same element once the message to sign arrives.
+ */
+export function proveStep(ctx: StepContext): TemplateResult {
+  const { t, proof } = ctx;
+  const challenge = proof.challenge;
+  let body: TemplateResult;
+  if (challenge === undefined) body = proveWaiting(ctx);
+  else if (proof.signer === 'manual') body = proveByHand(ctx, challenge);
+  else body = proveInOnePress(ctx, proof.signer);
+  return html`<form class="step" novalidate @submit=${ctx.submit}>
+    ${heading(t('prove.heading'))} ${body}
   </form>`;
 }
 

@@ -468,6 +468,54 @@ describe('events and focus', () => {
     expect(root().activeElement?.textContent.trim()).toBe(en['destination.wallet.heading']);
   });
 
+  it('keeps focus on the proof heading once the message to sign arrives', async () => {
+    await open();
+    await typeAddress();
+    expect(text('.sign-text')).toContain('confirm your payout address');
+    expect(root().activeElement).toBe(find('.heading'));
+    expect(text('.heading')).toBe(en['prove.heading']);
+  });
+
+  it('keeps focus on the proof heading when the message comes after a retry', async () => {
+    const client = await open();
+    const real = client.createWalletChallenge.bind(client);
+    let offline = true;
+    client.createWalletChallenge = (recipientId, methodId) =>
+      offline ? Promise.reject(new Error('offline')) : real(recipientId, methodId);
+    await typeAddress();
+    expect(text('.alert')).toBe(en['widget.loadFailed']);
+    expect(root().activeElement).toBe(find('.heading'));
+    offline = false;
+    // The person presses Try again, which is gone once the message is there.
+    find('.primary').focus();
+    expect(root().activeElement).toBe(find('.primary'));
+    await submit();
+    expect(text('.sign-text')).toContain('confirm your payout address');
+    expect(root().activeElement).toBe(find('.heading'));
+  });
+
+  it('leaves focus alone when the person has moved it elsewhere on the page', async () => {
+    const outside = document.createElement('button');
+    await open();
+    document.body.append(outside);
+    const client = widget.client;
+    if (client === undefined) throw new Error('no client');
+    const real = client.createWalletChallenge.bind(client);
+    let release = (): void => undefined;
+    client.createWalletChallenge = (recipientId, methodId) =>
+      new Promise((resolve, reject) => {
+        release = () => {
+          real(recipientId, methodId).then(resolve, reject);
+        };
+      });
+    await typeAddress();
+    outside.focus();
+    release();
+    await settle();
+    expect(text('.sign-text')).toContain('confirm your payout address');
+    expect(document.activeElement).toBe(outside);
+  });
+
   it('starts again with nothing filled in on reset', async () => {
     await open();
     await typeAddress();

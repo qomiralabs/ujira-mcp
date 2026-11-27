@@ -178,6 +178,8 @@ export class UjiraOnboarding extends LitElement {
   private loadedFrom: OnboardingClient | undefined;
   /** True when the last render came from moving between steps. */
   private moved = false;
+  /** Whether focus was inside the widget just before this render. */
+  private focusInside = false;
 
   constructor() {
     super();
@@ -238,6 +240,7 @@ export class UjiraOnboarding extends LitElement {
   }
 
   protected override willUpdate(): void {
+    this.focusInside = (this.shadowRoot?.activeElement ?? null) !== null;
     const api = this.api;
     if (api !== undefined && api !== this.loadedFrom) {
       this.loadedFrom = api;
@@ -267,9 +270,15 @@ export class UjiraOnboarding extends LitElement {
   }
 
   protected override updated(): void {
-    if (!this.moved) return;
-    this.moved = false;
     const target = this.renderRoot.querySelector<HTMLElement>('[data-focus]');
+    if (!this.moved) {
+      // A render that took away the control in focus, such as Try again once
+      // the message to sign arrives, hands focus back to the step's heading
+      // instead of dropping it on the page. Focus elsewhere is left alone.
+      if (this.focusInside && this.shadowRoot?.activeElement === null) target?.focus();
+      return;
+    }
+    this.moved = false;
     target?.focus();
     const step: Animatable | null = this.renderRoot.querySelector('.step');
     const view: MotionAware | null = this.ownerDocument.defaultView;

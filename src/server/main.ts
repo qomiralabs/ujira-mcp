@@ -51,7 +51,7 @@ try {
       worker: async (): Promise<RoleHandle> => ({
         role: 'worker',
         ...(await startWorker(process.env, workerLog, {
-          tasksFor: () => payoutTasksFromEnv(process.env, workerLog),
+          tasksFor: (db) => payoutTasksFromEnv(process.env, workerLog, db),
         })),
       }),
     },

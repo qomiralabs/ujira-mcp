@@ -671,10 +671,14 @@ export class StellarChainAdapter implements ChainAdapter {
       },
       (e) =>
         e !== undefined && e === recordFailed
-          ? new ChainError('UNAVAILABLE', 'The payout was not executed: recording the send failed', {
-              reason: 'before_send_failed',
-              cause: e,
-            })
+          ? new ChainError(
+              'UNAVAILABLE',
+              'The payout was not executed: recording the send failed',
+              {
+                reason: 'before_send_failed',
+                cause: e,
+              },
+            )
           : toChainError(e, 'execute the payout'),
     );
   }

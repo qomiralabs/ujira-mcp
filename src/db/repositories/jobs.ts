@@ -65,7 +65,11 @@ export const jobs = {
       throw new RepositoryInputError('task');
     }
     if (!UUID.test(payoutId)) throw new RepositoryInputError('payoutId');
-    if (!Number.isInteger(delaySeconds) || delaySeconds < 1 || delaySeconds > MAX_JOB_DELAY_SECONDS) {
+    if (
+      !Number.isInteger(delaySeconds) ||
+      delaySeconds < 1 ||
+      delaySeconds > MAX_JOB_DELAY_SECONDS
+    ) {
       throw new RepositoryInputError('delaySeconds');
     }
     const { rows } = await sql<{ job_id: string }>`

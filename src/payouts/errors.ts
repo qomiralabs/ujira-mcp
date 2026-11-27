@@ -5,10 +5,7 @@
 // only ever name statuses or counts we validated, never caller text.
 
 export type PayoutErrorCode =
-  | 'INVALID_TRANSITION'
-  | 'INVALID_LEGS'
-  | 'FEE_SPONSOR_CAP_REACHED'
-  | PayoutRetryCode;
+  'INVALID_TRANSITION' | 'INVALID_LEGS' | 'FEE_SPONSOR_CAP_REACHED' | PayoutRetryCode;
 
 /**
  * Why a payout job stopped without changing anything and must look again

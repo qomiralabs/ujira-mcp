@@ -69,8 +69,6 @@ export function tenantPayoutStore(tenant: TenantSession): PayoutStore {
         throw error;
       }
     },
-    issueReceipt: (payoutId, chainReceiptRef) =>
-      tenant.transaction(async (tx) => (await receipts.issue(tx, payoutId, chainReceiptRef)).created),
   };
 }
 

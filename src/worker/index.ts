@@ -53,10 +53,11 @@ export interface WorkerDependencies {
   /** The tasks this process runs. A job of any other task waits in the queue. */
   readonly tasks?: readonly PayoutTaskDefinition[];
   /**
-   * Builds the tasks, only once the queue is on, so a deployment without a
-   * database needs none of their keys.
+   * Builds the tasks over the worker's database, only once the queue is on,
+   * so a deployment without a database needs none of their keys. A throw
+   * refuses the role, with the database closed again.
    */
-  readonly tasksFor?: () => readonly PayoutTaskDefinition[];
+  readonly tasksFor?: (db: Database) => readonly PayoutTaskDefinition[];
   readonly openDatabase?: (config: DatabaseConfig) => Database;
   readonly startRunner?: (config: DatabaseConfig, options: JobRunnerOptions) => Promise<JobRunner>;
   readonly retryMs?: number;
@@ -87,10 +88,16 @@ export async function startWorker(
     return keepAlive();
   }
   const config = loadDatabaseConfig(env);
-  const tasks = dependencies.tasks ?? dependencies.tasksFor?.() ?? [];
   const start = dependencies.startRunner ?? startJobRunner;
   const retryMs = dependencies.retryMs ?? RETRY_START_MS;
   const db = (dependencies.openDatabase ?? createDatabase)(config);
+  let tasks: readonly PayoutTaskDefinition[];
+  try {
+    tasks = dependencies.tasks ?? dependencies.tasksFor?.(db) ?? [];
+  } catch (error) {
+    await db.close();
+    throw error;
+  }
   const handlers = Object.fromEntries(
     tasks.map((definition) => [definition.task, payoutJobHandler(db, definition, log)]),
   );

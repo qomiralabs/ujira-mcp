@@ -2,8 +2,9 @@
 // Copyright 2026 Qomira Labs
 
 // The payout jobs: request the payout on chain with the mandate's agent key,
-// follow it through approval, execute it with the executor key, and write its
-// receipt. Each step reads the chain before it acts and only does what the
+// follow it through approval, and execute it with the executor key. Every move
+// to a finished status queues the payout's receipt.issue job in the same
+// transaction, so a finished payout always gets its receipt. Each step reads the chain before it acts and only does what the
 // chain does not show as done, so any step can be killed at any point and run
 // again without paying twice:
 //
@@ -75,8 +76,6 @@ export interface PayoutStore {
   load(payoutId: string): Promise<PayoutSnapshot | undefined>;
   /** False, with nothing written, when the payout or a leg is no longer where the change expects. */
   apply(payoutId: string, change: PayoutChange): Promise<boolean>;
-  /** True when this call wrote the receipt, false when it already existed. */
-  issueReceipt(payoutId: string, chainReceiptRef: string | null): Promise<boolean>;
 }
 
 export interface PayoutJobContext extends ProjectContext {
@@ -99,9 +98,7 @@ export type StepOutcome =
   | 'cancelled'
   | 'paid'
   | 'needs_attention'
-  | 'drift'
-  | 'receipt_issued'
-  | 'receipt_exists';
+  | 'drift';
 
 export interface WorkflowOptions {
   readonly chain: ChainAdapter;
@@ -214,11 +211,18 @@ export class PayoutWorkflow {
   }
 
   private bounded(job: PayoutJobContext, ms: number): CallOptions {
-    return { signal: AbortSignal.any([job.signal, AbortSignal.timeout(ms)]), correlationId: job.payoutId };
+    return {
+      signal: AbortSignal.any([job.signal, AbortSignal.timeout(ms)]),
+      correlationId: job.payoutId,
+    };
   }
 
   private state(job: PayoutJobContext, s: PayoutSnapshot): Promise<ChainPayoutState> {
-    return this.o.chain.payoutState(s.mandate.contractAddress, s.payout.onchainPayoutId, this.read(job));
+    return this.o.chain.payoutState(
+      s.mandate.contractAddress,
+      s.payout.onchainPayoutId,
+      this.read(job),
+    );
   }
 
   /** Applies a change, and logs each status move it made. */
@@ -249,6 +253,7 @@ export class PayoutWorkflow {
     return true;
   }
 
+  /** A finished payout whose receipt job was lost gets it queued again. */
   private async ensureReceipt(store: PayoutStore, s: PayoutSnapshot): Promise<StepOutcome> {
     if (!s.hasReceipt) await store.apply(s.payout.id, { enqueue: [{ task: 'receipt.issue' }] });
     return 'finished';
@@ -469,14 +474,21 @@ export class PayoutWorkflow {
       if (hash !== undefined) {
         const tx = await this.o.chain.transaction(hash, this.read(job));
         if (tx.status === 'SUCCESS') return this.paid(job, store, s, hash);
-        if (tx.status === 'NOT_FOUND' && mayStillLand()) throw new PayoutRetryError('CHAIN_LAGGING');
+        if (tx.status === 'NOT_FOUND' && mayStillLand())
+          throw new PayoutRetryError('CHAIN_LAGGING');
       }
       // Paid by a transaction this payout never recorded, such as one sent
       // before the payout had a row. A person must match it up.
       return this.needsAttention(job, task, store, 'settling', 'EXECUTED_UNRECORDED');
     }
     if (onChain.kind !== 'approved') {
-      return this.needsAttention(job, task, store, 'settling', `CHAIN_${onChain.kind.toUpperCase()}`);
+      return this.needsAttention(
+        job,
+        task,
+        store,
+        'settling',
+        `CHAIN_${onChain.kind.toUpperCase()}`,
+      );
     }
     let legs = s.legs;
     if (hash !== undefined) {
@@ -556,18 +568,8 @@ export class PayoutWorkflow {
       ],
       enqueue: [{ task: 'receipt.issue' }],
     };
-    return (await this.move(job, 'payout.execute', store, change, { tx: txHash })) ? 'paid' : 'stale';
-  }
-
-  /** receipt.issue: write the receipt of a finished payout, once. */
-  async issueReceipt(job: PayoutJobContext, store: PayoutStore): Promise<StepOutcome> {
-    const s = await store.load(job.payoutId);
-    if (s === undefined) return 'missing';
-    if (!isTerminal(s.payout.status)) return 'not_ready';
-    if (s.hasReceipt) return 'receipt_exists';
-    const paidBy = s.payout.status === 'paid' ? s.legs[0]?.txHash : undefined;
-    // A paid payout always has its leg's hash: paid and settled are one write.
-    const ref = paidBy === undefined || paidBy === null ? null : this.o.chain.receiptRef(paidBy, 0);
-    return (await store.issueReceipt(job.payoutId, ref)) ? 'receipt_issued' : 'receipt_exists';
+    return (await this.move(job, 'payout.execute', store, change, { tx: txHash }))
+      ? 'paid'
+      : 'stale';
   }
 }

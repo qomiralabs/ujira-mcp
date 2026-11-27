@@ -89,7 +89,9 @@ export class FakeMandateRpc implements SorobanGateway {
   private seq = 0;
 
   private outage(): Promise<never> | undefined {
-    return this.down ? Promise.reject(new EngineError('rpc_unavailable', 'the fake rpc is down')) : undefined;
+    return this.down
+      ? Promise.reject(new EngineError('rpc_unavailable', 'the fake rpc is down'))
+      : undefined;
   }
 
   allowRecipient(ref: string, destination: string) {

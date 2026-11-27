@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Qomira Labs
 
-// The three payout tasks the worker runs: payout.advance on the project's
-// agent queue, payout.execute on the executor queue and receipt.issue on none.
-// Each runs one workflow step under the job's tenant and shares one dead
-// letter path: needs_attention where the status allows it.
+// The payout tasks the worker runs: payout.advance on the project's agent
+// queue and payout.execute on the executor queue. Each runs one workflow step
+// under the job's tenant and shares one dead letter path: needs_attention
+// where the status allows it. The receipt.issue jobs they queue are handled
+// by the receipts module.
 
 import type { TenantSession } from '../db/index.js';
 import { logLine, type Log } from '../log.js';
@@ -64,6 +65,5 @@ export function payoutTasks(o: PayoutTaskOptions): readonly PayoutTaskDefinition
   return [
     define('payout.advance', async (job, store) => w.advance(job, store)),
     define('payout.execute', async (job, store) => w.execute(job, store)),
-    define('receipt.issue', async (job, store) => w.issueReceipt(job, store)),
   ];
 }

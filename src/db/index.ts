@@ -225,7 +225,14 @@ export {
   type PayoutView,
   type PayoutViewFilter,
 } from './repositories/payout-views.js';
-export { receipts, type IssuedReceipt, type Receipt } from './repositories/receipts.js';
+export {
+  receipts,
+  type IssuedReceipt,
+  type Receipt,
+  type ReceiptDetail,
+  type ReceiptFilter,
+  type ReceiptLegDetail,
+} from './repositories/receipts.js';
 export {
   payoutStats,
   type NetworkAmount,

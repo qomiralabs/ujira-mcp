@@ -33,6 +33,7 @@ import { payoutSigners } from '../payouts/signers.js';
 import { PayoutWorkflow } from '../payouts/workflow.js';
 import type { PayoutTaskDefinition } from '../worker/index.js';
 import { payoutTasks } from '../worker/payout-tasks.js';
+import { receiptTask } from '../worker/receipt-task.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -76,5 +77,9 @@ export function payoutTasksFromEnv(
     log,
   });
   const signers = payoutSigners({ executor, projectKeys });
-  return payoutTasks({ workflow: new PayoutWorkflow({ chain: adapter, signers, log }), log });
+  return [
+    ...payoutTasks({ workflow: new PayoutWorkflow({ chain: adapter, signers, log }), log }),
+    // The receipt of a payout the tasks above finished; it signs nothing.
+    receiptTask({ chain: adapter, log }),
+  ];
 }

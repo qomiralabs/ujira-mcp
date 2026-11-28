@@ -147,7 +147,11 @@ function operation(route: Route): JsonObject {
           [REQUEST_ID_HEADER]: REQUEST_ID_REF,
           ...(route.idempotent ? { [REPLAYED_HEADER]: REPLAYED_HEADER_DOC } : {}),
         },
-        content: { 'application/json': { schema: jsonSchema(route.response, 'output') } },
+        content: {
+          [route.mediaType ?? 'application/json']: {
+            schema: jsonSchema(route.response, 'output'),
+          },
+        },
       },
       ...errorResponses(route),
     },

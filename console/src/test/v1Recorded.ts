@@ -222,6 +222,11 @@ export const RECORDED = {
   },
 } as const;
 
+// As the server writes it: RFC 4180 line ends, the columns the screen shows,
+// then the exact minor units and references.
 export const RECEIPTS_CSV =
-  'receipt_id,payout_id,task_id,recipient,amount,asset,outcome,blocked_by,tx_hash,issued_at\n' +
-  `${IDS.receipt},${IDS.payout},task-42,Ada,2.5,USDC,paid,,${IDS.tx},2026-11-25T12:00:10.000Z\n`;
+  'receipt_id,payout_id,task_id,recipient,amount,asset,outcome,blocked_by,tx_hash,issued_at,' +
+  'amount_minor,fee_minor,scale,network,mandate_id,contract_id,recipient_id,ref,document_sha256\r\n' +
+  `${IDS.receipt},${IDS.payout},task-42,Ada,2.5,USDC,paid,,${IDS.tx},2026-11-25T12:00:10.000Z,` +
+  `25000000,0,7,${NET},${IDS.mandate},${IDS.contract},${IDS.recipient},ujira:tx:v1:${NET}:${IDS.tx}:0,` +
+  '062c6a8cc1d12d129138b0893ee9b7dfb51c3027f2b04f3e673e430644bdb36b\r\n';

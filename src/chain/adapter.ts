@@ -194,7 +194,37 @@ export interface ChainAdapter {
   }): string;
   verifyWalletProof(address: string, message: string, signatureBase64: string): boolean; // SEP-53
   receiptRef(txHash: string, eventIndex: number): string; // ujira:tx:v1:stellar:testnet:<hash>:<index>
+  /**
+   * What a transaction moved in the asset mandates hold, and the contract
+   * functions it called, from the network's full history, so a receipt of any
+   * age can be checked against the chain. NOT_FOUND when the network never
+   * had the transaction.
+   */
+  transfers(txHash: string, o: CallOptions): Promise<TransactionTransfers>;
 }
+
+/** One movement of the asset mandates hold, in its minor units. */
+export interface ChainTransfer {
+  readonly from: string;
+  readonly to: string;
+  readonly amount: bigint;
+}
+
+/** A contract function a transaction called. */
+export interface ContractCall {
+  readonly contract: string;
+  readonly fn: string;
+}
+
+export type TransactionTransfers =
+  | { readonly status: 'NOT_FOUND' }
+  | { readonly status: 'FAILED'; readonly ledger: number }
+  | {
+      readonly status: 'SUCCESS';
+      readonly ledger: number;
+      readonly calls: readonly ContractCall[];
+      readonly transfers: readonly ChainTransfer[];
+    };
 
 export const CHAIN_ERROR_CODES = [
   'TIMEOUT',

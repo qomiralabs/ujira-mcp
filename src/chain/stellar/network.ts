@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { contractCodeIn, mandateErrorName } from '../../errors.js';
 import { ChainError, type ChainErrorCode } from '../adapter.js';
 import { contractCodeInEvents, withTimeout } from './gateway.js';
+import { MAX_OPERATIONS, recordFromHorizon, type TransactionRecord } from './history.js';
 
 export type { Account, FeeBumpTransaction, Transaction, xdr } from '@stellar/stellar-sdk';
 
@@ -74,6 +75,12 @@ export interface StellarNetworkPort {
   /** Funds a new account with test XLM; succeeds when it is already funded. */
   friendbot(address: string): Promise<void>;
   latestLedger(): Promise<number>;
+  /**
+   * A transaction from the full history, or null when the network never had
+   * it. Optional, so a port that only sends need not keep history; receipts
+   * cannot be checked without it.
+   */
+  transactionRecord?(hash: string): Promise<TransactionRecord | null>;
 }
 
 const fail = (code: ChainErrorCode, reason: string, message: string, cause?: unknown) =>
@@ -366,6 +373,25 @@ export class StellarNetwork implements StellarNetworkPort {
     } catch (error) {
       throw unavailable('read ledger entries', error);
     }
+  }
+
+  async transactionRecord(hash: string): Promise<TransactionRecord | null> {
+    if (!/^[0-9a-f]{64}$/.test(hash)) throw new RangeError('hash must be 64 lower case hex digits');
+    const base = `${this.o.horizonUrl}/transactions/${hash}`;
+    const tx = await this.get(base, 'read the transaction');
+    if (tx.status === 404) return null;
+    if (!tx.ok)
+      throw fail('UNAVAILABLE', 'horizon_unavailable', `Horizon answered HTTP ${tx.status}`);
+    const txBody: unknown = await tx.json().catch(() => undefined);
+    const ops = await this.get(
+      `${base}/operations?limit=${String(MAX_OPERATIONS)}`,
+      'read the operations',
+    );
+    if (!ops.ok) {
+      throw fail('UNAVAILABLE', 'horizon_unavailable', `Horizon answered HTTP ${ops.status}`);
+    }
+    const opsBody: unknown = await ops.json().catch(() => undefined);
+    return recordFromHorizon(txBody, opsBody);
   }
 
   async latestLedger(): Promise<number> {

@@ -41,6 +41,40 @@ export interface Receipt {
   readonly createdAt: Date;
 }
 
+export interface ReceiptFilter {
+  // Terminal statuses only; at least one.
+  readonly statuses?: readonly PayoutStatus[];
+  readonly mandateId?: string;
+  readonly recipientId?: string;
+  // Inclusive, on when the receipt was issued.
+  readonly issuedFrom?: Date;
+  // Exclusive.
+  readonly issuedTo?: Date;
+}
+
+export interface ReceiptLegDetail {
+  readonly index: number;
+  // In full; the API masks it.
+  readonly destination: string;
+  readonly amount: TokenAmount;
+  readonly txHash: string | null;
+}
+
+export interface ReceiptDetail {
+  readonly receipt: Receipt;
+  readonly principalId: string;
+  readonly taskId: string;
+  readonly mandate: { readonly id: string; readonly contractAddress: string };
+  readonly recipient: {
+    readonly id: string;
+    readonly label: string;
+    // 64 lowercase hex digits, the reference the mandate checks on chain.
+    readonly recipientRef: string;
+  };
+  // In leg order.
+  readonly legs: readonly ReceiptLegDetail[];
+}
+
 export interface IssuedReceipt {
   // False when the payout already had its receipt.
   readonly created: boolean;
@@ -157,21 +191,143 @@ export const receipts = {
 
   forPayout,
 
-  // Newest first.
-  list: async (db: Tx, page: PageRequest): Promise<Page<Receipt>> => {
+  // Newest first, by when each was issued.
+  list: async (db: Tx, page: PageRequest, filter: ReceiptFilter = {}): Promise<Page<Receipt>> => {
     const limit = checkedLimit(page.limit);
+    const statuses = checkedStatuses(filter.statuses);
     let query = db
       .selectFrom('ujira.receipts')
       .select([...receiptColumns, PAGE_TIME.as('page_time')])
       .orderBy('created_at', 'desc')
       .orderBy('id', 'desc')
       .limit(limit + 1);
+    if (statuses !== undefined) query = query.where('status', 'in', statuses);
+    // The payout's own columns, read under the same policies, so a mandate or
+    // recipient of another project matches nothing.
+    if (filter.mandateId !== undefined) {
+      const mandateId = checkedId(filter.mandateId, 'mandateId');
+      query = query.where('payout_id', 'in', (eb) =>
+        eb.selectFrom('ujira.payouts').select('id').where('mandate_id', '=', mandateId),
+      );
+    }
+    if (filter.recipientId !== undefined) {
+      const recipientId = checkedId(filter.recipientId, 'recipientId');
+      query = query.where('payout_id', 'in', (eb) =>
+        eb.selectFrom('ujira.payouts').select('id').where('recipient_id', '=', recipientId),
+      );
+    }
+    if (filter.issuedFrom !== undefined) query = query.where('created_at', '>=', filter.issuedFrom);
+    if (filter.issuedTo !== undefined) query = query.where('created_at', '<', filter.issuedTo);
     if (page.after !== undefined) query = query.where(olderThan(page.after));
     const rows = await query.execute();
     const keys = new Map(rows.map((row) => [row.id, pageKey(row)]));
     return pageOf(rows.map(toReceipt), limit, (receipt) => keys.get(receipt.id) ?? '');
   },
+
+  // What the receipts' payouts say beside them, in the receipts' order: the
+  // task, the mandate, the recipient and the legs. A fixed number of queries
+  // whatever the page size, in the caller's transaction, so one snapshot.
+  details: async (db: Tx, list: readonly Receipt[]): Promise<ReceiptDetail[]> => {
+    if (list.length === 0) return [];
+    const payoutIds = list.map((receipt) => receipt.payoutId);
+    const payoutRows = await db
+      .selectFrom('ujira.payouts')
+      .select(['principal_id', 'id', 'task_id', 'mandate_id', 'recipient_id'])
+      .where('id', 'in', payoutIds)
+      .execute();
+    const byPayout = new Map(payoutRows.map((row) => [row.id, row]));
+    const mandateIds = [...new Set(payoutRows.map((row) => row.mandate_id))];
+    const recipientIds = [...new Set(payoutRows.map((row) => row.recipient_id))];
+    const mandateRows =
+      mandateIds.length === 0
+        ? []
+        : await db
+            .selectFrom('ujira.mandates')
+            .select(['id', 'contract_address'])
+            .where('id', 'in', mandateIds)
+            .execute();
+    const recipientRows =
+      recipientIds.length === 0
+        ? []
+        : await db
+            .selectFrom('ujira.recipients')
+            .select(['id', 'label', 'recipient_ref'])
+            .where('id', 'in', recipientIds)
+            .execute();
+    const legRows = await db
+      .selectFrom('ujira.payout_legs')
+      .select([
+        'payout_id',
+        'leg_index',
+        'destination_address',
+        'chain',
+        'asset',
+        'scale',
+        'amount',
+        'chain_tx_hash',
+      ])
+      .where('payout_id', 'in', payoutIds)
+      .orderBy('payout_id')
+      .orderBy('leg_index')
+      .execute();
+    const mandateOf = new Map(mandateRows.map((row) => [row.id, row]));
+    const recipientOf = new Map(recipientRows.map((row) => [row.id, row]));
+    const legsOf = new Map<string, ReceiptLegDetail[]>();
+    for (const row of legRows) {
+      const legs = legsOf.get(row.payout_id) ?? [];
+      legs.push({
+        index: row.leg_index,
+        destination: row.destination_address,
+        amount: tokenFromRow({
+          asset: row.asset,
+          chain: row.chain,
+          scale: row.scale,
+          amount: row.amount,
+        }),
+        txHash: row.chain_tx_hash === null ? null : bytesHex32(row.chain_tx_hash),
+      });
+      legsOf.set(row.payout_id, legs);
+    }
+    return list.map((receipt) => {
+      const payout = byPayout.get(receipt.payoutId);
+      const mandate = payout === undefined ? undefined : mandateOf.get(payout.mandate_id);
+      const recipient = payout === undefined ? undefined : recipientOf.get(payout.recipient_id);
+      // The composite foreign keys hold all of these to the receipt's tenant.
+      if (payout === undefined || mandate === undefined || recipient === undefined) {
+        throw new Error('a receipt names a payout whose rows cannot be read');
+      }
+      return {
+        receipt,
+        principalId: payout.principal_id,
+        taskId: payout.task_id,
+        mandate: { id: mandate.id, contractAddress: mandate.contract_address },
+        recipient: {
+          id: recipient.id,
+          label: recipient.label,
+          recipientRef: bytesHex32(recipient.recipient_ref),
+        },
+        legs: legsOf.get(receipt.payoutId) ?? [],
+      };
+    });
+  },
 };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function checkedId(value: string, field: string): string {
+  if (!UUID.test(value)) throw new RepositoryInputError(field);
+  return value;
+}
+
+function checkedStatuses(
+  statuses: readonly PayoutStatus[] | undefined,
+): readonly PayoutStatus[] | undefined {
+  if (statuses === undefined) return undefined;
+  if (statuses.length === 0 || !statuses.every((s) => isPayoutStatus(s) && isTerminal(s))) {
+    throw new RepositoryInputError('statuses');
+  }
+  return statuses;
+}
 
 // For the cross-tenant matrix, which requires a case for each method here.
 export const receiptRepositories = { receipts } as const;

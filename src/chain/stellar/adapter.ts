@@ -40,6 +40,7 @@ import {
   type SigningRequest,
   type SponsoredFee,
   type SubmitResult,
+  type TransactionTransfers,
 } from '../adapter.js';
 import {
   PAYOUT_STATUS,
@@ -798,5 +799,35 @@ export class StellarChainAdapter implements ChainAdapter {
 
   receiptRef(txHash: string, eventIndex: number): string {
     return receiptRef(this.network, txHash, eventIndex);
+  }
+
+  async transfers(txHash: string, o: CallOptions): Promise<TransactionTransfers> {
+    const hash = txHash.toLowerCase();
+    if (!HEX32.test(hash)) throw new RangeError('txHash must be 64 hex digits');
+    const chain = this.o.chain;
+    if (chain.transactionRecord === undefined) {
+      throw new ChainError('UNAVAILABLE', 'This server has no transaction history to read from');
+    }
+    // Only the asset mandates hold: anything else a transaction moved, such
+    // as a fee in XLM, says nothing about a payout.
+    const asset = `${this.o.asset.code}:${this.o.asset.issuer}`;
+    return withDeadline(
+      o,
+      'read the transaction',
+      async (): Promise<TransactionTransfers> => {
+        const record = await chain.transactionRecord?.(hash);
+        if (record === undefined || record === null) return { status: 'NOT_FOUND' };
+        if (!record.successful) return { status: 'FAILED', ledger: record.ledger };
+        return {
+          status: 'SUCCESS',
+          ledger: record.ledger,
+          calls: record.calls.map((c) => ({ contract: c.contract, fn: c.fn })),
+          transfers: record.transfers
+            .filter((t) => t.asset === asset)
+            .map((t) => ({ from: t.from, to: t.to, amount: t.amount })),
+        };
+      },
+      (e) => toChainError(e, 'read the transaction'),
+    );
   }
 }

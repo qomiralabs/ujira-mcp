@@ -130,6 +130,8 @@ export interface Route {
    * with 405 rather than the 404 an unknown route gets.
    */
   readonly alsoMounted?: readonly HttpMethod[];
+  /** What the success answer is, when it is not JSON; such as text/csv. */
+  readonly mediaType?: string;
   run(c: V1Context): Promise<Response>;
 }
 
@@ -348,4 +350,108 @@ export function defineIdempotentRoute<
 >(d: IdempotentRouteDefinition<B, Q, P, R, A>): Route {
   type Input = Parameters<typeof d.handler>[0];
   return buildRoute(d, d.idempotency, (input, c) => d.handler(input as Input, c));
+}
+
+export interface TextRouteDefinition<Q extends AnyObject, P extends AnyObject> {
+  readonly path: string;
+  readonly operationId: string;
+  readonly summary: string;
+  readonly description?: string;
+  readonly tags?: readonly string[];
+  readonly query?: Q;
+  readonly params?: P;
+  /** Such as `text/csv; charset=utf-8`. */
+  readonly mediaType: string;
+  /** Offered to a browser as the file name to save it under. */
+  readonly filename: string;
+  readonly responseDescription?: string;
+  readonly errors?: readonly ApiErrorCode[];
+  /** The body in chunks, read as the client takes them. */
+  readonly handler: (
+    input: RouteInput<undefined, z.output<Q>, z.output<P>>,
+    c: V1Context,
+  ) => Promise<AsyncIterable<string>>;
+}
+
+const FILENAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/**
+ * A GET that answers a text file, such as a CSV export, streamed so a large
+ * one is never held in memory. The first chunk is read before the answer
+ * starts, so a failure there, a refused credential or a database that is
+ * down, is still the one error envelope with its status. A failure after
+ * that can only cut the stream short, since the status has been sent; the
+ * client sees a download that did not finish, never a partial file that
+ * looks whole, because the connection ends with an error.
+ */
+export function defineTextRoute<Q extends AnyObject = AnyObject, P extends AnyObject = AnyObject>(
+  d: TextRouteDefinition<Q, P>,
+): Route {
+  checkDefinition({
+    path: d.path,
+    operationId: d.operationId,
+    params: d.params,
+    method: 'get',
+    body: undefined,
+    idempotent: false,
+  });
+  if (!FILENAME.test(d.filename)) throw new Error(`route ${d.operationId}: a plain file name`);
+
+  async function run(c: V1Context): Promise<Response> {
+    const query = d.query === undefined ? {} : parseOr400(d.query, queryObject(c.req.url), 'query');
+    const params = d.params === undefined ? {} : parseOr400(d.params, c.req.param(), 'params');
+    const chunks = await d.handler(
+      {
+        body: undefined,
+        query: query as z.output<Q>,
+        params: params as z.output<P>,
+      },
+      c,
+    );
+    const iterator = chunks[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (first.done === true) controller.close();
+        else controller.enqueue(encoder.encode(first.value));
+      },
+      async pull(controller) {
+        try {
+          const next = await iterator.next();
+          if (next.done === true) controller.close();
+          else controller.enqueue(encoder.encode(next.value));
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      async cancel() {
+        // The client went away: stop reading pages for it.
+        await iterator.return?.();
+      },
+    });
+    return c.body(stream, 200, {
+      'content-type': d.mediaType,
+      'content-disposition': `attachment; filename="${d.filename}"`,
+    });
+  }
+
+  return {
+    method: 'get',
+    path: d.path,
+    operationId: d.operationId,
+    summary: d.summary,
+    description: d.description,
+    tags: d.tags ?? [],
+    status: 200,
+    errors: d.errors ?? [],
+    body: undefined,
+    query: d.query,
+    params: d.params,
+    response: z.string(),
+    responseDescription: d.responseDescription ?? 'OK',
+    idempotent: false,
+    mediaType: d.mediaType.split(';')[0] ?? d.mediaType,
+    run,
+  };
 }

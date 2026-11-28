@@ -29,7 +29,9 @@ async function clients(): Promise<{ api: ConsoleApi; auth: AuthApi; v1: V1Api }>
       import('./lib/fakeV1'),
     ]);
     const auth = createFakeAuthApi();
-    return { api: createMockApi(), auth, v1: createFakeV1Api(auth) };
+    // `demo=off` starts each project empty, as a new principal finds it.
+    const demo = new URLSearchParams(location.search).get('demo') !== 'off';
+    return { api: createMockApi(), auth, v1: createFakeV1Api(auth, { demo }) };
   }
   // Sign in and the data routes share one transport, so they name the same project.
   const transport = createV1Transport();

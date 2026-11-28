@@ -162,9 +162,9 @@ describe('the defaults are the landing page look', () => {
       const value = themeModes.dark[property as keyof typeof themeModes.dark];
       expect(value.toLowerCase(), property).toBe(resolved(dark, base, token));
     }
-    // The dashboard's dark error red is 4.4 to 1 on this card, under AA for
-    // body text, so the widget takes the lighter red that reaches it.
-    expect(themeModes.dark['--ujira-embed-error']).toBe('#FCA5A5');
+    expect(themeModes.dark['--ujira-embed-error'].toLowerCase()).toBe(
+      resolved(dark, base, '--block-fg'),
+    );
   });
 
   it('with the same faces and curve', () => {

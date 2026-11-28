@@ -35,7 +35,7 @@ export const themeModes = {
     '--ujira-embed-link': '#0A1F26',
     '--ujira-embed-mark': '#F4A300',
     '--ujira-embed-mark-track': '#cbd7da',
-    '--ujira-embed-error': '#DC2626',
+    '--ujira-embed-error': '#B91C1C',
     '--ujira-embed-focus': '#8F5A00',
     '--ujira-embed-focus-inner': '#FFFFFF',
     '--ujira-embed-shadow': '0 2px 6px rgba(10,31,38,.06), 0 24px 60px -18px rgba(10,31,38,.28)',

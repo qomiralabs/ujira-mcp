@@ -104,6 +104,16 @@ Verify calls `GET /v1/receipts/{id}/verify`: it shows "Matches Stellar" or the f
 with the transaction on Stellar Expert, and nothing until the server has answered. A blocked
 receipt has no transaction, so it has nothing to verify. The payout sheet offers the same Verify.
 
+The overview (`overview`) reads `GET /v1/stats/overview` for the balances, the period's figures and
+the approvals waiting, and `GET /v1/payouts?limit=6` for the latest payouts, which open in the
+payout sheet. The total balance adds up the `mandates[]` the chain answered for; a mandate it did not
+answer for is named on screen and left out of the total, never counted as zero. The period is the
+server's (the last 7 days of the principal's time zone by default), shown as days with its
+exclusive end left out. Nothing shows before the answer is in, and amounts never count up. A
+project with no mandate gets its first steps (create a mandate, fund it, create a key), each marked
+done only once the server shows it; the key step is left out for a role that cannot list keys. In
+mock mode `demo=off` starts each project empty.
+
 ## Checks
 
 ```sh

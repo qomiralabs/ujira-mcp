@@ -12,7 +12,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 
 import { createV1App, type V1App } from '../src/api/app.js';
 import { StellarChainAdapter } from '../src/chain/stellar/adapter.js';
@@ -30,6 +30,7 @@ import {
 import {
   createTestDatabase,
   databaseAsServiceRoles,
+  testContract,
   type TestDatabase,
 } from '../src/db/testing/index.js';
 import { createSealer } from '../src/keys/sealer.js';
@@ -55,9 +56,14 @@ let app: V1App['app'];
 let request: Request;
 let call: Call;
 const lines: string[] = [];
+let databases = 0;
 
-beforeAll(async () => {
-  database = await createTestDatabase(adminUrl, import.meta.url);
+// A contract belongs to one mandate, and the fake RPC serves one contract, so
+// every test that pays on it needs a database of its own. The log lines stay
+// across tests, for the last one to read.
+beforeEach(async () => {
+  databases += 1;
+  database = await createTestDatabase(adminUrl, `${import.meta.url}#${String(databases)}`);
   db = databaseAsServiceRoles(roleUrls, database);
   network = new FakeNetwork();
   adapter = new StellarChainAdapter({
@@ -86,7 +92,7 @@ beforeAll(async () => {
   call = clientFor(app);
 });
 
-afterAll(async () => {
+afterEach(async () => {
   await db.close();
   await database.drop();
 });
@@ -97,8 +103,14 @@ interface Owner extends ProjectContext {
   readonly recipientId: string;
 }
 
-/** A principal whose owner is signed in, with a mandate and a recipient that can be paid. */
-async function owner(): Promise<Owner> {
+/**
+ * A principal whose owner is signed in, with a mandate and a recipient that
+ * can be paid. The fake RPC serves one contract, so a second owner in the
+ * same test takes a contract of its own, never reached on chain, and a
+ * recipient with no wallet, which needs no allowlist call.
+ */
+async function owner(contractAddress: string = MANDATE): Promise<Owner> {
+  const onChain = contractAddress === MANDATE;
   const kp = wallet();
   const made = await db.unscoped((tx) =>
     entryPoints.createPrincipal(tx, {
@@ -124,7 +136,7 @@ async function owner(): Promise<Owner> {
       {
         name: 'Payroll',
         network: TESTNET,
-        contractAddress: MANDATE,
+        contractAddress,
         asset: 'USDC',
         scale: 7,
         agent: { keyId: key.id },
@@ -145,7 +157,9 @@ async function owner(): Promise<Owner> {
   const recipient = await request('POST', '/v1/recipients', {
     cookie: token,
     project: context.projectId,
-    body: { mandateId, label: LABEL, address, email: EMAIL },
+    body: onChain
+      ? { mandateId, label: LABEL, address, email: EMAIL }
+      : { mandateId, label: LABEL },
   });
   expect(recipient.status).toBe(201);
   const recipientId = (recipient.json?.['recipient'] as { id: string }).id;
@@ -287,7 +301,7 @@ describe('/v1/mcp as the web role serves it', () => {
 
   it('shows another principal nothing and lets it pay nothing on the mandate', async () => {
     const alice = await owner();
-    const bob = await owner();
+    const bob = await owner(testContract());
     const alices = await mcp(await keyFor(alice, ['payouts:read', 'payouts:write']));
     await tool(alices, 'request_payout', args(alice, 'alice-task'));
     const bobs = await mcp(await keyFor(bob, ['payouts:read', 'payouts:write']));

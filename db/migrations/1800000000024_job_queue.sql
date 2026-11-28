@@ -139,13 +139,18 @@ set local statement_timeout = '60s';
 
 -- Refused once the library has installed its tables, which is the right
 -- answer: rolling this back must not quietly destroy a queue with jobs in it.
+-- Indexes are left out because the ledger made above has one of its own, its
+-- primary key, and counting it refused every rollback, installed or not. An
+-- installed index always sits on an installed table, so nothing is missed.
 do $installed$
 begin
   if exists (
     select 1
       from pg_catalog.pg_class as c
       join pg_catalog.pg_namespace as n on n.oid = c.relnamespace
-     where n.nspname = 'graphile_worker' and c.relname <> 'migrations'
+     where n.nspname = 'graphile_worker'
+       and c.relname <> 'migrations'
+       and c.relkind <> 'i'
   ) then
     raise exception using
       errcode = '2BP01',

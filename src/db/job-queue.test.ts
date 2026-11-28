@@ -5,7 +5,7 @@
 // leave them: who can reach what, and what enqueue_payout refuses. Running
 // jobs is tested from the worker, in src/worker/queue.db.test.ts.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { sql } from 'kysely';
@@ -13,7 +13,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
 import type { Database, ProjectContext } from './database.js';
-import { MIGRATIONS_DIR, parseMigration } from './migrate.js';
+import { MIGRATIONS_DIR, parseMigration, runMigrations } from './migrate.js';
 import { jobs } from './repositories/jobs.js';
 import { RepositoryInputError } from './repositories/values.js';
 import { insertTenant } from './testing/admin-tenants.js';
@@ -153,6 +153,35 @@ describe('the job queue schemas', () => {
       expect(await codeOf(admin.query(source.down))).toBe('2BP01');
     } finally {
       await admin.query('rollback');
+    }
+  });
+
+  it('can be rolled back before the queue is installed, with only its own ledger there', async () => {
+    // The ledger's primary key is a relation in the schema too, and must not
+    // read as an installed queue. Migrated up to this one only, since a later
+    // migration may add to the schemas and comes down before this one does.
+    const upTo = readdirSync(MIGRATIONS_DIR).filter(
+      (name) => name.endsWith('.sql') && name <= MIGRATION,
+    ).length;
+    const source = parseMigration(MIGRATION, readFileSync(join(MIGRATIONS_DIR, MIGRATION), 'utf8'));
+    const bare = await createTestDatabase(adminUrl, `${import.meta.url}#bare`, { empty: true });
+    const client = new pg.Client({ connectionString: bare.url });
+    try {
+      await client.connect();
+      await runMigrations({ databaseUrl: bare.url, direction: 'up', count: upTo });
+      await client.query('begin');
+      try {
+        expect(await codeOf(client.query(source.down))).toBeUndefined();
+        const { rows } = await client.query<{ found: string | null }>(
+          `select to_regnamespace('graphile_worker')::text as found`,
+        );
+        expect(rows).toEqual([{ found: null }]);
+      } finally {
+        await client.query('rollback');
+      }
+    } finally {
+      await client.end();
+      await bare.drop();
     }
   });
 });

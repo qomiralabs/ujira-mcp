@@ -71,7 +71,7 @@ describe('the catalog', () => {
   });
 
   it.each([
-    'project.created',
+    'project.deleted',
     'project.settings_changed',
     'session.signed_in.extra',
     'SESSION.SIGNED_IN',

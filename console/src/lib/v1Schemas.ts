@@ -239,10 +239,35 @@ export const createdApiKeySchema = z.looseObject({
   secret: z.string().check(z.minLength(1)),
 });
 
+/** One mandate's money as the overview reads it from the chain. */
+export const overviewMandateSchema = z.looseObject({
+  id,
+  contractId: text,
+  name: text,
+  // Null when the chain did not answer in time.
+  state: z.nullable(
+    z.looseObject({
+      balance: tokenAmountSchema,
+      committed: tokenAmountSchema,
+      free: tokenAmountSchema,
+    }),
+  ),
+});
+export type OverviewMandate = z.output<typeof overviewMandateSchema>;
+
 export const overviewSchema = z.looseObject({
-  period: z.looseObject({ from: timestamp, to: timestamp }),
+  // `from` is inclusive and `to` exclusive, counted in the principal's time zone.
+  period: z.looseObject({ from: timestamp, to: timestamp, timeZone: text }),
+  // What the payouts created in the period and now paid add up to, one entry per token.
   paid: z.array(tokenAmountSchema),
   byStatus: z.record(z.string(), count),
+  // The blocked payouts of the period, by the rule that stopped them.
+  blockedByRule: z.record(z.string(), count),
+  // Every payout waiting for an approver now, whenever it was made.
   approvalsWaiting: count,
+  // The project's first mandates, with what each holds.
+  mandates: z.array(overviewMandateSchema),
+  // True when the project has more mandates than the overview read.
+  moreMandates: z.boolean(),
 });
 export type Overview = z.output<typeof overviewSchema>;

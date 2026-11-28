@@ -52,6 +52,8 @@ const PAGE_MAX = 200;
 // The recipient, embed session and API key routes take at most 100 a page.
 const SMALL_PAGE_MAX = 100;
 const SIGNING_MS = 10 * 60 * 1000;
+const OVERVIEW_DAYS = 7;
+const OVERVIEW_MANDATES = 50;
 const LABEL_MAX = 100;
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
@@ -85,6 +87,8 @@ export interface FakeV1Api extends V1Api {
   readonly setDestination: (address: string, state: FakeDestination) => void;
   /** Puts payouts to a recipient on hold, as support would. */
   readonly suspendRecipient: (id: string) => void;
+  /** Makes the fake chain miss, or answer again, the overview's read of one mandate. */
+  readonly setUnread: (mandateId: string, unanswered: boolean) => void;
 }
 
 interface MandateRow {
@@ -231,6 +235,8 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     { readonly projectId: string; readonly expiresAt: number; readonly pending: Pending }
   >();
   let requests = 0;
+  // Mandates whose chain read the overview misses, for tests.
+  const unread = new Set<string>();
 
   const iso = (ms = now()) => new Date(ms).toISOString();
 
@@ -1085,26 +1091,69 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         k.revokedAt ??= iso();
         return keyWire(t, k);
       }),
+    // Like the server: the last 7 days of the principal's zone (UTC here), today
+    // included, from inclusive and to exclusive; balances for the first 50 mandates.
     overview: (q) =>
       step((_t, d) => {
-        const at = new Date(now());
-        const from = q?.from ?? iso(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
-        const to = q?.to ?? iso();
+        const parsed = (raw: string | undefined) => {
+          if (raw === undefined) return undefined;
+          const ms = Date.parse(raw);
+          if (Number.isNaN(ms)) throw fail('INVALID_REQUEST', 400, 'That is not a time.');
+          return ms;
+        };
+        const today = new Date(now());
+        const tonight = Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate() + 1,
+        );
+        const to = parsed(q?.to) ?? tonight;
+        const from = parsed(q?.from) ?? to - OVERVIEW_DAYS * DAY_MS;
+        if (from >= to) throw fail('INVALID_REQUEST', 400, 'The period must start before it ends.');
         const byStatus: Record<string, number> = {};
+        const blockedByRule: Record<string, number> = {};
         let paid = 0n;
         for (const p of d.payouts.values()) {
-          if (p.createdAt < from || p.createdAt > to) continue;
+          const at = Date.parse(p.createdAt);
+          if (at < from || at >= to) continue;
           byStatus[p.status] = (byStatus[p.status] ?? 0) + 1;
           if (p.status === 'paid') paid += p.amount;
+          if (p.status === 'blocked' && p.blockedBy !== null) {
+            blockedByRule[p.blockedBy] = (blockedByRule[p.blockedBy] ?? 0) + 1;
+          }
         }
+        const all = [...d.mandates.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        const read = all.slice(0, OVERVIEW_MANDATES).map((m) => {
+          const w = mandateWire(m);
+          return {
+            id: m.id,
+            contractId: m.contractId,
+            name: m.name ?? '',
+            state: unread.has(m.id)
+              ? null
+              : {
+                  balance: usdc(w.state.balance.amount),
+                  committed: usdc(w.state.committed.amount),
+                  free: usdc(w.state.free.amount),
+                },
+          };
+        });
         return parse(overviewSchema, {
-          period: { from, to },
-          paid: [usdc(paid)],
+          period: { from: iso(from), to: iso(to), timeZone: 'UTC' },
+          // One total per token the project's mandates hold, zero included.
+          paid: all.length === 0 ? [] : [usdc(paid)],
           byStatus,
+          blockedByRule,
           approvalsWaiting: [...d.payouts.values()].filter((p) => p.status === 'pending_approval')
             .length,
+          mandates: read,
+          moreMandates: all.length > OVERVIEW_MANDATES,
         });
       }),
+    setUnread: (mandateId, unanswered) => {
+      if (unanswered) unread.add(mandateId);
+      else unread.delete(mandateId);
+    },
     signingRequests: () => signing.size,
     setDestination: (address, state) => {
       chain.set(address, state);

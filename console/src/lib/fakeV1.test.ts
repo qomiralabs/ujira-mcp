@@ -516,7 +516,62 @@ describe('the fake /v1 API', () => {
     const o = await v1.overview();
     expect(o.paid[0]?.amount).toBe(7n * UNIT);
     expect(o.byStatus).toEqual({ paid: 2, pending_approval: 1 });
+    expect(o.blockedByRule).toEqual({});
     expect(o.approvalsWaiting).toBe(1);
+  });
+
+  it('counts blocked payouts by the rule that stopped them', async () => {
+    const { v1, mandateId, recipientId } = await setup();
+    await v1.createPayout({ mandateId, recipientId, amount: usdc(150n), taskId: 'x' }, 'x');
+    await v1.createPayout({ mandateId, recipientId, amount: usdc(160n), taskId: 'y' }, 'y');
+    const o = await v1.overview();
+    expect(o.byStatus['blocked']).toBe(2);
+    expect(o.blockedByRule).toEqual({ PAYMENT_CAP_EXCEEDED: 2 });
+  });
+
+  it('counts the last 7 days by default, today included, with the end left out', async () => {
+    const { auth } = await signedIn(ALICE);
+    let at = Date.parse('2026-11-27T15:00:00.000Z');
+    const v1 = createFakeV1Api(auth, { delayMs: 0, demo: false, now: () => at });
+    const { mandateId, recipientId } = await ready(v1);
+    await v1.createPayout({ mandateId, recipientId, amount: usdc(3n), taskId: 'a' }, 'a');
+    const o = await v1.overview();
+    expect(o.period).toEqual({
+      from: '2026-11-21T00:00:00.000Z',
+      to: '2026-11-28T00:00:00.000Z',
+      timeZone: 'UTC',
+    });
+    expect(o.byStatus).toEqual({ paid: 1 });
+    // A payout made at the very end of a period belongs to the next one.
+    at = Date.parse('2026-11-28T00:00:00.000Z');
+    await v1.createPayout({ mandateId, recipientId, amount: usdc(4n), taskId: 'b' }, 'b');
+    const before = await v1.overview({ to: '2026-11-28T00:00:00.000Z' });
+    expect(before.byStatus).toEqual({ paid: 1 });
+    await expect(
+      v1.overview({ from: '2026-11-28T00:00:00.000Z', to: '2026-11-28T00:00:00.000Z' }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it("gives each mandate's balance, or null where the chain did not answer", async () => {
+    const { v1, mandateId } = await setup();
+    const o = await v1.overview();
+    expect(o.moreMandates).toBe(false);
+    expect(o.mandates).toHaveLength(1);
+    expect(o.mandates[0]).toMatchObject({
+      id: mandateId,
+      name: '',
+      state: { balance: usdc(500n), committed: usdc(0n), free: usdc(500n) },
+    });
+    expect(o.paid).toEqual([usdc(0n)]);
+    v1.setUnread(mandateId, true);
+    expect((await v1.overview()).mandates[0]?.state).toBeNull();
+  });
+
+  it('answers an empty project with no tokens and no mandates', async () => {
+    const { auth } = await signedIn(ALICE);
+    const v1 = createFakeV1Api(auth, { delayMs: 0, demo: false });
+    const o = await v1.overview();
+    expect(o).toMatchObject({ paid: [], byStatus: {}, mandates: [], moreMandates: false });
   });
 
   describe('recipients, as the server answers them', () => {

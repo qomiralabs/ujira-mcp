@@ -786,6 +786,177 @@ select {
   padding: 24px;
 }
 
+.balance-more {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.balance-unknown {
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.balance-warn {
+  color: var(--wait-fg);
+  font-weight: 500;
+}
+
+.figure-skeleton {
+  display: block;
+  width: 96px;
+  height: 20px;
+  border-radius: 6px;
+}
+
+/* The overview's period: four figures, then two lists of counts */
+
+.period {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.kpi {
+  gap: 8px;
+  padding: 18px 20px;
+}
+
+.kpi dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.kpi dd {
+  display: grid;
+  gap: 2px;
+}
+
+.kpi-num {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-none {
+  font-size: 15px;
+  color: var(--text-2);
+}
+
+.bars {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 13em) minmax(0, 1fr) 4ch;
+  align-items: center;
+  gap: 12px;
+}
+
+.bars-label {
+  min-width: 0;
+  font-size: 14px;
+}
+
+.bars-track {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 70%, var(--line-2));
+  overflow: hidden;
+}
+
+.bars-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.bars-paid {
+  background: var(--paid-fg);
+}
+
+.bars-waiting {
+  background: var(--wait-fg);
+}
+
+.bars-blocked {
+  background: var(--block-fg);
+}
+
+.bars-neutral {
+  background: var(--text-3);
+}
+
+.bars-count {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A list line that opens something in place rather than another page */
+
+.row-button {
+  width: calc(100% + 20px);
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-button:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (max-width: 1080px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .kpis {
+    gap: 12px;
+  }
+
+  .kpi {
+    padding: 14px 16px;
+  }
+
+  .bars li {
+    grid-template-columns: minmax(0, 1fr) 4ch;
+  }
+
+  .bars-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 .meter-block {
   display: grid;
   gap: 14px;

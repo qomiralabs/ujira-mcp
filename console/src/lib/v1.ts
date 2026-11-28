@@ -71,22 +71,33 @@ const V1_ERRORS: Record<string, string> = {
   SESSION_INVALID: 'Your session has ended. Sign in again.',
   TOKEN_MALFORMED: 'Your session has ended. Sign in again.',
   TOKEN_INVALID: 'Your session has ended. Sign in again.',
-  SIGNATURE_INVALID: 'The wallet signature did not match. Sign in again.',
   CHALLENGE_EXPIRED: 'The sign in message ran out of time. Sign in again.',
   FORBIDDEN: 'Your role cannot do that here.',
-  ORIGIN_NOT_ALLOWED: 'This page is not allowed to sign you in. Open UJIRA from ujira.co.',
+  ORIGIN_NOT_ALLOWED: 'Open UJIRA from ujira.co to do this.',
   NOT_FOUND: 'We could not find that. Reload the page and try again.',
   PAYLOAD_TOO_LARGE: 'That request is too large to send.',
   IDEMPOTENCY_KEY_REUSED: 'That request was already sent with different details. Start it again.',
   IDEMPOTENCY_IN_PROGRESS: 'That request is still being handled. Wait a moment and refresh.',
-  TASK_ID_REUSED: 'This task already has a payout on this mandate. Use a new task ID.',
+  TASK_ID_REUSED: 'This task ID is taken on this mandate. Use a new one.',
   API_KEY_LIMIT_REACHED: 'This project has 20 active keys. Revoke one to make another.',
   TOKEN_ENVIRONMENT_MISMATCH:
     'That key is for the other network. Test keys work on testnet, live keys on mainnet.',
   RECIPIENT_LABEL_TAKEN: 'Someone on this mandate already has that name.',
   MANDATE_REFUSED: 'The mandate refused this change.',
-  RATE_LIMITED: 'Too many tries in a short time. Wait a minute and try again.',
-  CHAIN_UNAVAILABLE: 'The Stellar network is not answering right now. Try again in a moment.',
+  MANDATE_TAKEN: 'Another project already uses this mandate.',
+  MANDATE_PRINCIPAL_MISMATCH: 'Your wallet does not own this mandate.',
+  MANDATE_AGENT_MISMATCH: "This mandate was not set up for this project's agent.",
+  RECIPIENT_MODE_UNSUPPORTED: "UJIRA only pays recipients on the mandate's list.",
+  AGENT_KEY_MISSING: "This project's agent key is not ready. Try again in a minute.",
+  // Signing: what the wallet sent back, and what Stellar made of it.
+  SIGNING_REQUEST_USED: 'Stellar already has this one. Refresh to see it.',
+  SIGNING_REQUEST_EXPIRED: 'This waited too long to be signed. Start again.',
+  SIGNING_REQUEST_MISMATCH: 'What your wallet signed is not what we prepared. Start again.',
+  SIGNATURE_INVALID: 'The signature does not match the wallet. Sign again.',
+  CONTRACT_REFUSED: 'The mandate said no. Nothing moved.',
+  TX_FAILED: 'Stellar refused it. Nothing moved.',
+  RATE_LIMITED: 'Too many tries. Wait a minute and try again.',
+  CHAIN_UNAVAILABLE: 'Stellar is not answering right now. Try again in a moment.',
   DB_UNAVAILABLE: 'UJIRA is busy for a moment. Try again shortly.',
   INTERNAL: 'The UJIRA server had a problem. Try again in a moment.',
 };
@@ -98,7 +109,7 @@ export function v1ErrorText(
   retryAfterSeconds?: number,
 ): string {
   if (code === 'RATE_LIMITED' && retryAfterSeconds !== undefined) {
-    return `Too many tries in a short time. Try again in ${waitWords(retryAfterSeconds)}.`;
+    return `Too many tries. Try again in ${waitWords(retryAfterSeconds)}.`;
   }
   return (
     V1_ERRORS[code] ?? (serverMessage === '' ? 'That did not work. Try again.' : serverMessage)
@@ -315,8 +326,13 @@ export interface PrepareMandateInput {
   readonly approvers: readonly string[];
   readonly approvalsRequired: number;
   readonly limits: MandateLimitsInput;
-  /** Ids of project recipients the mandate may pay from the start. */
-  readonly recipients: readonly string[];
+  /**
+   * Left out by the console. The server takes an empty list and refuses any
+   * other: a recipient belongs to one mandate, so each is added once it exists.
+   */
+  readonly recipients?: readonly string[] | undefined;
+  /** The server's default, and the only mode it takes, is allowlist. */
+  readonly recipientMode?: 'allowlist' | 'attested' | 'both' | undefined;
 }
 
 /** What can be done to a mandate that exists; each becomes a request for the wallet to sign. */

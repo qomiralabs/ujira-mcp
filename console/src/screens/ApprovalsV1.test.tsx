@@ -231,9 +231,9 @@ describe('the approvals queue on /v1', () => {
         expiresAt: '2099-01-01T00:00:00.000Z',
       },
     });
-    const id = must((await w.v1.submitSigned(create.id, 'signed')).mandateId);
+    const id = must((await w.v1.submitSigned(create.id, create.xdr)).mandateId);
     const fund = await w.v1.mandateAction(id, { kind: 'fund', amount: 500n * UNIT });
-    await w.v1.submitSigned(fund.id, 'signed');
+    await w.v1.submitSigned(fund.id, fund.xdr);
     const ada = must((await w.v1.recipients()).items.find((r) => r.label === 'Ada'));
     await w.v1.createPayout(
       { mandateId: id, recipientId: ada.id, amount: usdc(75n), taskId: 'board-1' },

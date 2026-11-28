@@ -13,6 +13,7 @@ import {
   createHttpV1Api,
   createV1Transport,
   retryAfterSeconds,
+  v1ErrorText,
   type V1Api,
 } from './v1';
 import type { TokenAmount } from './v1Schemas';
@@ -82,7 +83,6 @@ const ROUTES: readonly {
       a.prepareMandate({
         approvers: [],
         approvalsRequired: 1,
-        recipients: [],
         limits: {
           totalBudget: usdc(50_000_000_000n),
           perPaymentCap: usdc(5_000_000_000n),
@@ -95,7 +95,6 @@ const ROUTES: readonly {
     body: {
       approvers: [],
       approvalsRequired: 1,
-      recipients: [],
       limits: {
         totalBudget: { amount: '50000000000', asset: 'USDC', network: 'stellar:testnet', scale: 7 },
         perPaymentCap: {
@@ -351,9 +350,46 @@ describe('the /v1 client, against recorded answers', () => {
     const page = await api.payouts();
     const [paid, pending] = page.items;
     expect(paid?.amount.amount).toBe(25_000_000n);
-    expect(pending?.amount.amount).toBe(300_000_000_000_000_000_000_000_000_000_000_000_001n);
+    // The largest amount the contract's i128 holds, exactly.
+    expect(pending?.amount.amount).toBe(2n ** 127n - 1n);
     expect(typeof pending?.legs[0]?.amount.amount).toBe('bigint');
     expect(page.nextCursor).toBeNull();
+  });
+
+  it('keeps every recorded amount inside the i128 the contract takes', () => {
+    const amounts: string[] = [];
+    JSON.stringify(RECORDED, (key, value: unknown) => {
+      if (key === 'amount' && typeof value === 'string') amounts.push(value);
+      return value;
+    });
+    expect(amounts.length).toBeGreaterThan(10);
+    for (const a of amounts) expect(BigInt(a) < 2n ** 127n).toBe(true);
+  });
+
+  it("reads a payout's timeline and its legs in their own words", async () => {
+    const { api } = recorder(() => json(200, RECORDED['GET /v1/payouts/{id}']));
+    const p = await api.payout(IDS.payout);
+    expect(p.legs[0]?.status).toBe('settled');
+    expect(p.timeline?.map((t) => t.event)).toEqual([
+      'created',
+      'requested',
+      'leg_settled',
+      'paid',
+    ]);
+    expect(p.timeline?.[1]).toEqual({
+      event: 'requested',
+      at: null,
+      legIndex: null,
+      txHash: IDS.tx,
+    });
+  });
+
+  it('reads what the budget still allows for each approval, or null when unread', async () => {
+    const { api } = recorder(() => json(200, RECORDED['GET /v1/approvals']));
+    const [known, unread] = (await api.approvals()).items;
+    expect(known?.budgetLeft?.amount).toBe(46_800_000_000n);
+    expect(unread?.budgetLeft).toBeNull();
+    expect(known?.legs[0]?.status).toBe('planned');
   });
 
   it('formats a /v1 amount with the one formatter, in its own scale and asset', async () => {
@@ -490,7 +526,49 @@ describe('the /v1 error envelope', () => {
       code: 'TASK_ID_REUSED',
       status: 409,
       requestId: 'req-env',
-      message: 'This task already has a payout on this mandate. Use a new task ID.',
+      message: 'This task ID is taken on this mandate. Use a new one.',
+    });
+  });
+
+  it('has a short sentence for every code the mandate routes answer', () => {
+    const words: Record<string, string> = {
+      MANDATE_TAKEN: 'Another project already uses this mandate.',
+      MANDATE_PRINCIPAL_MISMATCH: 'Your wallet does not own this mandate.',
+      MANDATE_AGENT_MISMATCH: "This mandate was not set up for this project's agent.",
+      RECIPIENT_MODE_UNSUPPORTED: "UJIRA only pays recipients on the mandate's list.",
+      AGENT_KEY_MISSING: "This project's agent key is not ready. Try again in a minute.",
+      SIGNING_REQUEST_USED: 'Stellar already has this one. Refresh to see it.',
+      SIGNING_REQUEST_EXPIRED: 'This waited too long to be signed. Start again.',
+      SIGNING_REQUEST_MISMATCH: 'What your wallet signed is not what we prepared. Start again.',
+      SIGNATURE_INVALID: 'The signature does not match the wallet. Sign again.',
+      CONTRACT_REFUSED: 'The mandate said no. Nothing moved.',
+      TX_FAILED: 'Stellar refused it. Nothing moved.',
+      TASK_ID_REUSED: 'This task ID is taken on this mandate. Use a new one.',
+      CHAIN_UNAVAILABLE: 'Stellar is not answering right now. Try again in a moment.',
+      RATE_LIMITED: 'Too many tries. Wait a minute and try again.',
+      ORIGIN_NOT_ALLOWED: 'Open UJIRA from ujira.co to do this.',
+    };
+    for (const [code, sentence] of Object.entries(words)) {
+      // The server's own message, which can name a contract, is not what a person reads.
+      expect(v1ErrorText(code, 'The server said something else')).toBe(sentence);
+      expect(sentence.split(' ').length).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it('says the fee cap resets in hours, from a Retry-After date at midnight', async () => {
+    const midnight = new Date(Date.now() + 5 * 3600 * 1000 + 60_000).toUTCString();
+    const { api } = recorder(() =>
+      json(
+        429,
+        { error: { code: 'RATE_LIMITED', message: 'Daily cap', requestId: 'req-cap' } },
+        { 'Retry-After': midnight },
+      ),
+    );
+    const error = await api.submitSigned(IDS.signing, 'AAAAsigned').catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      message: 'Too many tries. Try again in about 6 hours.',
     });
   });
 
@@ -530,7 +608,7 @@ describe('the /v1 error envelope', () => {
       status: 429,
       retryAfterSeconds: 120,
       requestId: 'req-429',
-      message: 'Too many tries in a short time. Try again in about 2 minutes.',
+      message: 'Too many tries. Try again in about 2 minutes.',
     });
   });
 
@@ -541,7 +619,7 @@ describe('the /v1 error envelope', () => {
     await expect(api.payouts()).rejects.toMatchObject({
       code: 'RATE_LIMITED',
       retryAfterSeconds: 20,
-      message: 'Too many tries in a short time. Try again in less than a minute.',
+      message: 'Too many tries. Try again in less than a minute.',
     });
   });
 
@@ -549,7 +627,7 @@ describe('the /v1 error envelope', () => {
     const { api } = recorder(() => new Response(null, { status: 429 }));
     await expect(api.payouts()).rejects.toMatchObject({
       retryAfterSeconds: undefined,
-      message: 'Too many tries in a short time. Wait a minute and try again.',
+      message: 'Too many tries. Wait a minute and try again.',
     });
   });
 

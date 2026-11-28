@@ -139,7 +139,8 @@ describe('the build flag', () => {
     renderProbe(v1, PAYOUTS);
     const list = await screen.findByRole('list', { name: 'Payouts' });
     expect(list.textContent).toContain('2.50 USDC');
-    expect(list.textContent).toContain('30,000,000,000,000,000,000,000,000,000,000.0000001 USDC');
+    // The largest i128, in its 7 decimals.
+    expect(list.textContent).toContain('17,014,118,346,046,923,173,168,730,371,588.4105727 USDC');
   });
 });
 

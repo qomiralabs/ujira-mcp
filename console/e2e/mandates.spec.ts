@@ -2,8 +2,8 @@
 // Copyright 2026 Qomira Labs
 
 // The mandate screens on /v1 in a real browser, in mock mode with the
-// mandates screen moved over: the list, create in two signatures, pause and
-// resume, and revoke with the name typed back. Screenshots go to
+// mandates screen moved over: the list, create with a new recipient in three
+// signatures, pause and resume, and revoke with the name typed back. Screenshots go to
 // e2e/screenshots at 375, 768 and 1440 wide, in light and dark, and each
 // screen photographed passes an axe scan.
 
@@ -14,6 +14,7 @@ import { expectAccessible } from './axe';
 const WIDTHS = [375, 768, 1440] as const;
 const SCHEMES = ['light', 'dark'] as const;
 const SHOTS = 'e2e/screenshots';
+const ADA = 'GBT7ITQKEX3Z2YWIYLPRQ5W3JLA2TJ3JTABB765ZYNG7VLX5YYUPI3DT';
 
 async function shot(page: Page, name: string, width: number, scheme: string) {
   await page.evaluate(() => document.fonts.ready);
@@ -29,6 +30,8 @@ async function sign(page: Page) {
 for (const width of WIDTHS) {
   for (const scheme of SCHEMES) {
     test(`mandates on /v1 at ${width} in ${scheme}`, async ({ browser }) => {
+      // Four signatures and five scans: more than the default minute on a slow runner.
+      test.slow();
       const context = await browser.newContext({
         viewport: { width, height: width < 800 ? 812 : 900 },
         colorScheme: scheme,
@@ -50,12 +53,23 @@ for (const width of WIDTHS) {
       await shot(page, 'mandates-v1-list', width, scheme);
 
       await page.getByRole('link', { name: 'Create a mandate' }).first().click();
-      await page.getByLabel('Name').fill('Grants round');
-      await page.getByRole('checkbox', { name: /Ada/ }).check();
+      await page.getByLabel('Name', { exact: true }).fill('Grants round');
+      // A recipient belongs to one mandate, so the form takes a new name and wallet.
+      await page.getByRole('button', { name: 'Add someone' }).click();
+      const row = page.getByRole('group', { name: 'Person 1' });
+      await row.getByLabel('Stellar wallet').fill(ADA);
+      await row.getByLabel('Their name').fill('Ada');
+      await expect(
+        page.getByText('3 signatures: create, one for each person, then fund.'),
+      ).toBeVisible();
       await shot(page, 'mandates-v1-create', width, scheme);
       await page.getByRole('button', { name: 'Review and sign' }).click();
       await sign(page);
-      await expect(page.getByRole('heading', { name: 'Sign step 2 of 2' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Sign step 2 of 3' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /Allow Ada/ })).toBeVisible();
+      await shot(page, 'mandates-v1-allow', width, scheme);
+      await sign(page);
+      await expect(page.getByRole('heading', { name: 'Sign step 3 of 3' })).toBeVisible();
       await sign(page);
       await expect(page.getByRole('heading', { name: 'Your mandate is live' })).toBeVisible();
       await page.getByRole('link', { name: 'Open your mandate' }).click();

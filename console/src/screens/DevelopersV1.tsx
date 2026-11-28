@@ -471,25 +471,13 @@ function ApiKeys({ v1, projectId, role }: { v1: V1Api; projectId: string; role: 
   );
 }
 
-function Snippet({
-  title,
-  code,
-  copyLabel,
-  soon = false,
-}: {
-  title: string;
-  code: string;
-  copyLabel: string;
-  /** Shown as it will work, tagged, until the route behind it ships. */
-  soon?: boolean;
-}) {
+function Snippet({ title, code, copyLabel }: { title: string; code: string; copyLabel: string }) {
   const id = useId();
   return (
     <figure className="snippet" aria-labelledby={id}>
       <figcaption className="snippet-head">
         <span id={id} className="snippet-title">
           {title}
-          {soon ? <SoonTag /> : null}
         </span>
         <CopyButton text={code} label={copyLabel} icon />
       </figcaption>
@@ -514,12 +502,7 @@ function Examples({ m }: { m: SnippetMandate }) {
         />
       </div>
       <Snippet title="Create a payout" code={payoutCurl(origin, m)} copyLabel="Copy the request" />
-      <Snippet
-        title="Any MCP client"
-        code={keyMcpConfig(origin)}
-        copyLabel="Copy the MCP config"
-        soon
-      />
+      <Snippet title="Any MCP client" code={keyMcpConfig(origin)} copyLabel="Copy the MCP config" />
     </section>
   );
 }

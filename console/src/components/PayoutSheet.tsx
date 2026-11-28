@@ -11,7 +11,7 @@ import { useResource } from '../app/hooks';
 import { methodLabel, timelineOf, type Step, type StepState } from '../lib/payoutsV1';
 import type { V1Api } from '../lib/v1';
 import type { PayoutDetail, PayoutLeg } from '../lib/v1Schemas';
-import { reasonText, statusWord } from '../lib/words';
+import { legStatusWord, reasonText, statusWord } from '../lib/words';
 import { Link } from './Link';
 import { ReceiptActions } from './ReceiptVerify';
 import { when } from './ReceiptsTable';
@@ -82,7 +82,7 @@ function Timeline({ steps }: { steps: readonly Step[] }) {
 }
 
 function Leg({ leg, count }: { leg: PayoutLeg; count: number }) {
-  const word = statusWord(leg.status);
+  const word = legStatusWord(leg.status);
   return (
     <li className="leg">
       {count > 1 ? <span className="leg-n">{leg.index + 1}</span> : null}

@@ -2,20 +2,33 @@
 // Copyright 2026 Qomira Labs
 
 // Creating a mandate on /v1: the server prepares the factory call with the
-// project's agent key, the owner's wallet signs it, then signs the first
-// deposit. Each step is done only when the server shows it.
+// project's agent key, and the owner's wallet signs it. A recipient belongs
+// to one mandate, so each person is added once the mandate exists, and the
+// owner signs to allow them. Then the owner signs the first deposit. Each
+// step is done only when the server shows it.
 
 import { useEffect, useRef, useState } from 'react';
 
 import { useApp } from '../app/context';
 import { ConnectPrompt } from '../components/Connect';
 import { Link } from '../components/Link';
-import { RecipientPicker } from '../components/RecipientPicker';
 import { SignPanel, readUntil, useV1Signing, type SignJob } from '../components/V1Sign';
-import { Field, Icon, Notice, SoonRow } from '../components/ui';
+import { Field, Icon, Notice, SoonRow, Tip } from '../components/ui';
 import { DEFAULT_DRAFT, validateRules, type RulesDraft, type RulesPlan } from '../lib/mandateForm';
-import { nameProblem, prepareInput, tokenOf, v1Network, type AssetUnit } from '../lib/mandateV1';
+import {
+  NEW_RECIPIENTS_MAX,
+  checkNewRecipients,
+  nameProblem,
+  prepareInput,
+  tokenOf,
+  v1Network,
+  type AssetUnit,
+  type NewRecipient,
+  type NewRecipientProblems,
+} from '../lib/mandateV1';
+import { LABEL_MAX } from '../lib/recipientsV1';
 import { formatToken } from '../lib/money';
+import { shortAddress } from '../lib/strkey';
 import type { V1Api } from '../lib/v1';
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -23,10 +36,11 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 interface Plan {
   readonly name: string;
   readonly rules: RulesPlan;
-  readonly recipientIds: readonly string[];
+  readonly recipients: readonly NewRecipient[];
 }
 
 type Errors = Partial<Record<keyof RulesDraft | 'name', string>>;
+type RowErrors = Readonly<Record<number, NewRecipientProblems>>;
 
 function useUnit(): AssetUnit {
   const { config } = useApp();
@@ -37,15 +51,103 @@ function useUnit(): AssetUnit {
   };
 }
 
-function CreateForm({
-  v1,
-  projectId,
-  onPlan,
+function signatureWords(people: number): string {
+  if (people === 0) return 'Two signatures: create, then fund.';
+  return `${String(people + 2)} signatures: create, one for each person, then fund.`;
+}
+
+/** New name and wallet pairs: each becomes a recipient of this mandate alone. */
+function NewRecipients({
+  rows,
+  errors,
+  onChange,
 }: {
-  v1: V1Api;
-  projectId: string;
-  onPlan: (plan: Plan) => void;
+  rows: readonly NewRecipient[];
+  errors: RowErrors;
+  onChange: (rows: readonly NewRecipient[]) => void;
 }) {
+  const full = rows.length >= NEW_RECIPIENTS_MAX;
+  const update = (i: number, patch: Partial<NewRecipient>) => {
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  };
+  return (
+    <fieldset className="recipients">
+      <legend>Who can be paid</legend>
+      {rows.length === 0 ? (
+        <p className="muted small">No one yet. You can add people now or later.</p>
+      ) : (
+        <div className="recipient-rows">
+          {rows.map((r, i) => {
+            const e = errors[i];
+            const who = r.label.trim() === '' ? `Person ${String(i + 1)}` : r.label.trim();
+            return (
+              // A named group per person, so each "Their name" field says whose it is.
+              <div
+                key={i}
+                role="group"
+                aria-label={who}
+                className={e === undefined ? 'recipient-row' : 'recipient-row row-invalid'}
+              >
+                <Field
+                  label="Their name"
+                  value={r.label}
+                  onChange={(v) => {
+                    update(i, { label: v.slice(0, LABEL_MAX) });
+                  }}
+                  error={e?.label}
+                  autoComplete="off"
+                />
+                <Field
+                  label="Stellar wallet"
+                  value={r.address}
+                  mono
+                  placeholder="G..."
+                  onChange={(v) => {
+                    update(i, { address: v.trim() });
+                  }}
+                  error={e?.address}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-small remove"
+                  onClick={() => {
+                    onChange(rows.filter((_, j) => j !== i));
+                  }}
+                >
+                  Remove<span className="sr-only"> {who}</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="actions">
+        <button
+          type="button"
+          className="btn"
+          disabled={full}
+          onClick={() => {
+            onChange([...rows, { label: '', address: '' }]);
+          }}
+        >
+          <Icon name="plus" size={16} />
+          Add someone
+        </button>
+        <Tip
+          label="About who can be paid"
+          text="Only wallets on this list can ever be paid from this mandate. Each person is added once the mandate exists, and you sign once to allow each."
+        />
+      </div>
+      {full ? (
+        <p className="muted small">
+          Up to {NEW_RECIPIENTS_MAX} here. Add more on the mandate later.
+        </p>
+      ) : null}
+    </fieldset>
+  );
+}
+
+function CreateForm({ onPlan }: { onPlan: (plan: Plan) => void }) {
   const unit = useUnit();
   const [name, setName] = useState('');
   const [draft, setDraft] = useState<RulesDraft>(() => ({
@@ -56,28 +158,40 @@ function CreateForm({
     expiryDays: DEFAULT_DRAFT.expiryDays,
     fund: DEFAULT_DRAFT.fund,
   }));
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [people, setPeople] = useState<readonly NewRecipient[]>([]);
   const [errors, setErrors] = useState<Errors>({});
+  const [rowErrors, setRowErrors] = useState<RowErrors>({});
   const [tried, setTried] = useState(false);
 
-  const check = (n: string, d: RulesDraft): { plan?: Plan; errors: Errors } => {
+  const check = (n: string, d: RulesDraft, p: readonly NewRecipient[]) => {
     const r = validateRules(d, { nowSeconds: nowSeconds() });
     const e: Errors = r.ok ? {} : { ...r.errors };
     const problem = nameProblem(n);
     if (problem !== null) e.name = problem;
-    if (!r.ok || problem !== null) return { errors: e };
-    return { plan: { name: n.trim(), rules: r.rules, recipientIds: [...picked] }, errors: {} };
+    const rows = checkNewRecipients(p);
+    const plan: Plan | undefined =
+      r.ok && problem === null && rows.list !== null
+        ? { name: n.trim(), rules: r.rules, recipients: rows.list }
+        : undefined;
+    return { plan, errors: e, rows: rows.rows };
   };
 
-  const change = (n: string, d: RulesDraft) => {
+  const change = (n: string, d: RulesDraft, p: readonly NewRecipient[]) => {
     setName(n);
     setDraft(d);
-    if (tried) setErrors(check(n, d).errors);
+    setPeople(p);
+    if (tried) {
+      const r = check(n, d, p);
+      setErrors(r.errors);
+      setRowErrors(r.rows);
+    }
   };
   const set = (key: keyof RulesDraft) => (value: string) => {
-    change(name, { ...draft, [key]: value });
+    change(name, { ...draft, [key]: value }, people);
   };
-  const count = Object.keys(errors).length;
+  const count =
+    Object.keys(errors).length +
+    Object.values(rowErrors).reduce((sum, e) => sum + Object.keys(e).length, 0);
 
   return (
     <form
@@ -86,8 +200,9 @@ function CreateForm({
       onSubmit={(e) => {
         e.preventDefault();
         setTried(true);
-        const r = check(name, draft);
+        const r = check(name, draft, people);
         setErrors(r.errors);
+        setRowErrors(r.rows);
         if (r.plan !== undefined) onPlan(r.plan);
       }}
     >
@@ -95,7 +210,7 @@ function CreateForm({
         label="Name"
         value={name}
         onChange={(v) => {
-          change(v, draft);
+          change(v, draft, people);
         }}
         error={errors.name}
         placeholder="Weekly payouts"
@@ -158,12 +273,12 @@ function CreateForm({
           />
         </div>
       </fieldset>
-      <RecipientPicker
-        v1={v1}
-        projectId={projectId}
-        legend="Who can be paid"
-        selected={picked}
-        onChange={setPicked}
+      <NewRecipients
+        rows={people}
+        errors={rowErrors}
+        onChange={(p) => {
+          change(name, draft, p);
+        }}
       />
       {count > 0 ? (
         <Notice tone="blocked" title={count === 1 ? 'One thing to fix' : `${count} things to fix`}>
@@ -173,7 +288,7 @@ function CreateForm({
       <div className="form-foot">
         <p className="assure">
           <Icon name="lock" size={16} />
-          Two signatures: create, then fund.
+          {signatureWords(people.length)}
         </p>
         <div className="actions">
           <Link to="/mandates" className="btn btn-ghost">
@@ -188,23 +303,39 @@ function CreateForm({
   );
 }
 
+interface Step {
+  readonly title: string;
+  readonly why: string;
+  readonly done: string;
+}
+
 function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () => void }) {
   const { notify } = useApp();
   const unit = useUnit();
   const signing = useV1Signing(v1);
   const [index, setIndex] = useState(0);
   const [mandateId, setMandateId] = useState<string | null>(null);
+  // The recipient each allow step added, so a retry asks to allow it again
+  // instead of adding the same person twice.
+  const added = useRef(new Map<number, string>());
   const heading = useRef<HTMLHeadingElement>(null);
   const fund = tokenOf(plan.rules.fund, unit);
   const r = plan.rules;
-  const n = plan.recipientIds.length;
+  const people = plan.recipients;
+  const fundStep = people.length + 1;
+  const total = people.length + 2;
 
-  const steps = [
+  const steps: Step[] = [
     {
       title: 'Create the mandate',
-      why: `${plan.name}. Budget ${formatToken(tokenOf(r.budget, unit))}, max ${formatToken(tokenOf(r.perPaymentCap, unit))} per payment. ${n === 1 ? '1 recipient' : `${String(n)} recipients`}. You own it.`,
+      why: `${plan.name}. Budget ${formatToken(tokenOf(r.budget, unit))}, max ${formatToken(tokenOf(r.perPaymentCap, unit))} per payment. You own it.`,
       done: 'Created.',
     },
+    ...people.map((p) => ({
+      title: `Allow ${p.label}`,
+      why: `${shortAddress(p.address)} can be paid from this mandate, inside your rules.`,
+      done: 'Allowed.',
+    })),
     {
       title: `Fund it with ${formatToken(fund)}`,
       why: 'From your wallet. Take back what is free any time.',
@@ -212,10 +343,38 @@ function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () =
     },
   ];
 
+  const allowJob = (k: number, id: string, who: NewRecipient): SignJob => ({
+    prepare: async () => {
+      const known = added.current.get(k);
+      if (known !== undefined) {
+        return v1.mandateAction(id, { kind: 'allow_recipients', recipientIds: [known] });
+      }
+      const made = await v1.createRecipient({
+        mandateId: id,
+        label: who.label,
+        address: who.address,
+      });
+      added.current.set(k, made.recipient.id);
+      return (
+        made.signingRequest ??
+        v1.mandateAction(id, { kind: 'allow_recipients', recipientIds: [made.recipient.id] })
+      );
+    },
+    confirm: () =>
+      readUntil(
+        () => v1.mandate(id),
+        () => true,
+      ),
+    onDone: () => {
+      notify(`${who.label} can be paid.`);
+      setIndex(k + 2);
+    },
+  });
+
   const jobFor = (i: number, id: string | null): SignJob | null => {
     if (i === 0) {
       return {
-        prepare: () => v1.prepareMandate(prepareInput(plan.name, r, plan.recipientIds, unit)),
+        prepare: () => v1.prepareMandate(prepareInput(plan.name, r, unit)),
         confirm: async (s) => {
           const made = s.mandateId ?? null;
           if (made === null) return false;
@@ -227,12 +386,15 @@ function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () =
         },
         onDone: (s) => {
           if (s.mandateId === undefined || s.mandateId === null) return;
-          notify('Step 1 of 2 is done.');
+          notify(`Step 1 of ${String(total)} is done.`);
           setIndex(1);
         },
       };
     }
-    if (i === 1 && id !== null) {
+    if (id === null) return null;
+    const who = people[i - 1];
+    if (i < fundStep && who !== undefined) return allowJob(i - 1, id, who);
+    if (i === fundStep) {
       return {
         prepare: () => v1.mandateAction(id, { kind: 'fund', amount: fund.amount }),
         confirm: () =>
@@ -242,7 +404,7 @@ function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () =
           ),
         onDone: () => {
           notify('Your mandate is live.');
-          setIndex(2);
+          setIndex(total);
         },
       };
     }
@@ -259,20 +421,20 @@ function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () =
     // A step starts once, when it is reached.
   }, [index]);
 
-  const finished = index >= steps.length;
+  const finished = index >= total;
   const stuck = signing.phase.kind === 'done' && index === 0 && mandateId === null;
 
   return (
     <section className="card signing" aria-labelledby="signing-title">
       <h2 id="signing-title" className="card-title" tabIndex={-1} ref={heading}>
-        {finished ? 'Your mandate is live' : `Sign step ${String(index + 1)} of 2`}
+        {finished ? 'Your mandate is live' : `Sign step ${String(index + 1)} of ${String(total)}`}
       </h2>
       <ol className="sign-steps">
         {steps.map((s, i) => {
           const state = i < index ? 'done' : i === index ? 'current' : 'later';
           return (
             <li
-              key={s.title}
+              key={`${String(i)}-${s.title}`}
               className={`sign-step sign-${state}`}
               aria-current={state === 'current' ? 'step' : undefined}
             >
@@ -315,7 +477,7 @@ function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () =
             className={finished ? 'btn btn-primary' : 'btn btn-ghost'}
             to={`/mandates/${mandateId}`}
           >
-            {finished ? 'Open your mandate' : 'Fund it later'}
+            {finished ? 'Open your mandate' : index === fundStep ? 'Fund it later' : 'Finish later'}
           </Link>
         )}
         {stuck ? (
@@ -329,7 +491,7 @@ function CreateSteps({ v1, plan, onBack }: { v1: V1Api; plan: Plan; onBack: () =
 }
 
 /** The create screen on /v1, for the open project. */
-export function CreateMandateV1({ v1, projectId }: { v1: V1Api; projectId: string }) {
+export function CreateMandateV1({ v1 }: { v1: V1Api; projectId: string }) {
   const { wallet } = useApp();
   const [plan, setPlan] = useState<Plan | null>(null);
   if (wallet === null) {
@@ -346,7 +508,7 @@ export function CreateMandateV1({ v1, projectId }: { v1: V1Api; projectId: strin
         Mandates
       </Link>
       {plan === null ? (
-        <CreateForm v1={v1} projectId={projectId} onPlan={setPlan} />
+        <CreateForm onPlan={setPlan} />
       ) : (
         <CreateSteps
           v1={v1}

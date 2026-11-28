@@ -2,11 +2,11 @@
 // Copyright 2026 Qomira Labs
 
 // The /v1 routes that need a database: sign in, principals and projects, API
-// keys, payouts and payout reads, recipients, mandates, the overview, the MCP
-// over payouts and the embed widget, all on one database and one chain
-// adapter, behind one authenticate. Kept apart from the web role so a test
-// can build exactly what the server mounts, on a test database and a fake
-// chain.
+// keys, payouts and payout reads, receipts, recipients, mandates, the
+// overview, the MCP over payouts and the embed widget, all on one database and
+// one chain adapter, behind one authenticate. Kept apart from the web role so
+// a test can build exactly what the server mounts, on a test database and a
+// fake chain.
 //
 // Every new project gets its agent key here, and recipients seal a person's
 // email, both under the key encryption key. A project without a key could
@@ -27,6 +27,7 @@ import {
 import { mandateRoutes } from '../api/routes/mandates.js';
 import { payoutReadRoutes } from '../api/routes/payout-reads.js';
 import { payoutRoutes } from '../api/routes/payouts.js';
+import { receiptRoutes } from '../api/routes/receipts.js';
 import { recipientRoutes } from '../api/routes/recipients.js';
 import { statsRoutes } from '../api/routes/stats.js';
 import { tenancyRoutes } from '../api/routes/tenancy.js';
@@ -63,6 +64,7 @@ import { createPayoutService } from '../payouts/payout-service.js';
 import { databasePayoutStore } from '../payouts/payout-store.js';
 import { postgresMandateStore } from '../payouts/postgres-mandate-store.js';
 import { createRecipientService } from '../payouts/recipients.js';
+import { createReceiptService } from '../receipts/service.js';
 import { postgresTenancyStore } from '../tenancy/postgres-store.js';
 import { Tenancy } from '../tenancy/tenancy.js';
 
@@ -146,6 +148,8 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
     chain: o.adapter,
     log,
   });
+  // Verify reads the transaction a receipt names back through the adapter.
+  const receipts = createReceiptService({ db, chain: o.adapter });
   const routes: Route[] = [
     ...authRoutes(session),
     ...tenancyRoutes({ signIn, tenancy, origin: o.origin }),
@@ -157,8 +161,14 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
       idempotency: { store: databaseIdempotencyStore(db), log },
     }),
     ...payoutReadRoutes({ service: payoutReads, authenticate }),
+    ...receiptRoutes({ service: receipts, authenticate }),
     // The same payout services, so a tool call and the HTTP routes share every rule.
-    ...v1McpRoutes({ payouts, reads: databaseMcpReads(db, payoutReads), authenticate, log }),
+    ...v1McpRoutes({
+      payouts,
+      reads: databaseMcpReads(db, payoutReads, receipts),
+      authenticate,
+      log,
+    }),
   ];
   if (o.executor !== undefined) {
     // Every principal signed transaction goes out fee bumped, charged to the

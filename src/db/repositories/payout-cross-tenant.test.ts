@@ -325,6 +325,40 @@ const cases: Record<string, () => Promise<void>> = {
     expect(ids).not.toContain(b.second.receiptId);
     const own = await asA(async (tx) => receipts.list(tx, { limit: 100 }));
     expect(own.items.map((receipt) => receipt.id)).toEqual([a.first.receiptId]);
+    // A filter naming another tenant's mandate or recipient matches nothing.
+    for (const other of foreign()) {
+      for (const filter of [
+        { mandateId: other.world.mandateId },
+        { recipientId: other.world.recipientId },
+      ]) {
+        const filtered = await asA(async (tx) => receipts.list(tx, { limit: 100 }, filter));
+        expect(filtered.items).toEqual([]);
+      }
+    }
+    const mine = await asA(async (tx) =>
+      receipts.list(
+        tx,
+        { limit: 100 },
+        { mandateId: a.first.world.mandateId, statuses: ['failed'] },
+      ),
+    );
+    expect(mine.items.map((receipt) => receipt.id)).toEqual([a.first.receiptId]);
+  },
+  'receipts.details': async () => {
+    // Another tenant's receipt cannot be read to ask for its details, and
+    // a forged one names a payout whose rows the policies hide.
+    const own = await asA(async (tx) => {
+      const receipt = await receipts.get(tx, a.first.receiptId);
+      return receipt === undefined ? [] : receipts.details(tx, [receipt]);
+    });
+    expect(own.map((detail) => detail.mandate.id)).toEqual([a.first.world.mandateId]);
+    const theirs = await db
+      .tenant(b.first.context)
+      .transaction(async (tx) => receipts.get(tx, b.first.receiptId));
+    if (theirs === undefined) throw new Error('B cannot read its own receipt');
+    await expect(asA(async (tx) => receipts.details(tx, [theirs]))).rejects.toThrow(
+      'cannot be read',
+    );
   },
 };
 

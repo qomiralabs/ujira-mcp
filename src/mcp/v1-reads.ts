@@ -7,22 +7,21 @@
 // as nothing, the same answer as one that does not exist.
 //
 // A port, so the tools can run against rows held in memory. A task's payout
-// comes from the payout read service, the one GET /v1/payouts answers from, so
-// a tool and the API cannot read a payout two ways. Receipts are still read
-// here until they have a service of their own; the tools only see the port.
+// comes from the payout read service, the one GET /v1/payouts answers from,
+// and receipts from the receipts service, the one GET /v1/receipts reads, so
+// a tool and the API cannot read a payout or a receipt two ways.
 
 import type { PayoutWireSource } from '../api/routes/payouts.js';
 import {
-  payouts,
   receipts,
   type Database,
   type Page,
   type PageRequest,
-  type Payout,
   type ProjectContext,
   type Receipt,
 } from '../db/index.js';
 import type { PayoutReadService } from '../payouts/payout-reads.js';
+import type { ReceiptService } from '../receipts/service.js';
 
 export interface TaskPayout {
   readonly record: PayoutWireSource;
@@ -31,7 +30,8 @@ export interface TaskPayout {
 
 export interface ReceiptWithPayout {
   readonly receipt: Receipt;
-  readonly payout: Payout;
+  // What the tool shows of the receipt's payout.
+  readonly payout: { readonly mandateId: string; readonly taskId: string };
 }
 
 export interface McpReads {
@@ -45,7 +45,11 @@ export interface McpReads {
   receipts(context: ProjectContext, page: PageRequest): Promise<Page<ReceiptWithPayout>>;
 }
 
-export function databaseMcpReads(db: Database, reads: PayoutReadService): McpReads {
+export function databaseMcpReads(
+  db: Database,
+  reads: PayoutReadService,
+  receiptService: ReceiptService,
+): McpReads {
   return {
     payoutByTask: async (context, mandateId, taskId) => {
       const view = await reads.byTask(context, mandateId, taskId);
@@ -60,17 +64,18 @@ export function databaseMcpReads(db: Database, reads: PayoutReadService): McpRea
       return { record: view, receipt: receipt ?? null };
     },
 
-    receipts: (context, page) =>
-      db.tenant(context).transaction(async (tx) => {
-        const found = await receipts.list(tx, page);
-        const items: ReceiptWithPayout[] = [];
-        // At most one page, read in the same snapshot as the receipts.
-        for (const receipt of found.items) {
-          const payout = await payouts.get(tx, receipt.payoutId);
-          if (payout === undefined) throw new Error('a receipt names a payout that cannot be read');
-          items.push({ receipt, payout });
-        }
-        return { items, next: found.next };
-      }),
+    receipts: async (context, page) => {
+      const found = await receiptService.details(context, {
+        limit: page.limit,
+        ...(page.after === undefined ? {} : { after: page.after }),
+      });
+      return {
+        items: found.items.map((detail) => ({
+          receipt: detail.receipt,
+          payout: { mandateId: detail.mandate.id, taskId: detail.taskId },
+        })),
+        next: found.next,
+      };
+    },
   };
 }

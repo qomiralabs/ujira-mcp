@@ -106,12 +106,12 @@ function receivable(): string {
 }
 
 /**
- * A principal whose owner is signed in, with a mandate. The fake RPC serves
- * only MANDATE, and a contract belongs to one mandate, so the default is for
- * the one owner in a database whose mandate goes on chain; any other owner
- * takes a contract of its own.
+ * A principal whose owner is signed in, with a mandate. A contract belongs to
+ * one mandate, so each owner takes a contract of its own by default, one the
+ * chain never sees. The fake RPC serves only MANDATE, so the one test in this
+ * database whose mandate goes on chain names it.
  */
-async function owner(contractAddress: string = MANDATE): Promise<Owner> {
+async function owner(contractAddress: string = testContract()): Promise<Owner> {
   const kp = wallet();
   const made = await db.unscoped((tx) =>
     entryPoints.createPrincipal(tx, {
@@ -168,7 +168,7 @@ describe('recipients as the web role serves them', () => {
   });
 
   it('creates a recipient with a session, then another with an API key', async () => {
-    const alice = await owner();
+    const alice = await owner(MANDATE);
     const bySession = await request('POST', '/v1/recipients', {
       cookie: alice.cookie,
       project: alice.projectId,
@@ -210,8 +210,8 @@ describe('recipients as the web role serves them', () => {
   it('answers FORBIDDEN to a key that may only read, and NOT_FOUND across principals', async () => {
     // Nothing here reaches the chain: the refused request stops at its scope,
     // and a recipient without an address needs no allowlist call.
-    const alice = await owner(testContract());
-    const bob = await owner(testContract());
+    const alice = await owner();
+    const bob = await owner();
     const reader = await keyFor(alice, ['recipients:read']);
     const refused = await request('POST', '/v1/recipients', {
       key: reader,
@@ -426,9 +426,8 @@ describe('recipients as the web role serves them', () => {
 });
 
 describe('payout reads as the web role serves them', () => {
-  // Nothing here reaches the chain, so each owner takes a contract of its own.
   it('serves the list and the detail to a session and a key holding payouts:read', async () => {
-    const alice = await owner(testContract());
+    const alice = await owner();
     const bySession = await request('GET', '/v1/payouts', {
       cookie: alice.cookie,
       project: alice.projectId,
@@ -449,7 +448,7 @@ describe('payout reads as the web role serves them', () => {
   });
 
   it('serves the approvals queue to a session only', async () => {
-    const alice = await owner(testContract());
+    const alice = await owner();
     const bySession = await request('GET', '/v1/approvals', {
       cookie: alice.cookie,
       project: alice.projectId,

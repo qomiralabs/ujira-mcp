@@ -363,6 +363,9 @@ describe('the fake /v1 API', () => {
     await pay('old', 1n);
     at = Date.parse('2026-11-22T10:00:00.000Z');
     await pay('new', 2n);
+    // A minute on, so the two receipts of this day do not tie: a tie falls
+    // back to the payout id, which is random.
+    at = Date.parse('2026-11-22T10:01:00.000Z');
     await pay('refused', 500n);
 
     expect((await v1.receipts()).items.map((r) => r.taskId)).toEqual(['refused', 'new', 'old']);

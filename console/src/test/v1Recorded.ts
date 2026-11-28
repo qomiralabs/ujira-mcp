@@ -197,10 +197,28 @@ export const RECORDED = {
   'POST /v1/api-keys': { apiKey, secret: apiKeySecret },
   'DELETE /v1/api-keys/{id}': { apiKey: { ...apiKey, revokedAt: '2026-11-26T09:00:00.000Z' } },
   'GET /v1/stats/overview': {
-    period: { from: '2026-11-01T00:00:00.000Z', to: '2026-11-26T00:00:00.000Z' },
+    period: {
+      from: '2026-11-19T23:00:00.000Z',
+      to: '2026-11-26T23:00:00.000Z',
+      timeZone: 'Africa/Lagos',
+    },
     paid: [usdc('1225000000')],
     byStatus: { paid: 12, pending_approval: 1, blocked: 2 },
+    blockedByRule: { DAILY_CAP_EXCEEDED: 2 },
     approvalsWaiting: 1,
+    mandates: [
+      {
+        id: IDS.mandate,
+        contractId: IDS.contract,
+        name: 'Week 48 payouts',
+        state: {
+          balance: usdc('20000000000'),
+          committed: usdc('3000000000'),
+          free: usdc('17000000000'),
+        },
+      },
+    ],
+    moreMandates: false,
   },
 } as const;
 

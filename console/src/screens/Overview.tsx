@@ -5,6 +5,8 @@ import { type ReactNode } from 'react';
 
 import { useApp } from '../app/context';
 import { useAction, useResource, type Resource } from '../app/hooks';
+import { useSession } from '../app/session';
+import { useV1 } from '../app/switch';
 import {
   allReceipts,
   heldTotal,
@@ -31,6 +33,7 @@ import { addMinor, compareMinor, formatAmount } from '../lib/money';
 import type { Account } from '../lib/schemas';
 import { signAndSubmit } from '../lib/sign';
 import type { Wallet } from '../lib/wallet';
+import { OverviewV1 } from './OverviewV1';
 
 const STEPS: readonly { icon: BrandIconName; title: string; text: string }[] = [
   { icon: 'mandate', title: 'You set the rules', text: 'Budget, caps, recipients, end date.' },
@@ -348,6 +351,15 @@ function WaitingStrip({ n }: { n: number }) {
 }
 
 export function Overview() {
+  const v1 = useV1('overview');
+  const session = useSession();
+  if (v1 !== null && session !== null) {
+    return <OverviewV1 key={session.project.id} v1={v1} projectId={session.project.id} />;
+  }
+  return <OverviewOnApi />;
+}
+
+function OverviewOnApi() {
   const { api, wallet } = useApp();
   const address = wallet?.address ?? null;
   const account = useResource(address === null ? null : `account:${address}`, () =>

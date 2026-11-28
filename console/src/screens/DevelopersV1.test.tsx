@@ -362,14 +362,15 @@ describe('the developers screen on /v1', () => {
     expect(await navigator.clipboard.readText()).toBe(url);
     expect(within(card).getByText('In Claude, open Settings, then Connectors.')).toBeTruthy();
 
-    // The examples name the same mandate; the project MCP address is marked as not live yet.
+    // The examples name the same mandate; the project MCP address is live, with a key.
     const examples = screen.getByRole('region', { name: 'With an API key' });
     const rest = within(examples).getByRole('figure', { name: 'Create a payout' });
     expect(within(rest).queryByText('Soon')).toBeNull();
     expect(rest.textContent).toContain(`"mandateId": "${m.id}"`);
     expect(rest.textContent).toContain('Idempotency-Key: task-42');
-    const mcp = within(examples).getByRole('figure', { name: /Any MCP client/ });
-    expect(within(mcp).getByText('Soon')).toBeTruthy();
+    const mcp = within(examples).getByRole('figure', { name: 'Any MCP client' });
+    expect(within(mcp).queryByText('Soon')).toBeNull();
     expect(mcp.textContent).toContain(`${location.origin}/v1/mcp`);
+    expect(mcp.textContent).toContain('"Authorization": "Bearer ${UJIRA_API_KEY}"');
   });
 });

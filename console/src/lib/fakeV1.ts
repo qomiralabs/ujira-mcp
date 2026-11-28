@@ -11,6 +11,9 @@
 // It keeps the server's money rules: idempotency keys replay or refuse,
 // a task pays once per mandate, a payout the mandate refuses is a blocked
 // record with the rule's name, and approvals and receipts follow from status.
+// And its mandate rules: writes take a session, never an API key; a new
+// mandate takes no recipients, which are added once it exists; and a signed
+// submit is checked and answered in the server's order.
 
 import * as z from 'zod/mini';
 
@@ -38,6 +41,7 @@ import {
   submittedSchema,
   type Page,
   type SigningRequest,
+  type Submitted,
   type TokenAmount,
   type TokenAmountWire,
 } from './v1Schemas';
@@ -75,6 +79,8 @@ export interface FakeV1Options {
   readonly importable?: readonly string[];
   /** What the fake chain says about a wallet; every other wallet can receive. */
   readonly destinations?: Readonly<Record<string, FakeDestination>>;
+  /** Contracts this wallet owns that name another agent key, so import refuses them. */
+  readonly otherAgent?: readonly string[];
 }
 
 /** A wallet as the chain sees it: `down` stands for the network not answering. */
@@ -87,6 +93,13 @@ export interface FakeV1Api extends V1Api {
   readonly setDestination: (address: string, state: FakeDestination) => void;
   /** Puts payouts to a recipient on hold, as support would. */
   readonly suspendRecipient: (id: string) => void;
+  /** Calls the routes as an API key would instead of a session; for tests. */
+  readonly useApiKey: (on: boolean) => void;
+  /**
+   * The next submit reaches the chain but its answer is lost, as when the
+   * server cannot read a new mandate back: a 503, not kept for a replay.
+   */
+  readonly loseNextAnswer: () => void;
   /** Makes the fake chain miss, or answer again, the overview's read of one mandate. */
   readonly setUnread: (mandateId: string, unanswered: boolean) => void;
 }
@@ -176,6 +189,20 @@ interface ProjectData {
   readonly idempotency: Map<string, { readonly body: string; readonly payoutId: string }>;
 }
 
+interface SigningRow {
+  readonly projectId: string;
+  readonly expiresAt: number;
+  readonly signer: string;
+  readonly xdr: string;
+  readonly pending: Pending;
+  submitted: boolean;
+}
+
+/** What a submit answered, kept under its Idempotency-Key as the server keeps it. */
+type SubmitOutcome =
+  | { readonly xdr: string; readonly answer: Submitted }
+  | { readonly xdr: string; readonly error: ApiError };
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function hex(bytes: number): string {
@@ -226,14 +253,15 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
   const now = options.now ?? (() => Date.now());
   const demo = options.demo ?? true;
   const importable = new Set(options.importable ?? []);
+  const otherAgent = new Set(options.otherAgent ?? []);
   // One chain for every project, as on Stellar.
   const chain = new Map<string, FakeDestination>(Object.entries(options.destinations ?? {}));
   const chainSays = (address: string): FakeDestination => chain.get(address) ?? 'receivable';
   const data = new Map<string, ProjectData>();
-  const signing = new Map<
-    string,
-    { readonly projectId: string; readonly expiresAt: number; readonly pending: Pending }
-  >();
+  const signing = new Map<string, SigningRow>();
+  const submits = new Map<string, SubmitOutcome>();
+  let apiKey = false;
+  let loseAnswer = false;
   let requests = 0;
   // Mandates whose chain read the overview misses, for tests.
   const unread = new Set<string>();
@@ -249,6 +277,11 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       undefined,
       `fake-${String(requests)}`,
     );
+  }
+
+  // Everything a mandate write does is signed by a wallet, which a key does not have.
+  function writer(): void {
+    if (apiKey) throw fail('FORBIDDEN', 403, 'This takes a dashboard session, not an API key');
   }
 
   function project(t: FakeTenant): ProjectData {
@@ -352,7 +385,56 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
     r.check = said;
   }
 
-  function payoutWire(t: { principalId: string; projectId: string }, d: ProjectData, p: PayoutRow) {
+  /** The words the server gives the one leg, from where its payout has got to. */
+  function legStatus(p: PayoutRow): string {
+    switch (p.status) {
+      case 'paid':
+        return 'settled';
+      case 'submitting':
+      case 'settling':
+        return 'submitted';
+      case 'failed':
+        return 'failed';
+      case 'blocked':
+      case 'rejected':
+      case 'cancelled':
+      case 'expired':
+        return 'cancelled';
+      default:
+        return 'planned';
+    }
+  }
+
+  /** The steps a payout took, as the server lists them on its own page. */
+  function timelineOf(p: PayoutRow) {
+    const leg = legStatus(p);
+    return [
+      { event: 'created', at: p.createdAt, legIndex: null, txHash: null },
+      ...(p.requestTxHash === null
+        ? []
+        : [{ event: 'requested', at: null, legIndex: null, txHash: p.requestTxHash }]),
+      ...(leg === 'planned'
+        ? []
+        : [{ event: `leg_${leg}`, at: p.updatedAt, legIndex: 0, txHash: p.txHash }]),
+      ...(p.status === 'queued'
+        ? []
+        : [{ event: p.status, at: p.settledAt ?? p.updatedAt, legIndex: null, txHash: null }]),
+    ];
+  }
+
+  /** What the budget still allows with every waiting payout set aside, this one included. */
+  function budgetLeft(m: MandateRow | undefined): TokenAmountWire | null {
+    if (m === undefined) return null;
+    const left = m.limits.totalBudget - m.spent - m.pending;
+    return usdc(left > 0n ? left : 0n);
+  }
+
+  function payoutWire(
+    t: { principalId: string; projectId: string },
+    d: ProjectData,
+    p: PayoutRow,
+    extra: 'timeline' | 'budgetLeft' | null = null,
+  ) {
     const m = d.mandates.get(p.mandateId);
     const r = d.recipients.get(p.recipientId);
     return parse(payoutSchema, {
@@ -372,7 +454,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
           method: 'stellar.wallet',
           destination: r?.address === null || r === undefined ? '' : mask(r.address),
           amount: usdc(p.amount),
-          status: p.status,
+          status: legStatus(p),
           txHash: p.txHash,
         },
       ],
@@ -382,6 +464,8 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
       settledAt: p.settledAt,
+      ...(extra === 'timeline' ? { timeline: timelineOf(p) } : {}),
+      ...(extra === 'budgetLeft' ? { budgetLeft: budgetLeft(m) } : {}),
     });
   }
 
@@ -575,11 +659,12 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
   ): SigningRequest {
     const id = crypto.randomUUID();
     const expiresAt = now() + SIGNING_MS;
-    signing.set(id, { projectId: t.projectId, expiresAt, pending });
+    const xdr = btoa(`fake ${action} ${id}`);
+    signing.set(id, { projectId: t.projectId, expiresAt, signer, xdr, pending, submitted: false });
     return parse(signingRequestSchema, {
       id,
       network: FAKE_NETWORK,
-      xdr: btoa(`fake ${action} ${id}`),
+      xdr,
       signer,
       action,
       summary,
@@ -640,6 +725,102 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       .sort((a, b) => (issued(a) < issued(b) ? 1 : issued(a) > issued(b) ? -1 : 0));
   }
 
+  /**
+   * The server's checks on a signed transaction, in its order. The fake
+   * wallet signs as the member signed in, so a request that names another
+   * wallet fails its signature check.
+   */
+  function relay(t: FakeTenant, d: ProjectData, id: string, xdr: string): Submitted {
+    const request = signing.get(id);
+    // Only in the project that asked for it.
+    if (request?.projectId !== t.projectId) throw fail('NOT_FOUND', 404);
+    if (request.submitted) throw fail('SIGNING_REQUEST_USED', 409);
+    if (request.expiresAt <= now()) throw fail('SIGNING_REQUEST_EXPIRED', 410);
+    if (xdr !== request.xdr) throw fail('SIGNING_REQUEST_MISMATCH', 422);
+    if (request.signer !== t.address) throw fail('SIGNATURE_INVALID', 422);
+    const answer = apply(d, request.pending);
+    request.submitted = true;
+    if (loseAnswer) {
+      loseAnswer = false;
+      throw fail('CHAIN_UNAVAILABLE', 503);
+    }
+    return answer;
+  }
+
+  /** What the chain does with a transaction it takes. */
+  function apply(d: ProjectData, pending: Pending): Submitted {
+    const txHash = hex(32);
+    const at = iso();
+    if (pending.kind === 'create') {
+      const l = pending.input.limits;
+      const m: MandateRow = {
+        id: crypto.randomUUID(),
+        name: pending.input.name?.trim() ?? null,
+        contractId: strkey('C'),
+        createdAt: at,
+        principal: pending.principal,
+        // Prepare already named the owner when no approver was given.
+        approvers: pending.input.approvers,
+        approvalsRequired: pending.input.approvalsRequired,
+        limits: {
+          totalBudget: l.totalBudget.amount,
+          perPaymentCap: l.perPaymentCap.amount,
+          perRecipientDailyCap: l.perRecipientDailyCap.amount,
+          approvalThreshold: l.approvalThreshold.amount,
+          payoutTtlSeconds: l.payoutTtlSeconds,
+          expiresAt: l.expiresAt,
+        },
+        balance: 0n,
+        spent: 0n,
+        pending: 0n,
+        paused: false,
+        revoked: false,
+      };
+      d.mandates.set(m.id, m);
+      return parse(submittedSchema, { txHash, mandateId: m.id });
+    }
+    const m = mandateOf(d, pending.mandateId);
+    const a = pending.action;
+    switch (a.kind) {
+      case 'fund':
+        m.balance += a.amount;
+        break;
+      case 'withdraw':
+        m.balance -= a.amount;
+        break;
+      case 'pause':
+        m.paused = true;
+        break;
+      case 'resume':
+        m.paused = false;
+        break;
+      case 'revoke':
+        // What is not promised to a waiting payout goes back to the wallet.
+        m.revoked = true;
+        m.balance = committed(m);
+        break;
+      case 'allow_recipients':
+        break;
+      case 'approve':
+      case 'reject': {
+        const p = d.payouts.get(a.payoutId);
+        if (p?.status === 'pending_approval') {
+          m.pending -= p.amount;
+          if (a.kind === 'approve') {
+            m.balance -= p.amount;
+            m.spent += p.amount;
+            terminal(p, 'paid', at, hex(32));
+          } else {
+            terminal(p, 'rejected', at);
+          }
+        }
+        break;
+      }
+    }
+    // Like the server, an action answers with the mandate it was for.
+    return parse(submittedSchema, { txHash, mandateId: m.id });
+  }
+
   return {
     mandates: (q) =>
       step((_t, d) => {
@@ -648,17 +829,28 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       }),
     mandate: (id) => step((_t, d) => mandateWire(mandateOf(d, id))),
     prepareMandate: (input) =>
-      step((t, d) => {
+      step((t) => {
+        writer();
         const name = input.name?.trim() ?? '';
         if (input.name !== undefined && (name === '' || name.length > 60)) {
           throw fail('INVALID_REQUEST', 400, 'Name the mandate in up to 60 characters.');
         }
-        // Only recipients of this project with a wallet can go on the allow list.
-        for (const rid of input.recipients) {
-          const r = d.recipients.get(rid);
-          if (r === undefined || r.address === null) {
-            throw fail('INVALID_REQUEST', 400, 'Every recipient needs a wallet first.');
-          }
+        // A recipient belongs to one mandate, so none can be named before it exists.
+        if ((input.recipients ?? []).length > 0) {
+          throw fail('INVALID_REQUEST', 400, 'The request is not valid');
+        }
+        if ((input.recipientMode ?? 'allowlist') !== 'allowlist') {
+          throw fail('RECIPIENT_MODE_UNSUPPORTED', 422);
+        }
+        // With no approvers named, the owner's wallet is the one approver.
+        const approvers = input.approvers.length === 0 ? [t.address] : input.approvers;
+        if (
+          approvers.some((a) => !STELLAR_ACCOUNT.test(a)) ||
+          new Set(approvers).size !== approvers.length ||
+          input.approvalsRequired < 1 ||
+          input.approvalsRequired > approvers.length
+        ) {
+          throw fail('INVALID_REQUEST', 400, 'The request is not valid');
         }
         const l = input.limits;
         for (const a of [l.totalBudget, l.perPaymentCap, l.perRecipientDailyCap]) amountIn(a);
@@ -669,18 +861,27 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         const principal = t.address;
         return newSigningRequest(t, principal, 'create', 'Create a mandate with these rules', {
           kind: 'create',
-          input,
+          input: { ...input, approvers },
           principal,
         });
       }),
     importMandate: (contractId) =>
       step((t, d) => {
+        writer();
         if (!STELLAR_CONTRACT.test(contractId)) {
           throw fail('INVALID_REQUEST', 400, 'That is not a Stellar contract address.');
         }
         const found = [...d.mandates.values()].find((m) => m.contractId === contractId);
         if (found !== undefined) return mandateWire(found);
-        if (!importable.has(contractId)) throw fail('FORBIDDEN', 403);
+        // The chain is read first: whose wallet owns it, then which agent it names.
+        const elsewhere = [...data.values()].some((other) =>
+          [...other.mandates.values()].some((m) => m.contractId === contractId),
+        );
+        if (!importable.has(contractId) && !otherAgent.has(contractId) && !elsewhere) {
+          throw fail('MANDATE_PRINCIPAL_MISMATCH', 403);
+        }
+        if (otherAgent.has(contractId)) throw fail('MANDATE_AGENT_MISMATCH', 422);
+        if (elsewhere) throw fail('MANDATE_TAKEN', 409);
         const m: MandateRow = {
           id: crypto.randomUUID(),
           name: null,
@@ -708,6 +909,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       }),
     mandateAction: (id, action) =>
       step((t, d) => {
+        writer();
         const m = mandateOf(d, id);
         if (m.revoked) throw fail('INVALID_REQUEST', 400, 'This mandate was revoked.');
         if (action.kind === 'withdraw' && action.amount > m.balance - committed(m)) {
@@ -736,87 +938,30 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
           },
         );
       }),
+    // The console keys each submit by its request, so a retry replays the first
+    // answer, a refusal included, and never relays twice. A 5xx or a 429 is
+    // not kept, since the server keeps only final answers.
     submitSigned: (signingRequestId, xdr) =>
       step((t, d) => {
-        const request = signing.get(signingRequestId);
-        // Single use, and only in the project that asked for it.
-        if (request?.projectId !== t.projectId) throw fail('NOT_FOUND', 404);
-        signing.delete(signingRequestId);
-        if (request.expiresAt <= now()) {
-          throw fail('INVALID_REQUEST', 400, 'The signing request ran out of time.');
+        writer();
+        if (xdr === '') throw fail('INVALID_REQUEST', 400, 'The request is not valid');
+        const key = `${t.projectId}:submit:${signingRequestId}`;
+        const seen = submits.get(key);
+        if (seen !== undefined) {
+          if (seen.xdr !== xdr) throw fail('IDEMPOTENCY_KEY_REUSED', 422);
+          if ('error' in seen) throw seen.error;
+          return seen.answer;
         }
-        if (xdr === '') throw fail('INVALID_REQUEST', 400, 'The transaction is not signed.');
-        const txHash = hex(32);
-        const at = iso();
-        const pending = request.pending;
-        if (pending.kind === 'create') {
-          const l = pending.input.limits;
-          const m: MandateRow = {
-            id: crypto.randomUUID(),
-            name: pending.input.name?.trim() ?? null,
-            contractId: strkey('C'),
-            createdAt: at,
-            principal: pending.principal,
-            // With no approvers named, the owner approves their own large payouts.
-            approvers:
-              pending.input.approvers.length === 0 ? [pending.principal] : pending.input.approvers,
-            approvalsRequired: pending.input.approvalsRequired,
-            limits: {
-              totalBudget: l.totalBudget.amount,
-              perPaymentCap: l.perPaymentCap.amount,
-              perRecipientDailyCap: l.perRecipientDailyCap.amount,
-              approvalThreshold: l.approvalThreshold.amount,
-              payoutTtlSeconds: l.payoutTtlSeconds,
-              expiresAt: l.expiresAt,
-            },
-            balance: 0n,
-            spent: 0n,
-            pending: 0n,
-            paused: false,
-            revoked: false,
-          };
-          d.mandates.set(m.id, m);
-          return parse(submittedSchema, { txHash, mandateId: m.id });
-        }
-        const m = mandateOf(d, pending.mandateId);
-        const a = pending.action;
-        switch (a.kind) {
-          case 'fund':
-            m.balance += a.amount;
-            break;
-          case 'withdraw':
-            m.balance -= a.amount;
-            break;
-          case 'pause':
-            m.paused = true;
-            break;
-          case 'resume':
-            m.paused = false;
-            break;
-          case 'revoke':
-            // What is not promised to a waiting payout goes back to the wallet.
-            m.revoked = true;
-            m.balance = committed(m);
-            break;
-          case 'allow_recipients':
-            break;
-          case 'approve':
-          case 'reject': {
-            const p = d.payouts.get(a.payoutId);
-            if (p?.status === 'pending_approval') {
-              m.pending -= p.amount;
-              if (a.kind === 'approve') {
-                m.balance -= p.amount;
-                m.spent += p.amount;
-                terminal(p, 'paid', at, hex(32));
-              } else {
-                terminal(p, 'rejected', at);
-              }
-            }
-            break;
+        try {
+          const answer = relay(t, d, signingRequestId, xdr);
+          submits.set(key, { xdr, answer });
+          return answer;
+        } catch (error) {
+          if (error instanceof ApiError && error.status < 500 && error.status !== 429) {
+            submits.set(key, { xdr, error });
           }
+          throw error;
         }
-        return parse(submittedSchema, { txHash, mandateId: null });
       }),
     recipients: (q) =>
       step((_t, d) => {
@@ -974,7 +1119,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       step((t, d) => {
         const p = d.payouts.get(id);
         if (p === undefined) throw fail('NOT_FOUND', 404);
-        return payoutWire(t, d, p);
+        return payoutWire(t, d, p, 'timeline');
       }),
     // Oldest first: the payout that has waited longest is decided first.
     approvals: (q) =>
@@ -982,7 +1127,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         page(
           filtered(d, { status: 'pending_approval' })
             .reverse()
-            .map((p) => payoutWire(t, d, p)),
+            .map((p) => payoutWire(t, d, p, 'budgetLeft')),
           q,
         ),
       ),
@@ -1154,7 +1299,7 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
       if (unanswered) unread.add(mandateId);
       else unread.delete(mandateId);
     },
-    signingRequests: () => signing.size,
+    signingRequests: () => [...signing.values()].filter((r) => !r.submitted).length,
     setDestination: (address, state) => {
       chain.set(address, state);
     },
@@ -1163,6 +1308,12 @@ export function createFakeV1Api(auth: FakeAuthApi, options: FakeV1Options = {}):
         const r = d.recipients.get(id);
         if (r !== undefined) r.suspended = true;
       }
+    },
+    useApiKey: (on) => {
+      apiKey = on;
+    },
+    loseNextAnswer: () => {
+      loseAnswer = true;
     },
   };
 }

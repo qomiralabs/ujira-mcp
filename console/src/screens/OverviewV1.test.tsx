@@ -285,7 +285,7 @@ describe('the overview on /v1', () => {
         expiresAt: '2099-01-01T00:00:00.000Z',
       },
     });
-    const id = must((await w.v1.submitSigned(create.id, 'signed')).mandateId);
+    const id = must((await w.v1.submitSigned(create.id, create.xdr)).mandateId);
     const first = render(
       tree(<OverviewV1 v1={w.v1} projectId={w.main.id} />, {
         v1: w.v1,
@@ -302,7 +302,7 @@ describe('the overview on /v1', () => {
     first.unmount();
 
     const fundIt = await w.v1.mandateAction(id, { kind: 'fund', amount: 10n * UNIT });
-    await w.v1.submitSigned(fundIt.id, 'signed');
+    await w.v1.submitSigned(fundIt.id, fundIt.xdr);
     await w.v1.createApiKey({ name: 'Runner', scopes: ['payouts:write'] });
     render(
       tree(<OverviewV1 v1={w.v1} projectId={w.main.id} />, {

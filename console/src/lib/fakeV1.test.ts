@@ -46,17 +46,17 @@ const RULES: PrepareMandateInput = {
 /** A funded mandate and a recipient with a wallet, made through the routes themselves. */
 async function ready(v1: FakeV1Api) {
   const create = await v1.prepareMandate(RULES);
-  const { mandateId } = await v1.submitSigned(create.id, 'signed');
+  const { mandateId } = await v1.submitSigned(create.id, create.xdr);
   const id = mandateId ?? '';
   const fund = await v1.mandateAction(id, { kind: 'fund', amount: 500n * UNIT });
-  await v1.submitSigned(fund.id, 'signed');
+  await v1.submitSigned(fund.id, fund.xdr);
   const { recipient, signingRequest } = await v1.createRecipient({
     mandateId: id,
     label: 'Ada',
     address: BOB,
   });
   // Adding a wallet asks the owner to allow it on the mandate.
-  await v1.submitSigned(signingRequest?.id ?? '', 'signed');
+  await v1.submitSigned(signingRequest?.id ?? '', signingRequest?.xdr ?? '');
   return { mandateId: id, recipientId: recipient.id };
 }
 
@@ -214,9 +214,9 @@ describe('the fake /v1 API', () => {
     expect(approve).toMatchObject({ action: 'approve', signer: ALICE });
     // Nothing changes until the signed transaction comes back.
     expect((await v1.payout(a.id)).status).toBe('pending_approval');
-    await v1.submitSigned(approve.id, 'signed');
+    await v1.submitSigned(approve.id, approve.xdr);
     const reject = await v1.mandateAction(mandateId, { kind: 'reject', payoutId: b.id });
-    await v1.submitSigned(reject.id, 'signed');
+    await v1.submitSigned(reject.id, reject.xdr);
 
     expect((await v1.payout(a.id)).status).toBe('paid');
     expect((await v1.payout(b.id)).status).toBe('rejected');
@@ -224,6 +224,40 @@ describe('the fake /v1 API', () => {
     expect((await v1.mandate(mandateId)).state.committed.amount).toBe(0n);
     const outcomes = (await v1.receipts()).items.map((r) => r.outcome).sort();
     expect(outcomes).toEqual(['paid', 'rejected']);
+  });
+
+  it("answers in the server's payout shapes: leg words, a timeline, and budget left", async () => {
+    const { v1, mandateId, recipientId } = await setup();
+    const pay = (taskId: string, whole: bigint) =>
+      v1.createPayout({ mandateId, recipientId, amount: usdc(whole), taskId }, taskId);
+    const paid = await pay('paid', 10n);
+    const held = await pay('held', 60n);
+    const blocked = await pay('blocked', 101n);
+    expect([paid, held, blocked].map((p) => p.legs[0]?.status)).toEqual([
+      'settled',
+      'planned',
+      'cancelled',
+    ]);
+    // Only one payout's own page has its timeline; a list never does.
+    expect(paid.timeline).toBeUndefined();
+    expect((await v1.payouts()).items.every((p) => p.timeline === undefined)).toBe(true);
+    const one = await v1.payout(paid.id);
+    expect(one.timeline?.map((e) => e.event)).toEqual([
+      'created',
+      'requested',
+      'leg_settled',
+      'paid',
+    ]);
+    expect(one.timeline?.[1]?.at).toBeNull();
+    expect((await v1.payout(held.id)).timeline?.map((e) => e.event)).toEqual([
+      'created',
+      'requested',
+      'pending_approval',
+    ]);
+    const [waiting] = (await v1.approvals()).items;
+    // 1,000 budget, 10 spent, 60 set aside for this payout.
+    expect(waiting?.budgetLeft?.amount).toBe(930n * UNIT);
+    expect(one.budgetLeft).toBeUndefined();
   });
 
   it('names the owner as the approver, and lists what waits oldest first', async () => {
@@ -247,9 +281,9 @@ describe('the fake /v1 API', () => {
   it('takes a decision only from an approver, and signs it as that approver', async () => {
     const { v1, mandateId, recipientId } = await setup();
     const create = await v1.prepareMandate({ ...RULES, approvers: [BOB] });
-    const other = (await v1.submitSigned(create.id, 'signed')).mandateId ?? '';
+    const other = (await v1.submitSigned(create.id, create.xdr)).mandateId ?? '';
     const fund = await v1.mandateAction(other, { kind: 'fund', amount: 500n * UNIT });
-    await v1.submitSigned(fund.id, 'signed');
+    await v1.submitSigned(fund.id, fund.xdr);
     const held = await v1.createPayout(
       { mandateId: other, recipientId, amount: usdc(60n), taskId: 'held' },
       'held',
@@ -271,35 +305,173 @@ describe('the fake /v1 API', () => {
     expect(approve.signer).toBe(ALICE);
   });
 
-  it('spends a signing request once', async () => {
+  it('relays a signing request once, and replays its answer to a retry', async () => {
     const { v1, mandateId } = await setup();
     const pause = await v1.mandateAction(mandateId, { kind: 'pause' });
     expect(v1.signingRequests()).toBe(1);
-    await v1.submitSigned(pause.id, 'signed');
+    const first = await v1.submitSigned(pause.id, pause.xdr);
+    // An action answers with the mandate it was for, as the server does.
+    expect(first.mandateId).toBe(mandateId);
     expect((await v1.mandate(mandateId)).status).toBe('paused');
-    await expect(v1.submitSigned(pause.id, 'signed')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(v1.signingRequests()).toBe(0);
+    // The console keys a submit by its request, so the retry gets the first answer.
+    expect(await v1.submitSigned(pause.id, pause.xdr)).toEqual(first);
+    await expect(v1.submitSigned(pause.id, `${pause.xdr}x`)).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_KEY_REUSED',
+      status: 422,
+    });
   });
 
-  it('keeps the name a mandate was created with, and checks its recipients', async () => {
-    const { v1, mandateId: first, recipientId } = await setup();
+  it('answers a used request with SIGNING_REQUEST_USED once no answer was kept', async () => {
+    const { v1, mandateId } = await setup();
+    const pause = await v1.mandateAction(mandateId, { kind: 'pause' });
+    v1.loseNextAnswer();
+    await expect(v1.submitSigned(pause.id, pause.xdr)).rejects.toMatchObject({
+      code: 'CHAIN_UNAVAILABLE',
+      status: 503,
+    });
+    // The chain took it, though the answer was lost on the way.
+    expect((await v1.mandate(mandateId)).state.paused).toBe(true);
+    await expect(v1.submitSigned(pause.id, pause.xdr)).rejects.toMatchObject({
+      code: 'SIGNING_REQUEST_USED',
+      status: 409,
+    });
+  });
+
+  it('refuses a submit the way the server does, and keeps the refusal for a retry', async () => {
+    let clock = Date.parse('2026-11-27T09:00:00.000Z');
+    const { auth } = await signedIn(ALICE);
+    const v1 = createFakeV1Api(auth, { delayMs: 0, demo: false, now: () => clock });
+    const { mandateId } = await ready(v1);
+
+    await expect(v1.submitSigned(crypto.randomUUID(), 'AAAA')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      status: 404,
+    });
+    await expect(v1.submitSigned(crypto.randomUUID(), '')).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      status: 400,
+    });
+
+    const changed = await v1.mandateAction(mandateId, { kind: 'pause' });
+    const mismatch = await v1.submitSigned(changed.id, 'AAAAother').catch((e: unknown) => e);
+    expect(mismatch).toMatchObject({ code: 'SIGNING_REQUEST_MISMATCH', status: 422 });
+    // A final refusal is kept, so the same retry gets the same refusal back.
+    expect(await v1.submitSigned(changed.id, 'AAAAother').catch((e: unknown) => e)).toBe(mismatch);
+    expect((await v1.mandate(mandateId)).state.paused).toBe(false);
+
+    const late = await v1.mandateAction(mandateId, { kind: 'pause' });
+    clock += 10 * 60 * 1000;
+    await expect(v1.submitSigned(late.id, late.xdr)).rejects.toMatchObject({
+      code: 'SIGNING_REQUEST_EXPIRED',
+      status: 410,
+    });
+    expect((await v1.mandate(mandateId)).state.paused).toBe(false);
+  });
+
+  it('refuses a transaction signed by a wallet the request does not name', async () => {
+    const { auth } = await signedIn(ALICE);
+    // A second member of the same project, signed in with another wallet.
+    let wallet = ALICE;
+    const member: FakeAuthApi = { ...auth, tenant: () => ({ ...auth.tenant(), address: wallet }) };
+    const v1 = createFakeV1Api(member, { delayMs: 0, demo: false });
+    const create = await v1.prepareMandate(RULES);
+    expect(create.signer).toBe(ALICE);
+    wallet = BOB;
+    await expect(v1.submitSigned(create.id, create.xdr)).rejects.toMatchObject({
+      code: 'SIGNATURE_INVALID',
+      status: 422,
+    });
+    expect((await v1.mandates()).items).toHaveLength(0);
+  });
+
+  it('takes mandate writes only from a session; an API key can still read', async () => {
+    const { v1, mandateId } = await setup();
+    v1.useApiKey(true);
+    const forbidden = { code: 'FORBIDDEN', status: 403 };
+    await expect(v1.prepareMandate(RULES)).rejects.toMatchObject(forbidden);
+    await expect(v1.mandateAction(mandateId, { kind: 'pause' })).rejects.toMatchObject(forbidden);
+    await expect(v1.importMandate(`C${'A'.repeat(55)}`)).rejects.toMatchObject(forbidden);
+    await expect(v1.submitSigned(crypto.randomUUID(), 'AAAA')).rejects.toMatchObject(forbidden);
+    expect((await v1.mandate(mandateId)).id).toBe(mandateId);
+    expect((await v1.mandates()).items).toHaveLength(1);
+    v1.useApiKey(false);
+    expect((await v1.mandateAction(mandateId, { kind: 'pause' })).action).toBe('pause');
+  });
+
+  it('takes no recipients at prepare, and only the allowlist mode', async () => {
+    const { v1, recipientId } = await setup();
     await expect(v1.prepareMandate({ ...RULES, name: '  ' })).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
     });
+    // A recipient belongs to one mandate, so even one of this project is refused.
     await expect(
-      v1.prepareMandate({ ...RULES, name: 'Grants', recipients: ['not-a-recipient'] }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-    const { recipient: noWallet } = await v1.createRecipient({ mandateId: first, label: 'Kofi' });
-    await expect(
-      v1.prepareMandate({ ...RULES, name: 'Grants', recipients: [noWallet.id] }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-    const create = await v1.prepareMandate({
-      ...RULES,
-      name: ' Grants ',
-      recipients: [recipientId],
-    });
-    const { mandateId } = await v1.submitSigned(create.id, 'signed');
+      v1.prepareMandate({ ...RULES, name: 'Grants', recipients: [recipientId] }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
+    for (const mode of ['attested', 'both'] as const) {
+      await expect(v1.prepareMandate({ ...RULES, recipientMode: mode })).rejects.toMatchObject({
+        code: 'RECIPIENT_MODE_UNSUPPORTED',
+        status: 422,
+      });
+    }
+    // An empty list, or none, is fine.
+    const without: PrepareMandateInput = {
+      approvers: [],
+      approvalsRequired: 1,
+      limits: RULES.limits,
+    };
+    expect((await v1.prepareMandate(without)).action).toBe('create');
+    const create = await v1.prepareMandate({ ...RULES, name: ' Grants ', recipients: [] });
+    const { mandateId } = await v1.submitSigned(create.id, create.xdr);
     expect((await v1.mandate(mandateId ?? '')).name).toBe('Grants');
+  });
+
+  it('names the owner as the one approver when none is given, and checks the count', async () => {
+    const { v1 } = await setup();
+    const create = await v1.prepareMandate({ ...RULES, approvers: [] });
+    const { mandateId } = await v1.submitSigned(create.id, create.xdr);
+    const m = await v1.mandate(mandateId ?? '');
+    expect(m.config.approvers).toEqual([ALICE]);
+    expect(m.config.approvalsRequired).toBe(1);
+    for (const bad of [
+      { approvers: [], approvalsRequired: 2 },
+      { approvers: [BOB, BOB], approvalsRequired: 1 },
+      { approvers: [BOB], approvalsRequired: 0 },
+    ]) {
+      await expect(v1.prepareMandate({ ...RULES, ...bad })).rejects.toMatchObject({
+        code: 'INVALID_REQUEST',
+      });
+    }
+  });
+
+  it('imports only a mandate this wallet owns, for this agent, in no other project', async () => {
+    const mine = `C${'M'.repeat(55)}`;
+    const foreign = `C${'F'.repeat(55)}`;
+    const otherKey = `C${'K'.repeat(55)}`;
+    const { auth, project } = await signedIn(ALICE);
+    const v1 = createFakeV1Api(auth, {
+      delayMs: 0,
+      demo: false,
+      importable: [mine],
+      otherAgent: [otherKey],
+    });
+    await expect(v1.importMandate(foreign)).rejects.toMatchObject({
+      code: 'MANDATE_PRINCIPAL_MISMATCH',
+      status: 403,
+    });
+    await expect(v1.importMandate(otherKey)).rejects.toMatchObject({
+      code: 'MANDATE_AGENT_MISMATCH',
+      status: 422,
+    });
+    const first = await v1.importMandate(mine);
+    // Attaching it again in the same project returns it.
+    expect((await v1.importMandate(mine)).id).toBe(first.id);
+    const other = await auth.createProject(project.principalId, 'Other');
+    auth.useProject(other.id);
+    await expect(v1.importMandate(mine)).rejects.toMatchObject({
+      code: 'MANDATE_TAKEN',
+      status: 409,
+    });
   });
 
   it('refuses a withdrawal of more than is free', async () => {
@@ -588,7 +760,7 @@ describe('the fake /v1 API', () => {
         v1.createRecipient({ mandateId: crypto.randomUUID(), label: 'Ada' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       const other = await v1.prepareMandate(RULES);
-      const { mandateId: second } = await v1.submitSigned(other.id, 'signed');
+      const { mandateId: second } = await v1.submitSigned(other.id, other.xdr);
       const { recipient } = await v1.createRecipient({ mandateId: second ?? '', label: 'Ada' });
       expect(recipient.mandateId).toBe(second);
       expect((await v1.recipients({ mandateId })).items.map((r) => r.label)).toEqual(['Ada']);
@@ -747,7 +919,7 @@ describe('the fake /v1 API', () => {
     await expect(v1.importMandate('nope')).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
     await expect(
       v1.importMandate('CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'MANDATE_PRINCIPAL_MISMATCH', status: 403 });
     const m = await v1.importMandate(contract);
     expect(m.contractId).toBe(contract);
     expect((await v1.importMandate(contract)).id).toBe(m.id);

@@ -22,6 +22,11 @@ const SIGN_IN = 'Sign in with your wallet';
 const DEMO = /Continue with Demo wallet/;
 const ACME = { address: MOCK_WALLET, principals: [{ name: 'Acme Ltd', projects: ['Payouts'] }] };
 
+/**
+ * A promise the test settles by hand. It is marked handled from the start: a
+ * test can reject it before the console has asked for it, and that is not an
+ * unhandled rejection. The console still sees the rejection when it awaits.
+ */
 function deferred<T>() {
   let resolve: (v: T) => void = () => undefined;
   let reject: (e: unknown) => void = () => undefined;
@@ -29,6 +34,7 @@ function deferred<T>() {
     resolve = res;
     reject = rej;
   });
+  promise.catch(() => undefined);
   return { promise, resolve, reject };
 }
 
@@ -74,8 +80,21 @@ describe('sign in', () => {
 
   it('says it is checking before it knows', async () => {
     const me = deferred<never>();
-    setup({}, { me: () => me.promise });
+    let asked = 0;
+    setup(
+      {},
+      {
+        me: () => {
+          asked += 1;
+          return me.promise;
+        },
+      },
+    );
     expect(await screen.findByRole('status', { name: 'Checking your sign in' })).toBeTruthy();
+    // The answer comes only once the console has asked for it.
+    await waitFor(() => {
+      expect(asked).toBe(1);
+    });
     me.reject(new ApiError('SESSION_INVALID', 'gone', 401));
     expect(await screen.findByRole('heading', { level: 1, name: SIGN_IN })).toBeTruthy();
   });

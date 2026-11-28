@@ -169,6 +169,17 @@ export const payoutLegSchema = z.looseObject({
 });
 export type PayoutLeg = z.output<typeof payoutLegSchema>;
 
+/** One step a payout took, as the server records it; only one payout's own page has them. */
+export const timelineEntrySchema = z.looseObject({
+  // created, requested, leg_submitted, leg_settled, then the payout's status.
+  event: text,
+  // Null where the server keeps no time for the step.
+  at: z.nullable(timestamp),
+  legIndex: z.nullable(count),
+  txHash: nullableText,
+});
+export type TimelineEntry = z.output<typeof timelineEntrySchema>;
+
 export const payoutSchema = z.looseObject({
   id,
   principalId: id,
@@ -187,6 +198,11 @@ export const payoutSchema = z.looseObject({
   createdAt: timestamp,
   updatedAt: timestamp,
   settledAt: z.nullable(timestamp),
+  // Only in the answer for one payout.
+  timeline: z.optional(z.array(timelineEntrySchema)),
+  // Only in the approvals queue: what the budget still allows with this payout
+  // set aside, or null when the chain did not answer in time.
+  budgetLeft: z.optional(z.nullable(tokenAmountSchema)),
 });
 export type PayoutDetail = z.output<typeof payoutSchema>;
 export const payoutPageSchema = pageSchema(payoutSchema);

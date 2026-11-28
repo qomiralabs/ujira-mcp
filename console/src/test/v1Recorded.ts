@@ -109,7 +109,8 @@ export const payout = {
       method: 'stellar.wallet',
       destination: 'GBT7...I3DT',
       amount: usdc('25000000'),
-      status: 'paid',
+      // A leg has its own words: planned, submitted, settled, failed, cancelled.
+      status: 'settled',
       txHash: IDS.tx,
     },
   ],
@@ -121,8 +122,9 @@ export const payout = {
   settledAt: '2026-11-25T12:00:09.000Z',
 };
 
-// Far past what a JavaScript number holds exactly, so only bigint keeps it.
-const HUGE = '300000000000000000000000000000000000001';
+// The largest i128, the contract's amount type: far past what a JavaScript
+// number holds exactly, so only bigint keeps it.
+const HUGE = '170141183460469231731687303715884105727';
 
 export const pendingPayout = {
   ...payout,
@@ -130,9 +132,34 @@ export const pendingPayout = {
   taskId: 'task-43',
   amount: usdc(HUGE),
   status: 'pending_approval',
-  legs: [{ ...payout.legs[0], amount: usdc(HUGE), status: 'pending_approval', txHash: null }],
+  // Not sent until it is approved.
+  legs: [{ ...payout.legs[0], amount: usdc(HUGE), status: 'planned', txHash: null }],
   receiptId: null,
   settledAt: null,
+};
+
+// One payout's own page adds the steps it took.
+export const payoutWithTimeline = {
+  ...payout,
+  timeline: [
+    { event: 'created', at: '2026-11-25T12:00:00.000Z', legIndex: null, txHash: null },
+    // The server keeps no time for the request on chain, only its hash.
+    { event: 'requested', at: null, legIndex: null, txHash: IDS.tx },
+    { event: 'leg_settled', at: '2026-11-25T12:00:09.000Z', legIndex: 0, txHash: IDS.tx },
+    { event: 'paid', at: '2026-11-25T12:00:09.000Z', legIndex: null, txHash: null },
+  ],
+};
+
+// The approvals queue adds what the budget still allows, this payout set aside;
+// null when the chain did not answer in time.
+export const approval = { ...pendingPayout, budgetLeft: usdc('46800000000') };
+export const approvalUnread = {
+  ...pendingPayout,
+  id: '7c6b5a4f-3e2d-4c1b-8a0f-9e8d7c6b5a4f',
+  taskId: 'task-44',
+  amount: usdc('30000000'),
+  legs: [{ ...pendingPayout.legs[0], amount: usdc('30000000') }],
+  budgetLeft: null,
 };
 
 export const receipt = {
@@ -173,7 +200,8 @@ export const RECORDED = {
   'POST /v1/mandates/prepare': { signingRequest: { ...signingRequest, action: 'create' } },
   'POST /v1/mandates/import': { mandate },
   'POST /v1/mandates/{id}/actions': { signingRequest },
-  'POST /v1/signing/submit': { txHash: IDS.tx, mandateId: null },
+  // An action answers with the mandate it was for; a create with the new one.
+  'POST /v1/signing/submit': { txHash: IDS.tx, mandateId: IDS.mandate },
   'GET /v1/recipients': { items: [recipient], nextCursor: null },
   'GET /v1/recipients/{id}': { recipient: recipientDetail },
   'POST /v1/recipients': {
@@ -188,8 +216,8 @@ export const RECORDED = {
   },
   'POST /v1/payouts': { payout },
   'GET /v1/payouts': { items: [payout, pendingPayout], nextCursor: null },
-  'GET /v1/payouts/{id}': { payout },
-  'GET /v1/approvals': { items: [pendingPayout], nextCursor: null },
+  'GET /v1/payouts/{id}': { payout: payoutWithTimeline },
+  'GET /v1/approvals': { items: [approval, approvalUnread], nextCursor: null },
   'GET /v1/receipts': { items: [receipt], nextCursor: null },
   'GET /v1/receipts/{id}': { receipt },
   'GET /v1/receipts/{id}/verify': { matched: true, field: null, txHash: IDS.tx },

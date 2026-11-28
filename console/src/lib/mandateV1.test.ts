@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { mandate as recorded } from '../test/v1Recorded';
 import {
+  checkNewRecipients,
   mandateName,
   meterOf,
   nameMatches,
@@ -103,7 +104,7 @@ describe('reading an action back', () => {
 });
 
 describe('a new mandate request', () => {
-  it('sends token amounts in minor units, an ISO end and each recipient once', () => {
+  it('sends token amounts in minor units and an ISO end, and no recipients', () => {
     const unit = { asset: 'USDC', network: v1Network('testnet'), scale: 7 };
     const input = prepareInput(
       ' Grants ',
@@ -115,7 +116,6 @@ describe('a new mandate request', () => {
         expiresAt: 1_800_000_000,
         fund: '400000000',
       },
-      ['r-1', 'r-2', 'r-1'],
       unit,
     );
     expect(input).toEqual({
@@ -140,12 +140,49 @@ describe('a new mandate request', () => {
         payoutTtlSeconds: 86_400,
         expiresAt: '2027-01-15T08:00:00.000Z',
       },
-      recipients: ['r-1', 'r-2'],
     });
+    // The server refuses recipients at prepare; they are added once the mandate exists.
+    expect('recipients' in input).toBe(false);
   });
 
   it('names the network the way /v1 does', () => {
     expect(v1Network('testnet')).toBe('stellar:testnet');
     expect(v1Network('stellar:pubnet')).toBe('stellar:pubnet');
+  });
+});
+
+describe('the people a new mandate may pay', () => {
+  const ADA = 'GBT7ITQKEX3Z2YWIYLPRQ5W3JLA2TJ3JTABB765ZYNG7VLX5YYUPI3DT';
+  const KOFI = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+  it('takes name and wallet pairs, trimmed', () => {
+    const checked = checkNewRecipients([
+      { label: ' Ada ', address: ` ${ADA} ` },
+      { label: 'Kofi', address: KOFI },
+    ]);
+    expect(checked.rows).toEqual({});
+    expect(checked.list).toEqual([
+      { label: 'Ada', address: ADA },
+      { label: 'Kofi', address: KOFI },
+    ]);
+    expect(checkNewRecipients([]).list).toEqual([]);
+  });
+
+  it('marks each row that needs fixing, and names in any case only once', () => {
+    const checked = checkNewRecipients([
+      { label: 'Ada', address: ADA },
+      { label: 'ada', address: KOFI },
+      { label: '', address: ADA },
+      { label: 'Musa', address: 'SB' + 'A'.repeat(54) },
+    ]);
+    expect(checked.list).toBeNull();
+    expect(Object.keys(checked.rows)).toEqual(['1', '2', '3']);
+    expect(checked.rows[1]).toEqual({ label: 'Two people have this name.' });
+    expect(checked.rows[2]).toEqual({
+      label: 'Enter a name.',
+      address: 'This wallet is already on the list.',
+    });
+    expect(checked.rows[3]?.label).toBeUndefined();
+    expect(checked.rows[3]?.address).toContain('secret key');
   });
 });

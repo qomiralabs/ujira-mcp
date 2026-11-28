@@ -29,6 +29,8 @@ const REASONS: Record<string, string> = {
   not_paused: 'The mandate is not paused, so there is nothing to resume.',
   already_revoked: 'The mandate is already revoked.',
   recipient_has_no_method: 'This recipient has no wallet to be paid to yet.',
+  destination_not_receivable: 'Their wallet cannot receive USDC yet.',
+  recipient_suspended: 'Payouts to them are on hold.',
 };
 
 // Sentences for the console API's error codes. Where the server's own
@@ -68,9 +70,13 @@ const API_ERRORS: Record<string, string> = {
   internal_error: 'Something went wrong on the server. Try again in a moment.',
 };
 
-/** How long until something is possible again: "less than a minute", "about 9 minutes". */
+/**
+ * How long until something is possible again: "less than a minute", "about
+ * 9 minutes", or past two hours, as when a daily cap resets, "about 7 hours".
+ */
 export function waitWords(seconds: number): string {
   if (seconds < 60) return 'less than a minute';
+  if (seconds > 2 * 3600) return `about ${String(Math.ceil(seconds / 3600))} hours`;
   const minutes = Math.ceil(seconds / 60);
   return minutes === 1 ? 'about 1 minute' : `about ${String(minutes)} minutes`;
 }
@@ -142,8 +148,28 @@ const STATUSES: Record<string, StatusWord> = {
   expired: { label: 'Expired', tone: 'neutral' },
 };
 
+function own(table: Record<string, StatusWord>, code: string): StatusWord | undefined {
+  // Only the table's own keys: "toString" is a status word nobody wrote.
+  return Object.hasOwn(table, code) ? table[code] : undefined;
+}
+
 export function statusWord(code: string): StatusWord {
-  return STATUSES[code] ?? { label: sentence(code).slice(0, -1), tone: 'neutral' };
+  return own(STATUSES, code) ?? { label: sentence(code).slice(0, -1), tone: 'neutral' };
+}
+
+// A leg is one transfer of a payout, with its own words: planned until it is
+// sent, submitted while Stellar has it, then settled, failed or cancelled.
+const LEG_STATUSES: Record<string, StatusWord> = {
+  planned: { label: 'Not sent yet', tone: 'waiting' },
+  submitted: { label: 'Sent to Stellar', tone: 'waiting' },
+  settled: { label: 'Paid', tone: 'paid' },
+  failed: { label: 'Failed', tone: 'blocked' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
+};
+
+/** The words for a leg's status; an older answer that used the payout's words still reads. */
+export function legStatusWord(code: string): StatusWord {
+  return own(LEG_STATUSES, code) ?? statusWord(code);
 }
 
 export type MandateStatus = 'active' | 'paused' | 'revoked' | 'expired';

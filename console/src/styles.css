@@ -1690,7 +1690,8 @@ input.mono {
   gap: 10px;
 }
 
-.recipient-rows li {
+.recipient-rows > li,
+.recipient-rows > .recipient-row {
   display: grid;
   grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.6fr) auto;
   align-items: start;
@@ -1872,7 +1873,13 @@ input.mono {
 }
 
 .setup-later,
-.sign-later {
+/* A step not reached yet reads quieter, in the muted text colour, which keeps
+   AA contrast; fading the whole row would not. */
+.sign-later .setup-body h3 {
+  color: var(--text-2);
+}
+
+.sign-later .setup-n {
   opacity: 0.6;
 }
 
@@ -2743,7 +2750,8 @@ input.mono {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .recipient-rows li {
+  .recipient-rows > li,
+  .recipient-rows > .recipient-row {
     grid-template-columns: minmax(0, 1fr);
   }
 

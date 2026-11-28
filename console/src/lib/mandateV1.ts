@@ -7,6 +7,8 @@
 
 import type { RulesPlan } from './mandateForm';
 import { percentOf } from './money';
+import { recipientLabelProblem } from './recipientsV1';
+import { accountAddressProblem } from './strkey';
 import type { MandateActionInput, PrepareMandateInput } from './v1';
 import type { TokenAmount, V1Mandate } from './v1Schemas';
 import { mandateStatus, type MandateStatus } from './words';
@@ -110,10 +112,10 @@ export function tokenOf(minor: string | bigint, unit: AssetUnit): TokenAmount {
 export function prepareInput(
   name: string,
   rules: RulesPlan,
-  recipientIds: readonly string[],
   unit: AssetUnit,
   payoutTtlSeconds = 86_400,
 ): PrepareMandateInput {
+  // No recipients here: each is added to the mandate once it exists.
   return {
     name: name.trim(),
     // The owner's own wallet approves; approving as a team comes later.
@@ -127,6 +129,54 @@ export function prepareInput(
       payoutTtlSeconds,
       expiresAt: new Date(rules.expiresAt * 1000).toISOString(),
     },
-    recipients: [...new Set(recipientIds)],
   };
+}
+
+/** Someone a new mandate may pay, typed in on the create form. */
+export interface NewRecipient {
+  readonly label: string;
+  readonly address: string;
+}
+
+/** How many people the create form takes; more can be added on the mandate later. */
+export const NEW_RECIPIENTS_MAX = 10;
+
+export interface NewRecipientProblems {
+  readonly label?: string;
+  readonly address?: string;
+}
+
+/**
+ * What is wrong with each row, by index, plus the trimmed rows when none is.
+ * Names are unique on a mandate in any case, as the server checks.
+ */
+export function checkNewRecipients(rows: readonly NewRecipient[]): {
+  readonly rows: Readonly<Record<number, NewRecipientProblems>>;
+  readonly list: readonly NewRecipient[] | null;
+} {
+  const problems: Record<number, NewRecipientProblems> = {};
+  const labels = new Set<string>();
+  const addresses = new Set<string>();
+  const list = rows.map((r, i) => {
+    const label = r.label.trim();
+    const address = r.address.trim();
+    let labelIssue = recipientLabelProblem(label);
+    let addressIssue = accountAddressProblem(address);
+    if (labelIssue === null && labels.has(label.toLowerCase())) {
+      labelIssue = 'Two people have this name.';
+    }
+    if (addressIssue === null && addresses.has(address)) {
+      addressIssue = 'This wallet is already on the list.';
+    }
+    labels.add(label.toLowerCase());
+    addresses.add(address);
+    if (labelIssue !== null || addressIssue !== null) {
+      problems[i] = {
+        ...(labelIssue === null ? {} : { label: labelIssue }),
+        ...(addressIssue === null ? {} : { address: addressIssue }),
+      };
+    }
+    return { label, address };
+  });
+  return { rows: problems, list: Object.keys(problems).length === 0 ? list : null };
 }

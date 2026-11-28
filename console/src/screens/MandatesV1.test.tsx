@@ -21,7 +21,12 @@ import { createFakeV1Api, type FakeV1Api } from '../lib/fakeV1';
 import { createMockApi } from '../lib/mock';
 import type { Config } from '../lib/schemas';
 import { encodeAddress } from '../lib/strkey';
-import type { PrepareMandateInput, V1Api } from '../lib/v1';
+import type {
+  CreateRecipientInput,
+  MandateActionInput,
+  PrepareMandateInput,
+  V1Api,
+} from '../lib/v1';
 import { MOCK_WALLET, mockWallet, type Wallet } from '../lib/wallet';
 import { CreateMandate } from './CreateMandate';
 import { MandatePage } from './MandatePage';
@@ -37,6 +42,20 @@ const CONFIG: Config = {
 
 const MANDATES = new Set<V1Screen>(['mandates']);
 const OTHER_WALLET = encodeAddress('account', new Uint8Array(32).fill(9));
+const ADA = encodeAddress('account', new Uint8Array(32).fill(1));
+const KOFI = encodeAddress('account', new Uint8Array(32).fill(2));
+
+type User = ReturnType<typeof userEvent.setup>;
+
+/** Adds a name and wallet pair to the create form, in the row it opens. */
+async function addPerson(user: User, label: string, address: string) {
+  await user.click(screen.getByRole('button', { name: 'Add someone' }));
+  const row = must(screen.getAllByRole('group', { name: /^Person \d+$/ }).at(-1));
+  await user.type(within(row).getByLabelText('Their name'), label);
+  // Pasted, as a wallet address is; typing 56 characters adds nothing to the test.
+  await user.click(within(row).getByLabelText('Stellar wallet'));
+  await user.paste(address);
+}
 
 function must<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('missing test data');
@@ -198,7 +217,7 @@ describe('the mandate list on /v1', () => {
         expiresAt: '2099-01-01T00:00:00.000Z',
       },
     } satisfies PrepareMandateInput);
-    await w.v1.submitSigned(create.id, 'signed');
+    await w.v1.submitSigned(create.id, create.xdr);
 
     const view = render(tree(<MandatesPage />, { v1: w.v1, session: sessionFor(w, w.main) }));
     expect(await screen.findByRole('link', { name: /Main payouts/ })).toBeTruthy();
@@ -343,15 +362,20 @@ describe('the mandate page on /v1', () => {
 });
 
 describe('creating a mandate on /v1', () => {
-  it('asks for a name, then signs create and fund, each once the server shows it', async () => {
+  it('creates without recipients, then adds and allows each person, then funds', async () => {
     const w = await world();
     const sent: PrepareMandateInput[] = [];
+    const added: CreateRecipientInput[] = [];
     const { api, release } = gated(w.v1);
     const spy: V1Api = {
       ...api,
       prepareMandate: (input) => {
         sent.push(input);
         return api.prepareMandate(input);
+      },
+      createRecipient: (input) => {
+        added.push(input);
+        return api.createRecipient(input);
       },
     };
     const user = userEvent.setup();
@@ -361,36 +385,115 @@ describe('creating a mandate on /v1', () => {
     expect(screen.getByText('Give the mandate a name.')).toBeTruthy();
 
     await user.type(screen.getByLabelText('Name'), 'Grants round');
-    await user.click(await screen.findByRole('checkbox', { name: /Ada/ }));
+    await addPerson(user, 'Ada', ADA);
+    await addPerson(user, 'Kofi', KOFI);
+    expect(screen.getByText('4 signatures: create, one for each person, then fund.')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Review and sign' }));
 
     await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
     expect(await screen.findByText('Waiting for Stellar to confirm')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Sign step 1 of 2' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Sign step 1 of 4' })).toBeTruthy();
     expect((await w.v1.mandates()).items.some((m) => m.name === 'Grants round')).toBe(false);
+    // Nobody is added before the mandate exists.
+    expect(added).toHaveLength(0);
 
     await act(async () => {
       release();
       await Promise.resolve();
     });
-    expect(await screen.findByRole('heading', { name: 'Sign step 2 of 2' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Sign step 2 of 4' })).toBeTruthy();
+    const made = must((await w.v1.mandates()).items.find((m) => m.name === 'Grants round'));
+    await waitFor(() => {
+      expect(added).toEqual([{ mandateId: made.id, label: 'Ada', address: ADA }]);
+    });
+    await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
+    expect(await screen.findByRole('heading', { name: 'Sign step 3 of 4' })).toBeTruthy();
+    await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
+    expect(await screen.findByRole('heading', { name: 'Sign step 4 of 4' })).toBeTruthy();
     await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
     expect(await screen.findByRole('heading', { name: 'Your mandate is live' })).toBeTruthy();
 
-    const made = must((await w.v1.mandates()).items.find((m) => m.name === 'Grants round'));
-    expect(made.state.balance.amount).toBe(400_000_000n);
+    expect((await w.v1.mandate(made.id)).state.balance.amount).toBe(400_000_000n);
     expect(screen.getByRole('link', { name: 'Open your mandate' }).getAttribute('href')).toBe(
       `/app/mandates/${made.id}`,
     );
-    const ada = must((await w.v1.recipients()).items.find((r) => r.label === 'Ada'));
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.recipients).toEqual([ada.id]);
+    expect(sent[0] !== undefined && 'recipients' in sent[0]).toBe(false);
     expect(sent[0]?.limits.totalBudget).toEqual({
       amount: 400_000_000n,
       asset: 'USDC',
       network: 'stellar:testnet',
       scale: 7,
     });
+    expect(added.map((r) => r.label)).toEqual(['Ada', 'Kofi']);
+    const people = (await w.v1.recipients({ mandateId: made.id })).items;
+    expect(people.map((r) => r.label)).toEqual(['Ada', 'Kofi']);
+    expect(w.v1.signingRequests()).toBe(0);
+  });
+
+  it('asks again to allow a person after a failed signature, without adding them twice', async () => {
+    const w = await world();
+    const added: CreateRecipientInput[] = [];
+    const actions: MandateActionInput[] = [];
+    let refuse = 0;
+    const spy: V1Api = {
+      ...w.v1,
+      createRecipient: (input) => {
+        added.push(input);
+        return w.v1.createRecipient(input);
+      },
+      mandateAction: (id, action) => {
+        actions.push(action);
+        return w.v1.mandateAction(id, action);
+      },
+      submitSigned: (id, xdr) => {
+        // The first allow comes back refused, as a wallet that changed it would be.
+        if (xdr.length > 0 && atob(xdr).startsWith('fake allow_recipients') && refuse++ === 0) {
+          return w.v1.submitSigned(id, `${xdr}x`);
+        }
+        return w.v1.submitSigned(id, xdr);
+      },
+    };
+    const user = userEvent.setup();
+    render(tree(<CreateMandate />, { v1: spy, session: sessionFor(w, w.main) }));
+    await user.type(await screen.findByLabelText('Name'), 'Grants round');
+    await addPerson(user, 'Ada', ADA);
+    await user.click(screen.getByRole('button', { name: 'Review and sign' }));
+    await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
+    expect(await screen.findByRole('heading', { name: 'Sign step 2 of 3' })).toBeTruthy();
+
+    await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain(
+      'What your wallet signed is not what we prepared. Start again.',
+    );
+    expect(alert.textContent).toMatch(/Reference fake-\d+/);
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await user.click(await screen.findByRole('button', { name: 'Sign in Demo wallet' }));
+    expect(await screen.findByRole('heading', { name: 'Sign step 3 of 3' })).toBeTruthy();
+
+    expect(added).toHaveLength(1);
+    expect(actions.filter((a) => a.kind === 'allow_recipients')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Fund it later' })).toBeTruthy();
+  });
+
+  it('marks each person to fix before anything is signed', async () => {
+    const w = await world();
+    const user = userEvent.setup();
+    render(tree(<CreateMandate />, { v1: w.v1, session: sessionFor(w, w.main) }));
+    await user.type(await screen.findByLabelText('Name'), 'Grants round');
+    await addPerson(user, 'Ada', ADA);
+    await addPerson(user, 'ada', 'GABC');
+    await user.click(screen.getByRole('button', { name: 'Review and sign' }));
+    expect(screen.getByText('2 things to fix')).toBeTruthy();
+    const row = screen.getByRole('group', { name: 'ada' });
+    expect(within(row).getByText('Two people have this name.')).toBeTruthy();
+    expect(within(row).getByLabelText('Stellar wallet').getAttribute('aria-invalid')).toBe('true');
+    expect(w.v1.signingRequests()).toBe(0);
+
+    await user.click(within(row).getByRole('button', { name: 'Remove ada' }));
+    expect(screen.queryByText(/things? to fix/)).toBeNull();
+    expect(screen.getByText('3 signatures: create, one for each person, then fund.')).toBeTruthy();
   });
 
   it('refuses to sign with a wallet that is not the signer, and sends nothing', async () => {

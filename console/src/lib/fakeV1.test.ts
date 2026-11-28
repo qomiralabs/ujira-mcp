@@ -535,6 +535,8 @@ describe('the fake /v1 API', () => {
     await pay('old', 1n);
     at = Date.parse('2026-11-22T10:00:00.000Z');
     await pay('new', 2n);
+    // A minute later, so newest first does not hang on two random ids.
+    at += 60_000;
     await pay('refused', 500n);
 
     expect((await v1.receipts()).items.map((r) => r.taskId)).toEqual(['refused', 'new', 'old']);

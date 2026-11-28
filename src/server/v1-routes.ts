@@ -2,10 +2,11 @@
 // Copyright 2026 Qomira Labs
 
 // The /v1 routes that need a database: sign in, principals and projects, API
-// keys, payouts and payout reads, recipients, mandates, the overview and the
-// MCP over payouts, all on one database and one chain adapter, behind one
-// authenticate. Kept apart from the web role so a test can build exactly what
-// the server mounts, on a test database and a fake chain.
+// keys, payouts and payout reads, recipients, mandates, the overview, the MCP
+// over payouts and the embed widget, all on one database and one chain
+// adapter, behind one authenticate. Kept apart from the web role so a test
+// can build exactly what the server mounts, on a test database and a fake
+// chain.
 //
 // Every new project gets its agent key here, and recipients seal a person's
 // email, both under the key encryption key. A project without a key could
@@ -17,6 +18,12 @@ import { databaseIdempotencyStore } from '../api/idempotency-store.js';
 import type { Route } from '../api/route.js';
 import { apiKeyRoutes } from '../api/routes/api-keys.js';
 import { authRoutes } from '../api/routes/auth.js';
+import { embedSessionRoutes } from '../api/routes/embed-sessions.js';
+import {
+  EMBED_WIDGET_PATHS,
+  embedAuthenticate,
+  embedWidgetRoutes,
+} from '../api/routes/embed-widget.js';
 import { mandateRoutes } from '../api/routes/mandates.js';
 import { payoutReadRoutes } from '../api/routes/payout-reads.js';
 import { payoutRoutes } from '../api/routes/payouts.js';
@@ -25,6 +32,8 @@ import { statsRoutes } from '../api/routes/stats.js';
 import { tenancyRoutes } from '../api/routes/tenancy.js';
 import { createApiKeyService } from '../auth/api-key-service.js';
 import { databaseApiKeyRecords, databaseTokenStore } from '../auth/api-key-store.js';
+import { createEmbedAuthenticator } from '../auth/embed-auth.js';
+import { databaseEmbedTokenStore } from '../auth/embed-store.js';
 import { postgresSignInStore } from '../auth/postgres-store.js';
 import { SignIn } from '../auth/sign-in.js';
 import { createTokenAuthenticator } from '../auth/token-auth.js';
@@ -34,6 +43,7 @@ import type { ChainAdapter } from '../chain/adapter.js';
 import type { AgentAccounts } from '../chain/agent-accounts.js';
 import { TESTNET_USDC_CONTRACT } from '../chain/stellar/testnet.js';
 import { payoutJobQueue, type Database } from '../db/index.js';
+import { createEmbedOnboardingService, createEmbedSessionService } from '../identity/embed.js';
 import { createAgentKeyService, type AgentKeyService } from '../keys/agent-keys.js';
 import { postgresAgentKeyStore } from '../keys/postgres-store.js';
 import type { Sealer } from '../keys/sealer.js';
@@ -60,6 +70,11 @@ import { Tenancy } from '../tenancy/tenancy.js';
 export const RECIPIENT_DESTINATION_ASSET =
   'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
+/** The asset's issuer: a payout sent there would burn the amount. */
+export const RECIPIENT_NEVER_PAYABLE: readonly string[] = [
+  RECIPIENT_DESTINATION_ASSET.slice(RECIPIENT_DESTINATION_ASSET.indexOf(':') + 1),
+];
+
 export interface V1RoutesOptions {
   readonly db: Database;
   /** Checks sign in signatures, parses addresses and answers recipient checks. */
@@ -84,6 +99,8 @@ export interface V1RoutesOptions {
 export interface V1Routes {
   readonly routes: Route[];
   readonly agentKeys: AgentKeyService;
+  /** The paths a page on another origin may call: the embed widget's. */
+  readonly crossOrigin: readonly string[];
 }
 
 export function v1Routes(o: V1RoutesOptions): V1Routes {
@@ -201,5 +218,29 @@ export function v1Routes(o: V1RoutesOptions): V1Routes {
       authenticate,
     }),
   );
-  return { routes, agentKeys };
+
+  routes.push(
+    ...embedSessionRoutes({
+      service: createEmbedSessionService({ db, environment }),
+      authenticate,
+    }),
+    ...embedWidgetRoutes({
+      service: createEmbedOnboardingService({
+        db,
+        chain: o.adapter,
+        environment,
+        destinationAsset: RECIPIENT_DESTINATION_ASSET,
+        neverPayable: RECIPIENT_NEVER_PAYABLE,
+        log,
+      }),
+      authenticate: embedAuthenticate(
+        createEmbedAuthenticator({
+          store: databaseEmbedTokenStore(db),
+          environment,
+          appOrigin: o.origin,
+        }),
+      ),
+    }),
+  );
+  return { routes, agentKeys, crossOrigin: EMBED_WIDGET_PATHS };
 }

@@ -333,7 +333,9 @@ Amounts on the wire are token amounts, the ported shape:
 | `GET /v1/payouts`, `GET /v1/payouts/{id}`                                                                  | both, `payouts:read`                                        | cursor pages, filters `status`, `mandateId`, `recipientId`, `createdFrom`, `createdTo`                             |
 | `GET /v1/approvals`                                                                                        | session                                                     | payouts in `pending_approval`; approving is a wallet signed mandate action                                         |
 | `GET /v1/receipts`, `GET /v1/receipts/{id}`, `GET /v1/receipts/export.csv`, `GET /v1/receipts/{id}/verify` | both, `payouts:read`                                        |                                                                                                                    |
-| `POST /v1/embed/sessions`                                                                                  | key, `recipients:write`                                     | short lived recipient token for the widget                                                                         |
+| `POST /v1/embed/sessions`, `GET /v1/embed/sessions`, `DELETE /v1/embed/sessions/{id}`                      | both, `recipients:*`                                        | short lived recipient token for the widget, 30 minutes by default, shown once and stored as a hash; never replayed |
+| `GET /v1/embed/origins`, `PUT /v1/embed/origins`                                                           | both, `recipients:*`                                        | the project's own pages the widget may run on; the hosted invite page always may                                   |
+| `GET /v1/embed/onboarding`, `POST /v1/embed/recipients/{id}/methods`                                       | embed token, from an allowed page                           | the widget's own routes, for the token's one recipient; the wallet proof routes join them                          |
 | `GET /v1/stats/overview`                                                                                   | session                                                     | paid this period, counts by status, approvals waiting                                                              |
 | `GET /v1/openapi.json`, `GET /healthz`                                                                     | none                                                        |                                                                                                                    |
 
@@ -367,6 +369,7 @@ Errors share one envelope: `{ "error": { "code": "...", "message": "...", "reque
 | `NOT_FOUND`                                           | 404      | also for rows of another tenant                               |
 | `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID` | 400      |                                                               |
 | `IDEMPOTENCY_KEY_REUSED`                              | 422      | same key, different body                                      |
+| `DESTINATION_INVALID`                                 | 422      | a wallet the widget sent cannot be paid; `reason` says why    |
 | `IDEMPOTENCY_IN_PROGRESS`                             | 409      | same key while the first request runs                         |
 | `TASK_ID_REUSED`                                      | 409      | same task on the same mandate under another key               |
 | `API_KEY_LIMIT_REACHED`                               | 409      | the project already holds 20 active keys                      |

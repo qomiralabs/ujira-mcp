@@ -109,6 +109,10 @@ describe('grants on ujira', () => {
       ujira_app: [
         ...REFERENCE,
         'relation agent_keys INSERT',
+        'relation embed_sessions INSERT',
+        'relation embed_sessions SELECT',
+        'relation embed_settings INSERT',
+        'relation embed_settings SELECT',
         'relation fee_sponsor_days INSERT',
         'relation fee_sponsor_days SELECT',
         'relation fee_sponsorships INSERT',
@@ -260,6 +264,21 @@ describe('grants on ujira', () => {
     ]);
   });
 
+  it('lets the app only revoke an embed session and replace its project origins', async () => {
+    const columns = await client.query<{ grant: string }>(
+      `select format('%s %s %s.%s', grantee, privilege_type, table_name, column_name) as grant
+         from information_schema.column_privileges
+        where table_schema = 'ujira'
+          and table_name in ('embed_sessions', 'embed_settings')
+          and grantee in ('ujira_app', 'ujira_worker', 'ujira_reader')
+          and privilege_type = 'UPDATE'`,
+    );
+    expect(columns.rows.map((row) => row.grant).sort()).toEqual([
+      'ujira_app UPDATE embed_sessions.revoked_at',
+      'ujira_app UPDATE embed_settings.allowed_origins',
+    ]);
+  });
+
   it('lets the roles write only what a payout, a leg and a receipt are meant to take', async () => {
     const columns = await client.query<{ grant: string }>(
       `select format('%s %s %s.%s', grantee, privilege_type, table_name, column_name) as grant
@@ -378,6 +397,7 @@ describe('grants on ujira', () => {
         'function ujira.auth_challenge_create(text,text,integer)',
         'function ujira.authenticate_token(text)',
         'function ujira.create_principal(text,text,text,text)',
+        'function ujira.embed_session_resolve(bytea)',
         'function ujira.session_create(bytea,text,integer,integer)',
         'function ujira.session_principals(bytea)',
         'function ujira.session_projects(bytea)',
@@ -389,6 +409,7 @@ describe('grants on ujira', () => {
       ujira_worker: [
         ...CONTEXT,
         'function ujira.auth_challenges_delete_expired(integer)',
+        'function ujira.embed_sessions_delete_expired(integer)',
         'function ujira.sessions_delete_expired(integer)',
       ],
       ujira_reader: [...CONTEXT, AUDIT_ROW_HASH],
@@ -516,6 +537,8 @@ describe('roles', () => {
       'ujira.auth_challenges_delete_expired(integer)': 'ujira_fn_sessions',
       'ujira.authenticate_token(text)': 'ujira_fn_tokens',
       'ujira.create_principal(text,text,text,text)': 'ujira_fn_principals',
+      'ujira.embed_session_resolve(bytea)': 'ujira_fn_tokens',
+      'ujira.embed_sessions_delete_expired(integer)': 'ujira_fn_tokens',
       'ujira.session_create(bytea,text,integer,integer)': 'ujira_fn_sessions',
       'ujira.session_principals(bytea)': 'ujira_fn_sessions',
       'ujira.session_projects(bytea)': 'ujira_fn_sessions',

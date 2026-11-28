@@ -299,11 +299,127 @@ describe('recipients as the web role serves them', () => {
     expect(paths().filter((p) => mandateRoutes.includes(p))).toEqual([]);
   });
 
+  it('hands the widget a token for one recipient that works only there, only until revoked', async () => {
+    const alice = await owner();
+    const key = await keyFor(alice, ['recipients:read', 'recipients:write']);
+    const made = await request('POST', '/v1/recipients', {
+      key,
+      body: { mandateId: alice.mandateId, label: `Invitee ${randomUUID().slice(0, 6)}` },
+    });
+    const recipientId = (made.json?.['recipient'] as { id: string }).id;
+    const other = await request('POST', '/v1/recipients', {
+      key,
+      body: { mandateId: alice.mandateId, label: `Other ${randomUUID().slice(0, 6)}` },
+    });
+    const otherId = (other.json?.['recipient'] as { id: string }).id;
+
+    const session = await request('POST', '/v1/embed/sessions', { key, body: { recipientId } });
+    expect(session.status).toBe(201);
+    const token = String(session.json?.['token']);
+    const sessionId = (session.json?.['session'] as { id: string }).id;
+    expect(token).toMatch(/^ujes_test_/);
+
+    // The hosted invite page reads its recipient without an Origin header.
+    const widget = { key: token, origin: null, headers: { 'sec-fetch-site': 'same-origin' } };
+    const onboarding = await request('GET', '/v1/embed/onboarding', widget);
+    expect(onboarding.status).toBe(200);
+    expect(onboarding.json).toMatchObject({
+      recipientId,
+      network: TESTNET,
+      methods: ['stellar_wallet'],
+      neverPayable: [TESTNET_USDC_ISSUER],
+    });
+
+    const address = receivable();
+    const body = { method: 'stellar_wallet', destination: { network: TESTNET, address } };
+    const saved = await request('POST', `/v1/embed/recipients/${recipientId}/methods`, {
+      key: token,
+      origin: ORIGIN,
+      body,
+    });
+    expect(saved.status).toBe(201);
+    const again = await request('POST', `/v1/embed/recipients/${recipientId}/methods`, {
+      key: token,
+      origin: ORIGIN,
+      body,
+    });
+    expect(again.json?.['id']).toBe(saved.json?.['id']);
+    const detail = await request('GET', `/v1/recipients/${recipientId}`, { key });
+    expect(detail.json?.['recipient']).toMatchObject({ payable: true });
+
+    // Not another recipient, not from a page the project did not allow, not as a key.
+    const elsewhere = await request('POST', `/v1/embed/recipients/${otherId}/methods`, {
+      key: token,
+      origin: ORIGIN,
+      body: { method: 'stellar_wallet', destination: { network: TESTNET, address: receivable() } },
+    });
+    expect(elsewhere.status).toBe(404);
+    const foreignPage = await request('GET', '/v1/embed/onboarding', {
+      key: token,
+      origin: 'https://evil.example.com',
+    });
+    expect(codeOf(foreignPage)).toBe('ORIGIN_NOT_ALLOWED');
+    const asKey = await request('GET', `/v1/recipients/${recipientId}`, { key: token });
+    expect(asKey.status).toBe(401);
+
+    // A page the project lists works once it is listed.
+    const shop = 'https://shop.example.com';
+    expect(
+      (await request('GET', '/v1/embed/onboarding', { key: token, origin: shop })).status,
+    ).toBe(403);
+    const listed = await request('PUT', '/v1/embed/origins', { key, body: { origins: [shop] } });
+    expect(listed.json).toEqual({ origins: [shop] });
+    const fromShop = await request('GET', '/v1/embed/onboarding', { key: token, origin: shop });
+    expect(fromShop.status).toBe(200);
+
+    const page = await request('GET', `/v1/embed/sessions?recipientId=${recipientId}`, { key });
+    expect(page.json?.['items']).toEqual([
+      expect.objectContaining({ id: sessionId, recipientId, revokedAt: null }),
+    ]);
+    expect(JSON.stringify(page.json)).not.toContain(token);
+
+    const revoked = await request('DELETE', `/v1/embed/sessions/${sessionId}`, { key });
+    expect(revoked.status).toBe(200);
+    expect((await request('DELETE', `/v1/embed/sessions/${sessionId}`, { key })).status).toBe(200);
+    const lapsed = await request('GET', '/v1/embed/onboarding', widget);
+    expect([lapsed.status, codeOf(lapsed)]).toEqual([401, 'TOKEN_INVALID']);
+  });
+
+  it("keeps one principal's embed sessions from another's key", async () => {
+    const alice = await owner();
+    const bob = await owner();
+    const aliceKey = await keyFor(alice, ['recipients:read', 'recipients:write']);
+    const bobKey = await keyFor(bob, ['recipients:read', 'recipients:write']);
+    const made = await request('POST', '/v1/recipients', {
+      key: aliceKey,
+      body: { mandateId: alice.mandateId, label: `Private ${randomUUID().slice(0, 6)}` },
+    });
+    const recipientId = (made.json?.['recipient'] as { id: string }).id;
+    const session = await request('POST', '/v1/embed/sessions', {
+      key: aliceKey,
+      body: { recipientId },
+    });
+    const sessionId = (session.json?.['session'] as { id: string }).id;
+    const byBob = await request('POST', '/v1/embed/sessions', {
+      key: bobKey,
+      body: { recipientId },
+    });
+    expect(byBob.status).toBe(404);
+    expect(
+      (await request('DELETE', `/v1/embed/sessions/${sessionId}`, { key: bobKey })).status,
+    ).toBe(404);
+    const bobsList = await request('GET', `/v1/embed/sessions?recipientId=${recipientId}`, {
+      key: bobKey,
+    });
+    expect(bobsList.json?.['items']).toEqual([]);
+  });
+
   it('never logs the key encryption key, an API key or an email', () => {
     expect(lines.length).toBeGreaterThan(0);
     for (const line of lines) {
       expect(line).not.toContain(kek);
       expect(line).not.toMatch(/ujk_/);
+      expect(line).not.toMatch(/ujes_/);
       expect(line).not.toContain('grace@example.com');
     }
   });

@@ -38,6 +38,7 @@ import { v1Routes } from './v1-routes.js';
 
 interface SignInWiring {
   readonly routes: Route[];
+  readonly crossOrigin: readonly string[];
   readonly agentKeys: AgentKeyService;
   readonly close: () => Promise<void>;
 }
@@ -206,7 +207,13 @@ export async function startWeb(
     settings: http,
     log,
     extra: routes,
-    v1: nodeHandler(createV1App({ log, routes: signIn?.routes ?? [] }).app),
+    v1: nodeHandler(
+      createV1App({
+        log,
+        routes: signIn?.routes ?? [],
+        crossOrigin: signIn?.crossOrigin ?? [],
+      }).app,
+    ),
     deepHealth: observe.deepHealth,
     ...(demo === undefined ? {} : { publicMcp: demo.publicMcp(wiring.engine, http) }),
   });

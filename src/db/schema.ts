@@ -300,6 +300,25 @@ export interface SigningRequestsTable {
   readonly updated_at: Generated<Date>;
 }
 
+export interface EmbedSessionsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly id: Generated<string>;
+  readonly recipient_id: string;
+  readonly token_sha256: Buffer;
+  readonly expires_at: Timestamp;
+  readonly revoked_at: NullableTimestamp;
+  readonly created_at: Generated<Date>;
+}
+
+export interface EmbedSettingsTable {
+  readonly principal_id: string;
+  readonly project_id: string;
+  readonly allowed_origins: Generated<string[]>;
+  readonly created_at: Generated<Date>;
+  readonly updated_at: Generated<Date>;
+}
+
 // A date reads back as a Date at local midnight, so the repository casts the
 // day to text in its queries and never reads this column raw.
 type Day = ColumnType<Date, string, string>;
@@ -427,6 +446,8 @@ export interface Schema {
   'ujira.fee_sponsor_days': FeeSponsorDaysTable;
   'ujira.fee_sponsorships': FeeSponsorshipsTable;
   'ujira.signing_requests': SigningRequestsTable;
+  'ujira.embed_sessions': EmbedSessionsTable;
+  'ujira.embed_settings': EmbedSettingsTable;
   'ujira.payouts': PayoutsTable;
   'ujira.payout_legs': PayoutLegsTable;
   'ujira.receipts': ReceiptsTable;
@@ -640,6 +661,23 @@ export const SCHEMA_COLUMNS = {
     agent_key_id: true,
     submitted_tx_hash: true,
     submitted_at: true,
+    created_at: true,
+    updated_at: true,
+  },
+  'ujira.embed_sessions': {
+    principal_id: true,
+    project_id: true,
+    id: true,
+    recipient_id: true,
+    token_sha256: true,
+    expires_at: true,
+    revoked_at: true,
+    created_at: true,
+  },
+  'ujira.embed_settings': {
+    principal_id: true,
+    project_id: true,
+    allowed_origins: true,
     created_at: true,
     updated_at: true,
   },

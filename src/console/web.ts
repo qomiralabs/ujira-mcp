@@ -15,6 +15,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 
+import { INVITE_HEADERS, INVITE_HTML, INVITE_PATH } from './invite.js';
 import {
   CACHE_EMBED,
   CACHE_IMMUTABLE,
@@ -178,6 +179,15 @@ export function createWeb(o: WebOptions) {
     await sendFile(req, res, appIndex, CACHE_REVALIDATE);
   }
 
+  /** The hosted invite page, which opens the widget for whoever holds the link. */
+  function invite(req: IncomingMessage, res: ServerResponse): void {
+    res.writeHead(200, {
+      ...INVITE_HEADERS,
+      'content-length': String(Buffer.byteLength(INVITE_HTML)),
+    });
+    res.end(req.method === 'HEAD' ? undefined : INVITE_HTML);
+  }
+
   /** The widget script, for a page on any origin; anything else under /embed is a 404. */
   async function embed(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
     const name = path.startsWith(EMBED_BASE) ? path.slice(EMBED_BASE.length) : '';
@@ -196,7 +206,14 @@ export function createWeb(o: WebOptions) {
     const path = cleanPath(rawPath);
     // Before the canonical host: a page elsewhere that loads the widget from
     // an old host keeps working, and a script is never sent through a redirect.
-    if (path !== undefined && (path === '/embed' || path.startsWith('/embed/'))) {
+    // The invite page is a page, so it does move to the canonical host, where
+    // the widget's calls are same origin; the browser keeps the fragment, and
+    // the token with it, across the redirect without ever sending it.
+    if (
+      path !== undefined &&
+      path !== INVITE_PATH &&
+      (path === '/embed' || path.startsWith('/embed/'))
+    ) {
       await embed(req, res, path);
       return true;
     }
@@ -219,6 +236,10 @@ export function createWeb(o: WebOptions) {
     }
     if (path === APP_BASE || path.startsWith(`${APP_BASE}/`)) {
       await app(req, res, path);
+      return true;
+    }
+    if (path === INVITE_PATH) {
+      invite(req, res);
       return true;
     }
     if (path === '/') {
